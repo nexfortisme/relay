@@ -52,6 +52,18 @@ function attachmentDownloadUrl(message: Message, attachmentIndex: number): strin
   return messageAttachmentDownloadUrl(message.conversationId, message.id, attachmentIndex)
 }
 
+function handleThinkingPanelClick(event: MouseEvent) {
+  const details = event.currentTarget
+  if (!(details instanceof HTMLDetailsElement) || !details.open) {
+    return
+  }
+  const target = event.target
+  if (target instanceof Element && target.closest('summary')) {
+    return
+  }
+  details.open = false
+}
+
 async function scrollToBottom() {
   await nextTick()
   const el = messagesEl.value
@@ -72,7 +84,11 @@ defineExpose({ scrollToBottom })
       class="message"
       :class="[message.role, { error: message.hasError }]"
     >
-      <details v-if="message.role === 'assistant' && message.thinking" class="message-thinking">
+      <details
+        v-if="message.role === 'assistant' && message.thinking"
+        class="message-thinking"
+        @click="handleThinkingPanelClick"
+      >
         <summary>Thinking</summary>
         <div class="message-markdown" v-html="renderMarkdown(message.thinking)" />
       </details>
