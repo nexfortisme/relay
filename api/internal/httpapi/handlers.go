@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/nexfortisme/relay/internal/attachments"
 	"github.com/nexfortisme/relay/internal/chat"
+	"github.com/nexfortisme/relay/internal/store"
 )
 
 const maxSingleFileBytes = 50 << 20
@@ -128,6 +129,11 @@ type createFailedMessageRequest struct {
 	Attachments []string `json:"attachments"`
 }
 
+type requeueMessageResponse struct {
+	UserMessage        store.Message `json:"userMessage"`
+	AssistantMessageID string        `json:"assistantMessageId"`
+}
+
 type renameConversationRequest struct {
 	Title string `json:"title"`
 }
@@ -216,6 +222,22 @@ func (h *Handlers) CreateFailedMessage(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, msg)
+}
+
+func (h *Handlers) RequeueMessage(c *gin.Context) {
+	userMessage, assistantMessage, err := h.chat.RequeueUserMessage(
+		c.Request.Context(),
+		c.Param("id"),
+		c.Param("messageId"),
+	)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusAccepted, requeueMessageResponse{
+		UserMessage:        userMessage,
+		AssistantMessageID: assistantMessage.ID,
+	})
 }
 
 func bytesLabel(bytes int64) string {
