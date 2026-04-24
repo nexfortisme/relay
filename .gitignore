@@ -1,8 +1,14 @@
 .env
-.relay #All Local Relay Files
+
+# Relay Files
+.relay/*
 
 # TMP Directory from Air
 api/tmp
+
+relay.db
+relay.db-shm
+relay.db-wal
 
 # Logs
 logs
