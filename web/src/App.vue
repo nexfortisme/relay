@@ -86,7 +86,7 @@ const hasSelectedConversationAssistantOutput = computed(() =>
   }),
 )
 const shouldShowPendingAssistantPlaceholder = computed(
-  () => isSelectedConversationGenerating.value && !hasSelectedConversationAssistantOutput.value,
+  () => isSelectedConversationWaitingForAssistant.value,
 )
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {

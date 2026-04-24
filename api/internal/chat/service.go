@@ -25,7 +25,7 @@ type Service struct {
 	logger            *slog.Logger
 	relayDir          string
 	attachmentOptions attachments.PromptOptions
-	timeout           time.Duration
+	responseTimeout   time.Duration
 	cancelMu          sync.Mutex
 	cancels           map[string]context.CancelFunc
 }
@@ -50,7 +50,7 @@ func NewService(
 		logger:            logger,
 		relayDir:          relayDir,
 		attachmentOptions: attachmentOptions,
-		timeout:           60 * time.Second,
+		responseTimeout:   5 * time.Minute,
 		cancels:           make(map[string]context.CancelFunc),
 	}
 }
@@ -308,7 +308,7 @@ func (s *Service) SuggestConversationTitle(ctx context.Context, conversationID s
 		return "New chat", nil
 	}
 	settings := s.LoadRuntimeSettings(ctx)
-	provider := llm.NewHTTPProvider(settings.LLMURL, settings.LLMModel)
+	provider := llm.NewHTTPProvider(settings.LLMURL, settings.LLMModel, s.responseTimeout)
 	prompt := llm.ChatMessage{
 		Role: "system",
 		Content: "Generate a concise title for this conversation. Return only the title text. " +
@@ -377,13 +377,13 @@ func (s *Service) GetMessageAttachment(ctx context.Context, conversationID strin
 }
 
 func (s *Service) generateAssistant(conversationID string, assistantMessageID string, messages []llm.ChatMessage, settings RuntimeSettings) {
-	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s.registerCancel(conversationID, cancel)
 	defer s.unregisterCancel(conversationID)
 
 	startTime := time.Now()
-	provider := llm.NewHTTPProvider(settings.LLMURL, settings.LLMModel)
+	provider := llm.NewHTTPProvider(settings.LLMURL, settings.LLMModel, s.responseTimeout)
 	stream := provider.GenerateStream(ctx, messages, s.tools)
 	var contentBuilder strings.Builder
 	var thinkingBuilder strings.Builder
