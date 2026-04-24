@@ -50,6 +50,23 @@ function displayUserMessage(message: DisplayMessage): string {
   return legacy
 }
 
+function formatElapsed(ms: number | undefined): string {
+  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) {
+    return ''
+  }
+  if (ms < 1000) {
+    return `${ms} ms`
+  }
+  const seconds = ms / 1000
+  if (seconds < 60) {
+    return `${seconds.toFixed(seconds < 10 ? 2 : 1)} s`
+  }
+  const totalSeconds = Math.round(seconds)
+  const minutes = Math.floor(totalSeconds / 60)
+  const remSeconds = totalSeconds % 60
+  return `${minutes}m ${remSeconds}s`
+}
+
 function renderMarkdown(content: string): string {
   const parsed = marked.parse(content, { async: false })
   return DOMPurify.sanitize(parsed)
@@ -176,6 +193,14 @@ defineExpose({ scrollToBottom })
         </div>
       </template>
       <div v-else class="message-markdown" v-html="renderMarkdown(message.content)" />
+      <div
+        v-if="message.role === 'assistant' && typeof message.elapsedMs === 'number' && message.elapsedMs > 0"
+        class="message-elapsed"
+        :title="`Generated in ${formatElapsed(message.elapsedMs)}`"
+      >
+        <AppIcon name="clock" :size="12" />
+        {{ formatElapsed(message.elapsedMs) }}
+      </div>
       <div class="message-actions">
         <button
           v-if="message.role === 'user'"
@@ -275,6 +300,16 @@ defineExpose({ scrollToBottom })
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
+}
+
+.message-elapsed {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  margin-top: 0.36rem;
+  font-size: 0.72rem;
+  opacity: 0.62;
+  font-variant-numeric: tabular-nums;
 }
 
 .message-actions {

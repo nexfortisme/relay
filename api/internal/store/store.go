@@ -30,6 +30,7 @@ type Message struct {
 	Attachments    []string  `json:"attachments,omitempty"`
 	Thinking       string    `json:"thinking,omitempty"`
 	HasError       bool      `json:"hasError,omitempty"`
+	ElapsedMs      int64     `json:"elapsedMs,omitempty"`
 	CreatedAt      time.Time `json:"createdAt"`
 }
 
@@ -111,6 +112,7 @@ CREATE TABLE IF NOT EXISTS messages (
   attachments_json TEXT NOT NULL DEFAULT '[]',
   thinking TEXT NOT NULL DEFAULT '',
   has_error INTEGER NOT NULL DEFAULT 0,
+  elapsed_ms INTEGER NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL,
   FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 );
@@ -146,6 +148,7 @@ CREATE TABLE IF NOT EXISTS settings (
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN llm_content TEXT NOT NULL DEFAULT ''`)
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'`)
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN has_error INTEGER NOT NULL DEFAULT 0`)
+	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN elapsed_ms INTEGER NOT NULL DEFAULT 0`)
 	_, err = s.db.ExecContext(ctx, `
 CREATE TABLE IF NOT EXISTS message_attachments (
   message_id TEXT NOT NULL,
@@ -231,7 +234,7 @@ WHERE id = ?`, conversationID)
 
 func (s *Store) GetMessages(ctx context.Context, conversationID string) ([]Message, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, conversation_id, role, content, user_content, llm_content, attachments_json, thinking, has_error, created_at
+SELECT id, conversation_id, role, content, user_content, llm_content, attachments_json, thinking, has_error, elapsed_ms, created_at
 FROM messages
 WHERE conversation_id = ?
 ORDER BY created_at ASC`, conversationID)
@@ -245,7 +248,7 @@ ORDER BY created_at ASC`, conversationID)
 		var m Message
 		var attachmentsRaw string
 		if err := rows.Scan(
-			&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.UserContent, &m.LLMContent, &attachmentsRaw, &m.Thinking, &m.HasError, &m.CreatedAt,
+			&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.UserContent, &m.LLMContent, &attachmentsRaw, &m.Thinking, &m.HasError, &m.ElapsedMs, &m.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
 		}
@@ -268,7 +271,7 @@ ORDER BY created_at ASC`, conversationID)
 
 func (s *Store) GetMessage(ctx context.Context, conversationID string, messageID string) (Message, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, conversation_id, role, content, user_content, llm_content, attachments_json, thinking, has_error, created_at
+SELECT id, conversation_id, role, content, user_content, llm_content, attachments_json, thinking, has_error, elapsed_ms, created_at
 FROM messages
 WHERE conversation_id = ? AND id = ?
 `, conversationID, messageID)
@@ -285,6 +288,7 @@ WHERE conversation_id = ? AND id = ?
 		&attachmentsRaw,
 		&message.Thinking,
 		&message.HasError,
+		&message.ElapsedMs,
 		&message.CreatedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -334,8 +338,8 @@ func (s *Store) AppendMessageWithAttachments(ctx context.Context, m Message, att
 
 	_, err = tx.ExecContext(
 		ctx,
-		`INSERT INTO messages(id, conversation_id, role, content, user_content, llm_content, attachments_json, thinking, has_error, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.ConversationID, m.Role, m.Content, userContent, llmContent, attachmentsJSON, m.Thinking, m.HasError, m.CreatedAt.UTC(),
+		`INSERT INTO messages(id, conversation_id, role, content, user_content, llm_content, attachments_json, thinking, has_error, elapsed_ms, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.ConversationID, m.Role, m.Content, userContent, llmContent, attachmentsJSON, m.Thinking, m.HasError, m.ElapsedMs, m.CreatedAt.UTC(),
 	)
 	if err != nil {
 		return fmt.Errorf("insert message: %w", err)
@@ -414,6 +418,14 @@ func (s *Store) SetMessageContent(ctx context.Context, messageID string, content
 	)
 	if err != nil {
 		return fmt.Errorf("update message content: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) SetMessageElapsedMs(ctx context.Context, messageID string, elapsedMs int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE messages SET elapsed_ms = ? WHERE id = ?`, elapsedMs, messageID)
+	if err != nil {
+		return fmt.Errorf("update message elapsed: %w", err)
 	}
 	return nil
 }

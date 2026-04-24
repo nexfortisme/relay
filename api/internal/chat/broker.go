@@ -8,6 +8,7 @@ type Event struct {
 	Token     string `json:"token,omitempty"`
 	Thinking  string `json:"thinking,omitempty"`
 	Error     string `json:"error,omitempty"`
+	ElapsedMs int64  `json:"elapsedMs,omitempty"`
 }
 
 type Broker struct {
