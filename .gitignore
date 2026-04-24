@@ -4,6 +4,10 @@
 # TMP Directory from Air
 api/tmp
 
+relay.db
+relay.db-shm
+relay.db-wal
+
 # Logs
 logs
 *.log

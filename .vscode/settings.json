@@ -25,5 +25,6 @@
   },
   "[go]": {
     "editor.defaultFormatter": "golang.go"
-  }
+  },
+  "dotenv.enableAutocloaking": false
 }
