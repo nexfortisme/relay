@@ -436,6 +436,38 @@ func (s *Service) generateAssistant(conversationID string, assistantMessageID st
 		if event.Done {
 			finalContent := strings.TrimSpace(contentBuilder.String())
 			finalThinking := strings.TrimSpace(thinkingBuilder.String())
+			if finalContent == "" {
+				followUp := append(append([]llm.ChatMessage(nil), messages...), llm.ChatMessage{
+					Role:    "user",
+					Content: "Please provide a response. If you need more information from the user to answer, ask them directly.",
+				})
+				for ev := range provider.GenerateStream(ctx, followUp, tools.NoopRuntime{}) {
+					if ev.Err != nil {
+						break
+					}
+					if ev.Token != "" {
+						contentBuilder.WriteString(ev.Token)
+						s.broker.Publish(conversationID, Event{
+							Type:      "token",
+							MessageID: assistantMessageID,
+							Token:     ev.Token,
+						})
+					}
+					if ev.Thinking != "" {
+						thinkingBuilder.WriteString(ev.Thinking)
+						s.broker.Publish(conversationID, Event{
+							Type:      "thinking",
+							MessageID: assistantMessageID,
+							Thinking:  ev.Thinking,
+						})
+					}
+					if ev.Done {
+						break
+					}
+				}
+				finalContent = strings.TrimSpace(contentBuilder.String())
+				finalThinking = strings.TrimSpace(thinkingBuilder.String())
+			}
 			if err := s.store.SetMessageContent(ctx, assistantMessageID, finalContent); err != nil {
 				s.logger.Error("failed to persist final assistant message", "message_id", assistantMessageID, "error", err)
 				s.broker.Publish(conversationID, Event{
