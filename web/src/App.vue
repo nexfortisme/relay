@@ -45,7 +45,7 @@ let streamSocket: WebSocket | null = null
 let eventSourceFallback: EventSource | null = null
 const maxTotalUploadBytes = parsePositiveInt(import.meta.env.VITE_MAX_UPLOAD_BYTES, 30 * 1024 * 1024)
 const maxTotalUploadLabel = formatBytesLabel(maxTotalUploadBytes)
-const maxImageUploadBytes = parsePositiveInt(import.meta.env.VITE_MAX_IMAGE_BYTES, 700 * 1024)
+const maxImageUploadBytes = parsePositiveInt(import.meta.env.VITE_MAX_IMAGE_BYTES, 15 * 1024 * 1024)
 const maxImageUploadLabel = formatBytesLabel(maxImageUploadBytes)
 
 const selectedConversation = computed(() =>

@@ -333,7 +333,7 @@ func toLLMMessages(messages []store.Message) []llm.ChatMessage {
 		}
 		out = append(out, llm.ChatMessage{
 			Role:    m.Role,
-			Content: llmContent,
+			Content: llm.ParseContent(llmContent),
 		})
 	}
 	return out

@@ -8,15 +8,63 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/nexfortisme/relay/internal/tools"
 )
 
+type ContentPart struct {
+	Type     string        `json:"type"`
+	Text     string        `json:"text,omitempty"`
+	ImageURL *ImageURLData `json:"image_url,omitempty"`
+}
+
+type ImageURLData struct {
+	URL string `json:"url"`
+}
+
 type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"`
+}
+
+func (m ChatMessage) ContentString() string {
+	if s, ok := m.Content.(string); ok {
+		return s
+	}
+	return ""
+}
+
+// imageDataURLRe matches markdown image syntax with data URLs: ![alt](data:...)
+var imageDataURLRe = regexp.MustCompile(`!\[[^\]]*\]\((data:[^)]+)\)`)
+
+// ParseContent converts a prompt string into either a plain string or a []ContentPart
+// slice for multimodal LLM requests when image data URLs are present.
+func ParseContent(content string) interface{} {
+	matches := imageDataURLRe.FindAllStringSubmatchIndex(content, -1)
+	if len(matches) == 0 {
+		return content
+	}
+	var parts []ContentPart
+	lastEnd := 0
+	for _, match := range matches {
+		if textBefore := content[lastEnd:match[0]]; strings.TrimSpace(textBefore) != "" {
+			parts = append(parts, ContentPart{Type: "text", Text: textBefore})
+		}
+		parts = append(parts, ContentPart{
+			Type:     "image_url",
+			ImageURL: &ImageURLData{URL: content[match[2]:match[3]]},
+		})
+		lastEnd = match[1]
+	}
+	if lastEnd < len(content) {
+		if remaining := strings.TrimSpace(content[lastEnd:]); remaining != "" {
+			parts = append(parts, ContentPart{Type: "text", Text: remaining})
+		}
+	}
+	return parts
 }
 
 type TokenEvent struct {
@@ -204,7 +252,7 @@ func (p *HTTPProvider) consumeSingleJSON(ctx context.Context, messages []ChatMes
 		return fmt.Errorf("llm response did not include any choices")
 	}
 
-	out <- TokenEvent{Token: decoded.Choices[0].Message.Content}
+	out <- TokenEvent{Token: decoded.Choices[0].Message.ContentString()}
 	return nil
 }
 
