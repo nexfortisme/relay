@@ -93,18 +93,18 @@ type Provider interface {
 }
 
 type HTTPProvider struct {
-	baseURL string
-	model   string
-	client  *http.Client
+	baseURL         string
+	model           string
+	client          *http.Client
+	responseTimeout time.Duration
 }
 
-func NewHTTPProvider(baseURL string, model string) *HTTPProvider {
+func NewHTTPProvider(baseURL string, model string, responseTimeout time.Duration) *HTTPProvider {
 	return &HTTPProvider{
-		baseURL: strings.TrimSuffix(baseURL, "/"),
-		model:   model,
-		client: &http.Client{
-			Timeout: 45 * time.Second,
-		},
+		baseURL:         strings.TrimSuffix(baseURL, "/"),
+		model:           model,
+		responseTimeout: responseTimeout,
+		client:          &http.Client{},
 	}
 }
 
@@ -156,7 +156,9 @@ func (p *HTTPProvider) generateWithTools(ctx context.Context, messages []ChatMes
 	searchFetchFailures := 0
 
 	for round := 0; round < 8; round++ {
-		response, didStream, err := p.generateStream(ctx, currentMessages, requestTools, out)
+		respCtx, respCancel := context.WithTimeout(ctx, p.responseTimeout)
+		response, didStream, err := p.generateStream(ctx, respCtx, currentMessages, requestTools, out)
+		respCancel()
 		if err != nil {
 			return err
 		}
@@ -248,7 +250,7 @@ type llmResponse struct {
 	ToolCalls []ToolCall
 }
 
-func (p *HTTPProvider) generateStream(ctx context.Context, messages []ChatMessage, requestTools []openAITool, out chan<- TokenEvent) (llmResponse, bool, error) {
+func (p *HTTPProvider) generateStream(parentCtx, respCtx context.Context, messages []ChatMessage, requestTools []openAITool, out chan<- TokenEvent) (llmResponse, bool, error) {
 	payload, err := json.Marshal(chatRequest{
 		Model:      p.model,
 		Messages:   messages,
@@ -261,7 +263,7 @@ func (p *HTTPProvider) generateStream(ctx context.Context, messages []ChatMessag
 	}
 
 	req, err := http.NewRequestWithContext(
-		ctx,
+		respCtx,
 		http.MethodPost,
 		p.baseURL+"/chat/completions",
 		bytes.NewReader(payload),
@@ -285,17 +287,17 @@ func (p *HTTPProvider) generateStream(ctx context.Context, messages []ChatMessag
 
 	// Try SSE/line streaming first. If the provider returns standard JSON,
 	// fall back to one-shot decoding.
-	if response, streamed, err := p.consumeSSE(ctx, res.Body, out); err != nil {
+	if response, streamed, err := p.consumeSSE(parentCtx, respCtx, res.Body, out); err != nil {
 		return llmResponse{}, true, err
 	} else if streamed {
 		return response, true, nil
 	}
 
-	response, err := p.consumeSingleJSON(ctx, messages, requestTools)
+	response, err := p.consumeSingleJSON(respCtx, messages, requestTools)
 	return response, false, err
 }
 
-func (p *HTTPProvider) consumeSSE(ctx context.Context, body io.Reader, out chan<- TokenEvent) (llmResponse, bool, error) {
+func (p *HTTPProvider) consumeSSE(parentCtx, respCtx context.Context, body io.Reader, out chan<- TokenEvent) (llmResponse, bool, error) {
 	scanner := bufio.NewScanner(body)
 	sawStream := false
 	var content strings.Builder
@@ -325,16 +327,28 @@ func (p *HTTPProvider) consumeSSE(ctx context.Context, body io.Reader, out chan<
 		if ok && token != "" {
 			content.WriteString(token)
 			select {
-			case <-ctx.Done():
-				return llmResponse{}, true, ctx.Err()
+			case <-parentCtx.Done():
+				return llmResponse{}, true, parentCtx.Err()
+			case <-respCtx.Done():
+				select {
+				case out <- TokenEvent{Token: token}:
+				default:
+				}
+				return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String()}, true, nil
 			case out <- TokenEvent{Token: token}:
 			}
 		}
 		if ok && thinking != "" {
 			thinkingBuilder.WriteString(thinking)
 			select {
-			case <-ctx.Done():
-				return llmResponse{}, true, ctx.Err()
+			case <-parentCtx.Done():
+				return llmResponse{}, true, parentCtx.Err()
+			case <-respCtx.Done():
+				select {
+				case out <- TokenEvent{Thinking: thinking}:
+				default:
+				}
+				return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String()}, true, nil
 			case out <- TokenEvent{Thinking: thinking}:
 			}
 		}
@@ -342,13 +356,21 @@ func (p *HTTPProvider) consumeSSE(ctx context.Context, body io.Reader, out chan<
 			accumulateToolCall(toolCalls, call)
 		}
 		select {
-		case <-ctx.Done():
-			return llmResponse{}, true, ctx.Err()
+		case <-parentCtx.Done():
+			return llmResponse{}, true, parentCtx.Err()
+		case <-respCtx.Done():
+			return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String()}, true, nil
 		default:
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
+		if parentCtx.Err() != nil {
+			return llmResponse{}, sawStream, parentCtx.Err()
+		}
+		if respCtx.Err() != nil {
+			return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String()}, sawStream, nil
+		}
 		return llmResponse{}, sawStream, fmt.Errorf("read llm stream: %w", err)
 	}
 	return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String(), ToolCalls: orderedToolCalls(toolCalls)}, sawStream, nil
