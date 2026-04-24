@@ -183,6 +183,59 @@ func (s *Service) AddFailedUserMessage(
 	return userMsg, nil
 }
 
+func (s *Service) RequeueUserMessage(ctx context.Context, conversationID string, messageID string) (store.Message, store.Message, error) {
+	original, err := s.store.GetMessage(ctx, conversationID, messageID)
+	if err != nil {
+		return store.Message{}, store.Message{}, err
+	}
+	if original.Role != "user" {
+		return store.Message{}, store.Message{}, fmt.Errorf("only user messages can be requeued")
+	}
+
+	displayContent := strings.TrimSpace(original.UserContent)
+	if displayContent == "" {
+		displayContent = strings.TrimSpace(original.Content)
+	}
+	if displayContent == "" {
+		return store.Message{}, store.Message{}, fmt.Errorf("message content is required")
+	}
+	llmContent := original.LLMContent
+	if strings.TrimSpace(llmContent) == "" {
+		llmContent = displayContent
+	}
+
+	now := time.Now().UTC()
+	userMessageID := uuid.NewString()
+	attachmentNames := append([]string(nil), original.Attachments...)
+	attachmentBlobs := make([]store.MessageAttachment, 0, len(attachmentNames))
+	for idx := range attachmentNames {
+		attachment, err := s.store.GetMessageAttachment(ctx, conversationID, messageID, idx)
+		if err != nil {
+			return store.Message{}, store.Message{}, fmt.Errorf("requeue attachment %d: %w", idx, err)
+		}
+		attachment.MessageID = userMessageID
+		attachment.Index = idx
+		attachment.CreatedAt = now
+		attachmentBlobs = append(attachmentBlobs, attachment)
+	}
+
+	userMsg := store.Message{
+		ID:             userMessageID,
+		ConversationID: conversationID,
+		Role:           "user",
+		Content:        displayContent,
+		UserContent:    displayContent,
+		LLMContent:     llmContent,
+		Attachments:    attachmentNames,
+		CreatedAt:      now,
+	}
+	assistantMsg, err := s.addUserMessageAndGenerate(ctx, conversationID, displayContent, llmContent, &userMsg, attachmentBlobs)
+	if err != nil {
+		return store.Message{}, store.Message{}, err
+	}
+	return userMsg, assistantMsg, nil
+}
+
 func (s *Service) addUserMessageAndGenerate(
 	ctx context.Context,
 	conversationID string,

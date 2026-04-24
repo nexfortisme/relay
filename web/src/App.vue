@@ -18,6 +18,7 @@ import {
   listConversations,
   listMessages,
   renameConversation,
+  requeueMessage,
   suggestConversationTitle,
   restoreConversation,
   stopConversationGeneration,
@@ -490,6 +491,39 @@ async function sendMessage() {
   }
 }
 
+async function handleRequeueMessage(message: DisplayMessage) {
+  const conversationId = selectedConversationId.value
+  if (!conversationId || message.role !== 'user' || isSending.value) {
+    return
+  }
+
+  isSending.value = true
+  generatingConversationId.value = conversationId
+  waitingForAssistantResponse.value = true
+  waitingForAssistantConversationId.value = conversationId
+  streamError.value = ''
+  try {
+    const { userMessage } = await requeueMessage(conversationId, message.id)
+    messages.value.push(userMessage)
+    conversationMessageCache.set(conversationId, cloneMessages(messages.value))
+    const persistedMessages = await listMessages(conversationId)
+    messages.value = mergeMessagesPreservingStreamState(persistedMessages, conversationMessageCache.get(conversationId) ?? [])
+    conversationMessageCache.set(conversationId, cloneMessages(messages.value))
+    await loadConversations()
+    await scrollMessagesToBottom()
+  } catch (error) {
+    if (generatingConversationId.value === conversationId) {
+      isSending.value = false
+      generatingConversationId.value = null
+    }
+    if (waitingForAssistantConversationId.value === conversationId) {
+      waitingForAssistantResponse.value = false
+      waitingForAssistantConversationId.value = null
+    }
+    streamError.value = error instanceof Error ? error.message : 'Failed to requeue message'
+  }
+}
+
 function handleSelectedFiles(files: File[]) {
   const oversizedFiles = files.filter((file) => file.size > maxSingleFileBytes)
   if (oversizedFiles.length > 0) {
@@ -826,6 +860,8 @@ async function scrollMessagesToBottom() {
         ref="messageListEl"
         :messages="messages"
         :pending-assistant="shouldShowPendingAssistantPlaceholder"
+        :requeue-disabled="isSending"
+        @requeue="handleRequeueMessage"
       />
       <p v-if="streamError" class="error">{{ streamError }}</p>
       <ChatComposer

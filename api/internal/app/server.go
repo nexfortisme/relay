@@ -95,6 +95,7 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 		api.GET("/conversations/:id/messages", handlers.ListMessages)
 		api.POST("/conversations/:id/messages", handlers.CreateMessage)
 		api.POST("/conversations/:id/messages/failed", handlers.CreateFailedMessage)
+		api.POST("/conversations/:id/messages/:messageId/requeue", handlers.RequeueMessage)
 		api.GET("/conversations/:id/messages/:messageId/attachments/:attachmentIndex/download", handlers.DownloadMessageAttachment)
 		api.GET("/conversations/:id/stream", handlers.StreamConversation)
 	}

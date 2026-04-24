@@ -9,6 +9,11 @@ import AppIcon from './AppIcon.vue'
 const props = defineProps<{
   messages: DisplayMessage[]
   pendingAssistant: boolean
+  requeueDisabled?: boolean
+}>()
+
+const emit = defineEmits<{
+  requeue: [message: DisplayMessage]
 }>()
 
 const messagesEl = ref<HTMLElement | null>(null)
@@ -173,8 +178,19 @@ defineExpose({ scrollToBottom })
       <div v-else class="message-markdown" v-html="renderMarkdown(message.content)" />
       <div class="message-actions">
         <button
+          v-if="message.role === 'user'"
           type="button"
-          class="message-copy-button"
+          class="message-action-button"
+          title="Requeue message"
+          aria-label="Requeue message"
+          :disabled="requeueDisabled"
+          @click="emit('requeue', message)"
+        >
+          <AppIcon name="refresh" :size="14" />
+        </button>
+        <button
+          type="button"
+          class="message-action-button"
           :class="{ copied: copiedMessageId === message.id }"
           :title="copiedMessageId === message.id ? 'Copied' : 'Copy message'"
           :aria-label="copiedMessageId === message.id ? 'Copied' : 'Copy message'"
@@ -264,6 +280,7 @@ defineExpose({ scrollToBottom })
 .message-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 0.35rem;
   margin-top: 0.44rem;
   min-height: 1.75rem;
 }
@@ -272,7 +289,7 @@ defineExpose({ scrollToBottom })
   justify-content: flex-start;
 }
 
-.message-copy-button {
+.message-action-button {
   width: 1.75rem;
   height: 1.75rem;
   border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
@@ -287,14 +304,19 @@ defineExpose({ scrollToBottom })
   transition: background-color 160ms ease, border-color 160ms ease, opacity 160ms ease;
 }
 
-.message-copy-button:hover,
-.message-copy-button:focus-visible {
+.message-action-button:hover,
+.message-action-button:focus-visible {
   opacity: 1;
   border-color: color-mix(in srgb, currentColor 38%, transparent);
   background: color-mix(in srgb, var(--surface) 72%, transparent);
 }
 
-.message-copy-button.copied {
+.message-action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.message-action-button.copied {
   opacity: 1;
 }
 

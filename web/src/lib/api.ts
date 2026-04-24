@@ -129,6 +129,28 @@ export async function createFailedMessage(
   return response.json()
 }
 
+export async function requeueMessage(
+  conversationId: string,
+  messageId: string,
+): Promise<{ userMessage: Message; assistantMessageId: string }> {
+  const response = await fetch(`${API_BASE}/conversations/${conversationId}/messages/${messageId}/requeue`, {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    let message = 'Failed to requeue message'
+    try {
+      const data = (await response.json()) as { error?: string }
+      if (data.error) {
+        message = data.error
+      }
+    } catch {
+      // Keep default message when response is not JSON.
+    }
+    throw new Error(message)
+  }
+  return response.json()
+}
+
 export function conversationStreamUrl(conversationId: string): string {
   const streamHttpUrl = conversationHttpStreamUrl(conversationId)
   try {

@@ -9,6 +9,7 @@ defineProps<{
     | 'paperclip'
     | 'pencil'
     | 'plus'
+    | 'refresh'
     | 'restore'
     | 'send'
     | 'settings'
@@ -63,6 +64,12 @@ defineProps<{
     <template v-else-if="name === 'plus'">
       <path d="M12 5v14" />
       <path d="M5 12h14" />
+    </template>
+    <template v-else-if="name === 'refresh'">
+      <path d="M21 12a9 9 0 0 1-15.1 6.6" />
+      <path d="M3 12a9 9 0 0 1 15.1-6.6" />
+      <path d="M18 2v4h-4" />
+      <path d="M6 22v-4h4" />
     </template>
     <template v-else-if="name === 'restore'">
       <path d="M3 12a9 9 0 1 0 3-6.7" />
