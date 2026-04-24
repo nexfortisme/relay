@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { Conversation } from '../lib/api'
 import AppIcon from './AppIcon.vue'
 
@@ -24,6 +24,37 @@ defineEmits<{
 
 const activeConversations = computed(() => props.conversations.filter((conversation) => !conversation.archived))
 const archivedConversations = computed(() => props.conversations.filter((conversation) => conversation.archived))
+
+const isShiftPressed = ref(false)
+const hoveredArchiveConversationId = ref<string | null>(null)
+
+const handleKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Shift') {
+    isShiftPressed.value = true
+  }
+}
+
+const handleKeyup = (event: KeyboardEvent) => {
+  if (event.key === 'Shift') {
+    isShiftPressed.value = false
+  }
+}
+
+const handleWindowBlur = () => {
+  isShiftPressed.value = false
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown)
+  window.addEventListener('keyup', handleKeyup)
+  window.addEventListener('blur', handleWindowBlur)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('keyup', handleKeyup)
+  window.removeEventListener('blur', handleWindowBlur)
+})
 </script>
 
 <template>
@@ -72,10 +103,19 @@ const archivedConversations = computed(() => props.conversations.filter((convers
         />
         <button
           class="icon-button"
-          title="Archive chat (Shift+click to delete)"
+          :title="
+            hoveredArchiveConversationId === conversation.id && isShiftPressed
+              ? 'Delete chat'
+              : 'Archive chat (Shift+click to delete)'
+          "
+          @mouseenter="hoveredArchiveConversationId = conversation.id"
+          @mouseleave="hoveredArchiveConversationId = null"
           @click.stop="$emit('archive', conversation.id, $event)"
         >
-          <AppIcon name="archive" :size="15" />
+          <AppIcon
+            :name="hoveredArchiveConversationId === conversation.id && isShiftPressed ? 'trash' : 'archive'"
+            :size="15"
+          />
         </button>
       </div>
 
