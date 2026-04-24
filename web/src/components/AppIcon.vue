@@ -3,6 +3,7 @@ defineProps<{
   name:
     | 'archive'
     | 'check'
+    | 'copy'
     | 'file'
     | 'moon'
     | 'paperclip'
@@ -40,6 +41,10 @@ defineProps<{
     </template>
     <template v-else-if="name === 'check'">
       <path d="M20 6 9 17l-5-5" />
+    </template>
+    <template v-else-if="name === 'copy'">
+      <rect x="8" y="8" width="12" height="12" rx="2" />
+      <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
     </template>
     <template v-else-if="name === 'file'">
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
-import { nextTick, ref, watch } from 'vue'
+import { nextTick, onUnmounted, ref, watch } from 'vue'
 import { messageAttachmentDownloadUrl, type Message } from '../lib/api'
 import type { DisplayMessage } from '../types'
 import AppIcon from './AppIcon.vue'
@@ -12,6 +12,8 @@ const props = defineProps<{
 }>()
 
 const messagesEl = ref<HTMLElement | null>(null)
+const copiedMessageId = ref<string | null>(null)
+let copiedResetTimer: ReturnType<typeof setTimeout> | null = null
 
 marked.setOptions({
   gfm: true,
@@ -52,6 +54,46 @@ function attachmentDownloadUrl(message: Message, attachmentIndex: number): strin
   return messageAttachmentDownloadUrl(message.conversationId, message.id, attachmentIndex)
 }
 
+function copyTextForMessage(message: DisplayMessage): string {
+  if (message.role === 'assistant') {
+    return message.content
+  }
+  return displayUserMessage(message)
+}
+
+async function copyMessage(message: DisplayMessage) {
+  const text = copyTextForMessage(message)
+  if (!text) {
+    return
+  }
+  await writeClipboardText(text)
+  copiedMessageId.value = message.id
+  if (copiedResetTimer) {
+    clearTimeout(copiedResetTimer)
+  }
+  copiedResetTimer = setTimeout(() => {
+    copiedMessageId.value = null
+    copiedResetTimer = null
+  }, 1600)
+}
+
+async function writeClipboardText(text: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  document.body.appendChild(textarea)
+  textarea.select()
+  document.execCommand('copy')
+  document.body.removeChild(textarea)
+}
+
 function handleThinkingPanelClick(event: MouseEvent) {
   const details = event.currentTarget
   if (!(details instanceof HTMLDetailsElement) || !details.open) {
@@ -72,6 +114,12 @@ async function scrollToBottom() {
   }
   el.scrollTop = el.scrollHeight
 }
+
+onUnmounted(() => {
+  if (copiedResetTimer) {
+    clearTimeout(copiedResetTimer)
+  }
+})
 
 defineExpose({ scrollToBottom })
 </script>
@@ -123,6 +171,18 @@ defineExpose({ scrollToBottom })
         </div>
       </template>
       <div v-else class="message-markdown" v-html="renderMarkdown(message.content)" />
+      <div class="message-actions">
+        <button
+          type="button"
+          class="message-copy-button"
+          :class="{ copied: copiedMessageId === message.id }"
+          :title="copiedMessageId === message.id ? 'Copied' : 'Copy message'"
+          :aria-label="copiedMessageId === message.id ? 'Copied' : 'Copy message'"
+          @click="copyMessage(message)"
+        >
+          <AppIcon :name="copiedMessageId === message.id ? 'check' : 'copy'" :size="14" />
+        </button>
+      </div>
     </article>
     <article v-if="pendingAssistant" class="message assistant pending-response">
       <strong class="message-role">assistant</strong>
@@ -199,6 +259,43 @@ defineExpose({ scrollToBottom })
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
+}
+
+.message-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.44rem;
+  min-height: 1.75rem;
+}
+
+.message.assistant .message-actions {
+  justify-content: flex-start;
+}
+
+.message-copy-button {
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
+  border-radius: 0.45rem;
+  background: color-mix(in srgb, var(--surface) 54%, transparent);
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0.76;
+  transition: background-color 160ms ease, border-color 160ms ease, opacity 160ms ease;
+}
+
+.message-copy-button:hover,
+.message-copy-button:focus-visible {
+  opacity: 1;
+  border-color: color-mix(in srgb, currentColor 38%, transparent);
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+}
+
+.message-copy-button.copied {
+  opacity: 1;
 }
 
 .message-attachment-chip {
