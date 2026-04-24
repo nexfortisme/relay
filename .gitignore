@@ -3,6 +3,9 @@
 # Relay Files
 .relay/*
 
+# Claude Files
+.claude/*
+
 # TMP Directory from Air
 api/tmp
 
