@@ -2,18 +2,25 @@ package httpapi
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
+	"math"
+	"mime/multipart"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/nexfortisme/relay/internal/attachments"
 	"github.com/nexfortisme/relay/internal/chat"
 )
 
 type Handlers struct {
-	chat   *chat.Service
-	logger *slog.Logger
+	chat                     *chat.Service
+	logger                   *slog.Logger
+	maxMultipartPayloadBytes int64
+	maxMultipartPayloadLabel string
 }
 
 var streamUpgrader = websocket.Upgrader{
@@ -24,8 +31,16 @@ var streamUpgrader = websocket.Upgrader{
 	},
 }
 
-func NewHandlers(chatService *chat.Service, logger *slog.Logger) *Handlers {
-	return &Handlers{chat: chatService, logger: logger}
+func NewHandlers(chatService *chat.Service, logger *slog.Logger, maxMultipartPayloadBytes int64) *Handlers {
+	if maxMultipartPayloadBytes <= 0 {
+		maxMultipartPayloadBytes = 30 << 20
+	}
+	return &Handlers{
+		chat:                     chatService,
+		logger:                   logger,
+		maxMultipartPayloadBytes: maxMultipartPayloadBytes,
+		maxMultipartPayloadLabel: bytesLabel(maxMultipartPayloadBytes),
+	}
 }
 
 func (h *Handlers) CreateConversation(c *gin.Context) {
@@ -67,25 +82,118 @@ type renameConversationRequest struct {
 
 func (h *Handlers) CreateMessage(c *gin.Context) {
 	conversationID := c.Param("id")
-	var req createMessageRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
-		return
+
+	contentType := c.ContentType()
+	var content string
+	files := make([]attachments.UploadedFile, 0)
+
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		if err := c.Request.ParseMultipartForm(h.maxMultipartPayloadBytes); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "request body too large") {
+				c.JSON(http.StatusRequestEntityTooLarge, gin.H{
+					"error": fmt.Sprintf("total file upload size exceeds %s", h.maxMultipartPayloadLabel),
+				})
+				return
+			}
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid multipart payload"})
+			return
+		}
+		content = strings.TrimSpace(c.PostForm("content"))
+		formFiles := c.Request.MultipartForm.File["files"]
+		parsedFiles, err := parseUploadedFiles(formFiles)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		files = parsedFiles
+	} else {
+		var req createMessageRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+			return
+		}
+		content = strings.TrimSpace(req.Content)
 	}
-	if req.Content == "" {
+
+	if content == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "content is required"})
 		return
 	}
 
-	assistantMessage, err := h.chat.AddUserMessageAndGenerate(c.Request.Context(), conversationID, req.Content)
+	var assistantMessageID string
+	var err error
+	if len(files) > 0 {
+		msg, withFilesErr := h.chat.AddUserMessageAndGenerateWithFiles(c.Request.Context(), conversationID, content, files)
+		err = withFilesErr
+		assistantMessageID = msg.ID
+	} else {
+		msg, noFileErr := h.chat.AddUserMessageAndGenerate(c.Request.Context(), conversationID, content)
+		err = noFileErr
+		assistantMessageID = msg.ID
+	}
 	if err != nil {
+		if len(files) > 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusAccepted, gin.H{
-		"assistantMessageId": assistantMessage.ID,
+		"assistantMessageId": assistantMessageID,
 	})
+}
+
+func bytesLabel(bytes int64) string {
+	if bytes <= 0 {
+		return "0B"
+	}
+	const (
+		kb = int64(1024)
+		mb = kb * 1024
+	)
+	if bytes >= mb {
+		whole := float64(bytes) / float64(mb)
+		if math.Mod(whole, 1) == 0 {
+			return fmt.Sprintf("%.0fMB", whole)
+		}
+		return fmt.Sprintf("%.1fMB", whole)
+	}
+	if bytes >= kb {
+		whole := float64(bytes) / float64(kb)
+		if math.Mod(whole, 1) == 0 {
+			return fmt.Sprintf("%.0fKB", whole)
+		}
+		return fmt.Sprintf("%.1fKB", whole)
+	}
+	return fmt.Sprintf("%dB", bytes)
+}
+
+func parseUploadedFiles(formFiles []*multipart.FileHeader) ([]attachments.UploadedFile, error) {
+	files := make([]attachments.UploadedFile, 0, len(formFiles))
+	for _, fileHeader := range formFiles {
+		file, err := fileHeader.Open()
+		if err != nil {
+			return nil, fmt.Errorf("open %s: %w", fileHeader.Filename, err)
+		}
+
+		raw, readErr := io.ReadAll(file)
+		closeErr := file.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read %s: %w", fileHeader.Filename, readErr)
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("close %s: %w", fileHeader.Filename, closeErr)
+		}
+
+		files = append(files, attachments.UploadedFile{
+			Name:        fileHeader.Filename,
+			ContentType: fileHeader.Header.Get("Content-Type"),
+			Data:        raw,
+		})
+	}
+	return files, nil
 }
 
 func (h *Handlers) RenameConversation(c *gin.Context) {
@@ -138,6 +246,23 @@ func (h *Handlers) StopConversationGeneration(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+func (h *Handlers) DownloadMessageAttachment(c *gin.Context) {
+	conversationID := c.Param("id")
+	messageID := c.Param("messageId")
+	attachmentIndex, err := attachments.ParseAttachmentIndex(c.Param("attachmentIndex"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	path, storedName, err := h.chat.GetMessageAttachment(c.Request.Context(), conversationID, messageID, attachmentIndex)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.FileAttachment(path, storedName)
 }
 
 func (h *Handlers) StreamConversation(c *gin.Context) {

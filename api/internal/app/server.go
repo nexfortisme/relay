@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/nexfortisme/relay/internal/attachments"
 	"github.com/nexfortisme/relay/internal/chat"
 	"github.com/nexfortisme/relay/internal/config"
 	"github.com/nexfortisme/relay/internal/httpapi"
@@ -49,8 +50,17 @@ func NewServer(logger *slog.Logger) (*Server, func(), error) {
 		tools.NewMCPRuntime([]tools.Definition{}),
 		tools.NoopRuntime{},
 	)
-	chatService := chat.NewService(st, llmProvider, toolRuntime, logger)
-	handlers := httpapi.NewHandlers(chatService, logger)
+	chatService := chat.NewService(
+		st,
+		llmProvider,
+		toolRuntime,
+		logger,
+		cfg.RelayDir,
+		attachments.PromptOptions{
+			MaxImageBytes: cfg.MaxImageBytes,
+		},
+	)
+	handlers := httpapi.NewHandlers(chatService, logger, cfg.MaxUploadBytes)
 
 	engine := gin.New()
 	engine.Use(gin.Recovery())
@@ -79,6 +89,7 @@ func NewServer(logger *slog.Logger) (*Server, func(), error) {
 		api.POST("/conversations/:id/stop", handlers.StopConversationGeneration)
 		api.GET("/conversations/:id/messages", handlers.ListMessages)
 		api.POST("/conversations/:id/messages", handlers.CreateMessage)
+		api.GET("/conversations/:id/messages/:messageId/attachments/:attachmentIndex/download", handlers.DownloadMessageAttachment)
 		api.GET("/conversations/:id/stream", handlers.StreamConversation)
 	}
 

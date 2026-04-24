@@ -11,6 +11,7 @@ import {
   createMessage,
   listConversations,
   listMessages,
+  messageAttachmentDownloadUrl,
   renameConversation,
   restoreConversation,
   stopConversationGeneration,
@@ -24,6 +25,7 @@ type DisplayMessage = Message & { thinking?: string }
 
 const messages = ref<DisplayMessage[]>([])
 const draft = ref('')
+const selectedFiles = ref<File[]>([])
 const isSending = ref(false)
 const streamError = ref('')
 const showArchived = ref(false)
@@ -32,9 +34,14 @@ const renameDraft = ref('')
 const isRenaming = ref(false)
 const isEditingTitle = ref(false)
 const titleInputEl = ref<HTMLInputElement | null>(null)
+const fileInputEl = ref<HTMLInputElement | null>(null)
 const messagesEl = ref<HTMLElement | null>(null)
 let streamSocket: WebSocket | null = null
 let eventSourceFallback: EventSource | null = null
+const maxTotalUploadBytes = parsePositiveInt(import.meta.env.VITE_MAX_UPLOAD_BYTES, 30 * 1024 * 1024)
+const maxTotalUploadLabel = formatBytesLabel(maxTotalUploadBytes)
+const maxImageUploadBytes = parsePositiveInt(import.meta.env.VITE_MAX_IMAGE_BYTES, 700 * 1024)
+const maxImageUploadLabel = formatBytesLabel(maxImageUploadBytes)
 
 const selectedConversation = computed(() =>
   conversations.value.find((c) => c.id === selectedConversationId.value),
@@ -43,6 +50,43 @@ const activeConversations = computed(() => conversations.value.filter((c) => !c.
 const archivedConversations = computed(() => conversations.value.filter((c) => c.archived))
 
 const displayMessages = computed(() => messages.value)
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback
+  }
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback
+  }
+  return parsed
+}
+
+function formatBytesLabel(bytes: number): string {
+  if (bytes >= 1024 * 1024) {
+    const mb = bytes / (1024 * 1024)
+    return Number.isInteger(mb) ? `${mb}MB` : `${mb.toFixed(1)}MB`
+  }
+  if (bytes >= 1024) {
+    const kb = bytes / 1024
+    return Number.isInteger(kb) ? `${kb}KB` : `${kb.toFixed(1)}KB`
+  }
+  return `${bytes}B`
+}
+
+function displayUserMessage(message: DisplayMessage): string {
+  const fromUserContent = message.userContent?.trim()
+  if (fromUserContent) {
+    return fromUserContent
+  }
+  const legacy = message.content
+  const divider = '\n\n---\n'
+  const dividerIndex = legacy.indexOf(divider)
+  if (dividerIndex >= 0) {
+    return legacy.slice(0, dividerIndex).trim()
+  }
+  return legacy
+}
 
 marked.setOptions({
   gfm: true,
@@ -286,24 +330,65 @@ async function sendMessage() {
   }
 
   const conversationId = selectedConversationId.value
+  const filesToSend = [...selectedFiles.value]
   messages.value.push({
     id: `local-${Date.now()}`,
     conversationId,
     role: 'user',
     content,
+    userContent: content,
+    llmContent: content,
+    attachments: filesToSend.map((file) => file.name),
     createdAt: new Date().toISOString(),
   })
 
   draft.value = ''
+  selectedFiles.value = []
+  if (fileInputEl.value) {
+    fileInputEl.value.value = ''
+  }
   isSending.value = true
   try {
-    await createMessage(conversationId, content)
+    await createMessage(conversationId, content, filesToSend)
     await loadConversations()
     await scrollMessagesToBottom()
   } catch (error) {
     isSending.value = false
     streamError.value = error instanceof Error ? error.message : 'Failed to send message'
   }
+}
+
+function handleFileSelection(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = input.files ? Array.from(input.files) : []
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0)
+  if (totalBytes > maxTotalUploadBytes) {
+    selectedFiles.value = []
+    input.value = ''
+    streamError.value = `Selected files exceed the ${maxTotalUploadLabel} total upload limit. Remove some files and try again.`
+    return
+  }
+  const oversizedImages = files.filter(
+    (file) => file.type.startsWith('image/') && file.size > maxImageUploadBytes,
+  )
+  if (oversizedImages.length > 0) {
+    selectedFiles.value = []
+    input.value = ''
+    streamError.value = `Image files must be ${maxImageUploadLabel} or smaller: ${oversizedImages.map((file) => file.name).join(', ')}`
+    return
+  }
+  selectedFiles.value = files
+  if (streamError.value.includes('upload limit') || streamError.value.includes('Image files must be')) {
+    streamError.value = ''
+  }
+}
+
+function removeSelectedFile(index: number) {
+  selectedFiles.value.splice(index, 1)
+}
+
+function openFilePicker() {
+  fileInputEl.value?.click()
 }
 
 function toggleTheme() {
@@ -430,6 +515,10 @@ function renderThinkingMarkdown(content: string): string {
   const parsed = marked.parse(content, { async: false })
   return DOMPurify.sanitize(parsed)
 }
+
+function attachmentDownloadUrl(message: Message, attachmentIndex: number): string {
+  return messageAttachmentDownloadUrl(message.conversationId, message.id, attachmentIndex)
+}
 </script>
 
 <template>
@@ -521,7 +610,22 @@ function renderThinkingMarkdown(content: string): string {
             <div class="message-markdown" v-html="renderThinkingMarkdown(message.thinking)" />
           </details>
           <strong class="message-role">{{ message.role }}</strong>
-          <p v-if="message.role !== 'assistant'">{{ message.content }}</p>
+          <template v-if="message.role !== 'assistant'">
+            <p>{{ displayUserMessage(message) }}</p>
+            <div v-if="message.attachments?.length" class="message-attachments">
+              <a
+                v-for="(attachment, index) in message.attachments"
+                :key="`${attachment}-${index}`"
+                class="message-attachment-chip"
+                :href="attachmentDownloadUrl(message, index)"
+                :download="attachment"
+                :title="`Download ${attachment}`"
+              >
+                <span aria-hidden="true">📄</span>
+                {{ attachment }}
+              </a>
+            </div>
+          </template>
           <div
             v-else
             class="message-markdown"
@@ -531,10 +635,38 @@ function renderThinkingMarkdown(content: string): string {
       </div>
       <p v-if="streamError" class="error">{{ streamError }}</p>
       <form class="composer" @submit.prevent="sendMessage">
+        <div v-if="selectedFiles.length" class="file-list">
+          <span v-for="(file, index) in selectedFiles" :key="`${file.name}-${index}`" class="file-chip">
+            {{ file.name }}
+            <button type="button" class="file-chip-remove" @click="removeSelectedFile(index)">x</button>
+          </span>
+        </div>
+        <button
+          type="button"
+          class="file-picker-button"
+          aria-label="Upload files"
+          title="Upload files"
+          @click="openFilePicker"
+        >
+          +
+        </button>
+        <input
+          ref="fileInputEl"
+          class="file-picker-hidden"
+          type="file"
+          multiple
+          accept="image/*,.pdf,.txt,.md,.markdown,.json,.csv,.xml,.yaml,.yml"
+          @change="handleFileSelection"
+        />
         <input v-model="draft" placeholder="Ask something..." />
-        <button :disabled="!isSending" type="button" class="stop-button" @click="stopGeneration">Stop</button>
-        <button :disabled="isSending || !draft.trim()" type="submit">
-          {{ isSending ? 'Sending...' : 'Send' }}
+        <button
+          :type="isSending ? 'button' : 'submit'"
+          :disabled="!isSending && !draft.trim()"
+          class="composer-send-button"
+          :class="{ 'stop-button': isSending }"
+          @click="isSending ? stopGeneration() : undefined"
+        >
+          {{ isSending ? 'Stop' : 'Send' }}
         </button>
       </form>
     </section>
@@ -773,6 +905,27 @@ function renderThinkingMarkdown(content: string): string {
   font-size: 0.93rem;
 }
 
+.message-attachments {
+  margin-top: 0.4rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.message-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--text);
+  padding: 0.2rem 0.45rem;
+  font-size: 0.75rem;
+  color: inherit;
+  text-decoration: none;
+}
+
 .message :deep(.message-markdown) {
   font-size: 0.93rem;
 }
@@ -834,7 +987,11 @@ function renderThinkingMarkdown(content: string): string {
   bottom: 0.9rem;
   padding: 0.65rem;
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: auto auto;
+  grid-template-areas:
+    'files files files'
+    'upload input send';
   gap: 0.6rem;
   border: 1px solid var(--border);
   border-radius: 0.85rem;
@@ -842,11 +999,49 @@ function renderThinkingMarkdown(content: string): string {
   box-shadow: 0 12px 28px rgba(2, 10, 30, 0.22);
 }
 
+.file-list {
+  grid-area: files;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--text);
+  padding: 0.2rem 0.45rem;
+  font-size: 0.75rem;
+}
+
+.file-chip-remove {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.file-picker-button {
+  grid-area: upload;
+  width: 2.6rem;
+  min-width: 2.6rem;
+  padding: 0.75rem 0;
+}
+
+.file-picker-hidden {
+  display: none;
+}
+
 .stop-button {
   background: #c2410c;
 }
 
 .composer input {
+  grid-area: input;
   padding: 0.75rem 0.85rem;
   border-radius: 0.6rem;
   border: 1px solid var(--border);
@@ -862,6 +1057,10 @@ function renderThinkingMarkdown(content: string): string {
   color: #fff;
   font-weight: 600;
   cursor: pointer;
+}
+
+.composer-send-button {
+  grid-area: send;
 }
 
 .composer button:disabled {

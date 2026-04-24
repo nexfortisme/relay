@@ -5,36 +5,49 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nexfortisme/relay/internal/attachments"
 	"github.com/nexfortisme/relay/internal/llm"
 	"github.com/nexfortisme/relay/internal/store"
 	"github.com/nexfortisme/relay/internal/tools"
 )
 
 type Service struct {
-	store    *store.Store
-	llm      llm.Provider
-	broker   *Broker
-	tools    tools.Runtime
-	logger   *slog.Logger
-	timeout  time.Duration
-	cancelMu sync.Mutex
-	cancels  map[string]context.CancelFunc
+	store             *store.Store
+	llm               llm.Provider
+	broker            *Broker
+	tools             tools.Runtime
+	logger            *slog.Logger
+	relayDir          string
+	attachmentOptions attachments.PromptOptions
+	timeout           time.Duration
+	cancelMu          sync.Mutex
+	cancels           map[string]context.CancelFunc
 }
 
-func NewService(st *store.Store, provider llm.Provider, toolRuntime tools.Runtime, logger *slog.Logger) *Service {
+func NewService(
+	st *store.Store,
+	provider llm.Provider,
+	toolRuntime tools.Runtime,
+	logger *slog.Logger,
+	relayDir string,
+	attachmentOptions attachments.PromptOptions,
+) *Service {
 	return &Service{
-		store:   st,
-		llm:     provider,
-		broker:  NewBroker(),
-		tools:   toolRuntime,
-		logger:  logger,
-		timeout: 60 * time.Second,
-		cancels: make(map[string]context.CancelFunc),
+		store:             st,
+		llm:               provider,
+		broker:            NewBroker(),
+		tools:             toolRuntime,
+		logger:            logger,
+		relayDir:          relayDir,
+		attachmentOptions: attachmentOptions,
+		timeout:           60 * time.Second,
+		cancels:           make(map[string]context.CancelFunc),
 	}
 }
 
@@ -56,19 +69,57 @@ func (s *Service) Subscribe(conversationID string) (<-chan Event, func()) {
 }
 
 func (s *Service) AddUserMessageAndGenerate(ctx context.Context, conversationID string, content string) (store.Message, error) {
+	return s.addUserMessageAndGenerate(ctx, conversationID, content, content, nil)
+}
+
+func (s *Service) AddUserMessageAndGenerateWithFiles(ctx context.Context, conversationID string, content string, files []attachments.UploadedFile) (store.Message, error) {
 	now := time.Now().UTC()
-	userMsg := store.Message{
-		ID:             uuid.NewString(),
+	userMessageID := uuid.NewString()
+	persistedNames, err := attachments.PersistUploadedFiles(s.relayDir, conversationID, userMessageID, files)
+	if err != nil {
+		return store.Message{}, err
+	}
+	prompt, err := attachments.BuildPrompt(content, files, s.attachmentOptions)
+	if err != nil {
+		return store.Message{}, err
+	}
+	return s.addUserMessageAndGenerate(ctx, conversationID, content, prompt, &store.Message{
+		ID:             userMessageID,
 		ConversationID: conversationID,
 		Role:           "user",
 		Content:        content,
+		UserContent:    content,
+		LLMContent:     prompt,
+		Attachments:    persistedNames,
 		CreatedAt:      now,
+	})
+}
+
+func (s *Service) addUserMessageAndGenerate(
+	ctx context.Context,
+	conversationID string,
+	displayContent string,
+	llmContent string,
+	preparedUserMessage *store.Message,
+) (store.Message, error) {
+	now := time.Now().UTC()
+	userMsg := preparedUserMessage
+	if userMsg == nil {
+		userMsg = &store.Message{
+			ID:             uuid.NewString(),
+			ConversationID: conversationID,
+			Role:           "user",
+			Content:        displayContent,
+			UserContent:    displayContent,
+			LLMContent:     llmContent,
+			CreatedAt:      now,
+		}
 	}
 
-	if err := s.store.AppendMessage(ctx, userMsg); err != nil {
+	if err := s.store.AppendMessage(ctx, *userMsg); err != nil {
 		return store.Message{}, err
 	}
-	if err := s.ensureConversationTitle(ctx, conversationID, content); err != nil {
+	if err := s.ensureConversationTitle(ctx, conversationID, displayContent); err != nil {
 		s.logger.Warn("failed to auto-title conversation", "conversation_id", conversationID, "error", err)
 	}
 
@@ -122,6 +173,34 @@ func (s *Service) StopGeneration(conversationID string) bool {
 	}
 	cancel()
 	return true
+}
+
+func (s *Service) GetMessageAttachment(ctx context.Context, conversationID string, messageID string, attachmentIndex int) (string, string, error) {
+	message, err := s.store.GetMessage(ctx, conversationID, messageID)
+	if err != nil {
+		return "", "", err
+	}
+	if attachmentIndex < 0 || attachmentIndex >= len(message.Attachments) {
+		return "", "", fmt.Errorf("attachment not found")
+	}
+
+	path, storedName, err := attachments.ResolveUploadedFilePath(
+		s.relayDir,
+		conversationID,
+		messageID,
+		attachmentIndex,
+		message.Attachments[attachmentIndex],
+	)
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", "", fmt.Errorf("attachment not found")
+		}
+		return "", "", err
+	}
+	return path, storedName, nil
 }
 
 func (s *Service) generateAssistant(conversationID string, assistantMessageID string, messages []llm.ChatMessage) {
@@ -221,9 +300,13 @@ func errorsIsContextDone(err error) bool {
 func toLLMMessages(messages []store.Message) []llm.ChatMessage {
 	out := make([]llm.ChatMessage, 0, len(messages))
 	for _, m := range messages {
+		llmContent := m.LLMContent
+		if llmContent == "" {
+			llmContent = m.Content
+		}
 		out = append(out, llm.ChatMessage{
 			Role:    m.Role,
-			Content: m.Content,
+			Content: llmContent,
 		})
 	}
 	return out

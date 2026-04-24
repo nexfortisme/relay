@@ -13,6 +13,9 @@ export type Message = {
   conversationId: string
   role: 'user' | 'assistant' | 'system'
   content: string
+  userContent?: string
+  llmContent?: string
+  attachments?: string[]
   thinking?: string
   createdAt: string
 }
@@ -50,16 +53,38 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
   return data.items
 }
 
-export async function createMessage(conversationId: string, content: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ content }),
-  })
+export async function createMessage(conversationId: string, content: string, files: File[] = []): Promise<void> {
+  let response: Response
+  if (files.length > 0) {
+    const formData = new FormData()
+    formData.set('content', content)
+    for (const file of files) {
+      formData.append('files', file)
+    }
+    response = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
+      method: 'POST',
+      body: formData,
+    })
+  } else {
+    response = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ content }),
+    })
+  }
   if (!response.ok) {
-    throw new Error('Failed to send message')
+    let message = 'Failed to send message'
+    try {
+      const data = (await response.json()) as { error?: string }
+      if (data.error) {
+        message = data.error
+      }
+    } catch {
+      // Keep default message when response is not JSON.
+    }
+    throw new Error(message)
   }
 }
 
@@ -125,4 +150,12 @@ export async function stopConversationGeneration(conversationId: string): Promis
   if (!response.ok && response.status !== 409) {
     throw new Error('Failed to stop generation')
   }
+}
+
+export function messageAttachmentDownloadUrl(
+  conversationId: string,
+  messageId: string,
+  attachmentIndex: number,
+): string {
+  return `${API_BASE}/conversations/${conversationId}/messages/${messageId}/attachments/${attachmentIndex}/download`
 }

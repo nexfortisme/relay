@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -24,6 +25,9 @@ type Message struct {
 	ConversationID string    `json:"conversationId"`
 	Role           string    `json:"role"`
 	Content        string    `json:"content"`
+	UserContent    string    `json:"userContent,omitempty"`
+	LLMContent     string    `json:"llmContent,omitempty"`
+	Attachments    []string  `json:"attachments,omitempty"`
 	Thinking       string    `json:"thinking,omitempty"`
 	CreatedAt      time.Time `json:"createdAt"`
 }
@@ -91,6 +95,9 @@ CREATE TABLE IF NOT EXISTS messages (
   conversation_id TEXT NOT NULL,
   role TEXT NOT NULL,
   content TEXT NOT NULL DEFAULT '',
+  user_content TEXT NOT NULL DEFAULT '',
+  llm_content TEXT NOT NULL DEFAULT '',
+  attachments_json TEXT NOT NULL DEFAULT '[]',
   thinking TEXT NOT NULL DEFAULT '',
   created_at DATETIME NOT NULL,
   FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
@@ -105,6 +112,11 @@ CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
 	}
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE conversations ADD COLUMN archived_at DATETIME`)
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN thinking TEXT NOT NULL DEFAULT ''`)
+	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN user_content TEXT NOT NULL DEFAULT ''`)
+	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN llm_content TEXT NOT NULL DEFAULT ''`)
+	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'`)
+	_, _ = s.db.ExecContext(ctx, `UPDATE messages SET user_content = content WHERE user_content = '' AND role = 'user'`)
+	_, _ = s.db.ExecContext(ctx, `UPDATE messages SET llm_content = content WHERE llm_content = ''`)
 	return nil
 }
 
@@ -173,7 +185,7 @@ WHERE id = ?`, conversationID)
 
 func (s *Store) GetMessages(ctx context.Context, conversationID string) ([]Message, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, conversation_id, role, content, thinking, created_at
+SELECT id, conversation_id, role, content, user_content, llm_content, attachments_json, thinking, created_at
 FROM messages
 WHERE conversation_id = ?
 ORDER BY created_at ASC`, conversationID)
@@ -185,8 +197,22 @@ ORDER BY created_at ASC`, conversationID)
 	messages := make([]Message, 0)
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.Thinking, &m.CreatedAt); err != nil {
+		var attachmentsRaw string
+		if err := rows.Scan(
+			&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.UserContent, &m.LLMContent, &attachmentsRaw, &m.Thinking, &m.CreatedAt,
+		); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
+		}
+		if strings.TrimSpace(attachmentsRaw) != "" {
+			if err := json.Unmarshal([]byte(attachmentsRaw), &m.Attachments); err != nil {
+				return nil, fmt.Errorf("decode message attachments: %w", err)
+			}
+		}
+		if m.Role == "user" && strings.TrimSpace(m.UserContent) != "" {
+			m.Content = m.UserContent
+		}
+		if m.LLMContent == "" {
+			m.LLMContent = m.Content
 		}
 		messages = append(messages, m)
 	}
@@ -194,11 +220,62 @@ ORDER BY created_at ASC`, conversationID)
 	return messages, rows.Err()
 }
 
+func (s *Store) GetMessage(ctx context.Context, conversationID string, messageID string) (Message, error) {
+	row := s.db.QueryRowContext(ctx, `
+SELECT id, conversation_id, role, content, user_content, llm_content, attachments_json, thinking, created_at
+FROM messages
+WHERE conversation_id = ? AND id = ?
+`, conversationID, messageID)
+
+	var message Message
+	var attachmentsRaw string
+	if err := row.Scan(
+		&message.ID,
+		&message.ConversationID,
+		&message.Role,
+		&message.Content,
+		&message.UserContent,
+		&message.LLMContent,
+		&attachmentsRaw,
+		&message.Thinking,
+		&message.CreatedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Message{}, fmt.Errorf("message not found")
+		}
+		return Message{}, fmt.Errorf("get message: %w", err)
+	}
+
+	if strings.TrimSpace(attachmentsRaw) != "" {
+		if err := json.Unmarshal([]byte(attachmentsRaw), &message.Attachments); err != nil {
+			return Message{}, fmt.Errorf("decode message attachments: %w", err)
+		}
+	}
+
+	return message, nil
+}
+
 func (s *Store) AppendMessage(ctx context.Context, m Message) error {
+	attachmentsJSON := "[]"
+	if len(m.Attachments) > 0 {
+		encoded, err := json.Marshal(m.Attachments)
+		if err != nil {
+			return fmt.Errorf("marshal attachments: %w", err)
+		}
+		attachmentsJSON = string(encoded)
+	}
+	userContent := m.UserContent
+	llmContent := m.LLMContent
+	if userContent == "" && m.Role == "user" {
+		userContent = m.Content
+	}
+	if llmContent == "" {
+		llmContent = m.Content
+	}
 	_, err := s.db.ExecContext(
 		ctx,
-		`INSERT INTO messages(id, conversation_id, role, content, thinking, created_at) VALUES(?, ?, ?, ?, ?, ?)`,
-		m.ID, m.ConversationID, m.Role, m.Content, m.Thinking, m.CreatedAt.UTC(),
+		`INSERT INTO messages(id, conversation_id, role, content, user_content, llm_content, attachments_json, thinking, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.ConversationID, m.Role, m.Content, userContent, llmContent, attachmentsJSON, m.Thinking, m.CreatedAt.UTC(),
 	)
 	if err != nil {
 		return fmt.Errorf("insert message: %w", err)
@@ -216,7 +293,11 @@ func (s *Store) AppendMessage(ctx context.Context, m Message) error {
 }
 
 func (s *Store) SetMessageContent(ctx context.Context, messageID string, content string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE messages SET content = ? WHERE id = ?`, content, messageID)
+	_, err := s.db.ExecContext(
+		ctx,
+		`UPDATE messages SET content = ?, user_content = ?, llm_content = ? WHERE id = ?`,
+		content, content, content, messageID,
+	)
 	if err != nil {
 		return fmt.Errorf("update message content: %w", err)
 	}
