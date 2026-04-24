@@ -33,6 +33,16 @@ type Message struct {
 	CreatedAt      time.Time `json:"createdAt"`
 }
 
+type MessageAttachment struct {
+	MessageID   string
+	Index       int
+	Name        string
+	ContentType string
+	SizeBytes   int64
+	Data        []byte
+	CreatedAt   time.Time
+}
+
 type Store struct {
 	db *sql.DB
 }
@@ -108,6 +118,18 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
   ON messages(conversation_id, created_at);
 
+CREATE TABLE IF NOT EXISTS message_attachments (
+  message_id TEXT NOT NULL,
+  attachment_index INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  content_type TEXT NOT NULL DEFAULT '',
+  size_bytes INTEGER NOT NULL,
+  data BLOB NOT NULL,
+  created_at DATETIME NOT NULL,
+  PRIMARY KEY(message_id, attachment_index),
+  FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
@@ -124,6 +146,21 @@ CREATE TABLE IF NOT EXISTS settings (
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN llm_content TEXT NOT NULL DEFAULT ''`)
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'`)
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN has_error INTEGER NOT NULL DEFAULT 0`)
+	_, err = s.db.ExecContext(ctx, `
+CREATE TABLE IF NOT EXISTS message_attachments (
+  message_id TEXT NOT NULL,
+  attachment_index INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  content_type TEXT NOT NULL DEFAULT '',
+  size_bytes INTEGER NOT NULL,
+  data BLOB NOT NULL,
+  created_at DATETIME NOT NULL,
+  PRIMARY KEY(message_id, attachment_index),
+  FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
+)`)
+	if err != nil {
+		return fmt.Errorf("migrate message attachments: %w", err)
+	}
 	_, _ = s.db.ExecContext(ctx, `UPDATE messages SET user_content = content WHERE user_content = '' AND role = 'user'`)
 	_, _ = s.db.ExecContext(ctx, `UPDATE messages SET llm_content = content WHERE llm_content = ''`)
 	return nil
@@ -266,6 +303,10 @@ WHERE conversation_id = ? AND id = ?
 }
 
 func (s *Store) AppendMessage(ctx context.Context, m Message) error {
+	return s.AppendMessageWithAttachments(ctx, m, nil)
+}
+
+func (s *Store) AppendMessageWithAttachments(ctx context.Context, m Message, attachments []MessageAttachment) error {
 	attachmentsJSON := "[]"
 	if len(m.Attachments) > 0 {
 		encoded, err := json.Marshal(m.Attachments)
@@ -282,7 +323,16 @@ func (s *Store) AppendMessage(ctx context.Context, m Message) error {
 	if llmContent == "" {
 		llmContent = m.Content
 	}
-	_, err := s.db.ExecContext(
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin append message: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	_, err = tx.ExecContext(
 		ctx,
 		`INSERT INTO messages(id, conversation_id, role, content, user_content, llm_content, attachments_json, thinking, has_error, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.ConversationID, m.Role, m.Content, userContent, llmContent, attachmentsJSON, m.Thinking, m.HasError, m.CreatedAt.UTC(),
@@ -291,7 +341,32 @@ func (s *Store) AppendMessage(ctx context.Context, m Message) error {
 		return fmt.Errorf("insert message: %w", err)
 	}
 
-	_, err = s.db.ExecContext(
+	for idx, attachment := range attachments {
+		attachmentIndex := attachment.Index
+		if attachmentIndex < 0 {
+			attachmentIndex = idx
+		}
+		createdAt := attachment.CreatedAt
+		if createdAt.IsZero() {
+			createdAt = m.CreatedAt
+		}
+		_, err = tx.ExecContext(
+			ctx,
+			`INSERT INTO message_attachments(message_id, attachment_index, name, content_type, size_bytes, data, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)`,
+			m.ID,
+			attachmentIndex,
+			attachment.Name,
+			attachment.ContentType,
+			int64(len(attachment.Data)),
+			attachment.Data,
+			createdAt.UTC(),
+		)
+		if err != nil {
+			return fmt.Errorf("insert message attachment: %w", err)
+		}
+	}
+
+	_, err = tx.ExecContext(
 		ctx,
 		`UPDATE conversations SET updated_at = ? WHERE id = ?`,
 		time.Now().UTC(), m.ConversationID,
@@ -299,7 +374,36 @@ func (s *Store) AppendMessage(ctx context.Context, m Message) error {
 	if err != nil {
 		return fmt.Errorf("update conversation timestamp: %w", err)
 	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit append message: %w", err)
+	}
 	return nil
+}
+
+func (s *Store) GetMessageAttachment(ctx context.Context, conversationID string, messageID string, attachmentIndex int) (MessageAttachment, error) {
+	row := s.db.QueryRowContext(ctx, `
+SELECT ma.message_id, ma.attachment_index, ma.name, ma.content_type, ma.size_bytes, ma.data, ma.created_at
+FROM message_attachments ma
+JOIN messages m ON m.id = ma.message_id
+WHERE m.conversation_id = ? AND ma.message_id = ? AND ma.attachment_index = ?
+`, conversationID, messageID, attachmentIndex)
+
+	var attachment MessageAttachment
+	if err := row.Scan(
+		&attachment.MessageID,
+		&attachment.Index,
+		&attachment.Name,
+		&attachment.ContentType,
+		&attachment.SizeBytes,
+		&attachment.Data,
+		&attachment.CreatedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return MessageAttachment{}, fmt.Errorf("attachment not found")
+		}
+		return MessageAttachment{}, fmt.Errorf("get message attachment: %w", err)
+	}
+	return attachment, nil
 }
 
 func (s *Store) SetMessageContent(ctx context.Context, messageID string, content string) error {
