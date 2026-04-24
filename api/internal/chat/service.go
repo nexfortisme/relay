@@ -382,6 +382,7 @@ func (s *Service) generateAssistant(conversationID string, assistantMessageID st
 	s.registerCancel(conversationID, cancel)
 	defer s.unregisterCancel(conversationID)
 
+	startTime := time.Now()
 	provider := llm.NewHTTPProvider(settings.LLMURL, settings.LLMModel, s.responseTimeout)
 	stream := provider.GenerateStream(ctx, messages, s.tools)
 	var contentBuilder strings.Builder
@@ -390,6 +391,7 @@ func (s *Service) generateAssistant(conversationID string, assistantMessageID st
 	for event := range stream {
 		if event.Err != nil {
 			if errorsIsContextDone(event.Err) {
+				elapsedMs := time.Since(startTime).Milliseconds()
 				finalContent := strings.TrimSpace(contentBuilder.String())
 				finalThinking := strings.TrimSpace(thinkingBuilder.String())
 				if err := s.store.SetMessageContent(context.Background(), assistantMessageID, finalContent); err != nil {
@@ -398,20 +400,29 @@ func (s *Service) generateAssistant(conversationID string, assistantMessageID st
 				if err := s.store.SetMessageThinking(context.Background(), assistantMessageID, finalThinking); err != nil {
 					s.logger.Error("failed to persist stopped assistant thinking", "message_id", assistantMessageID, "error", err)
 				}
+				if err := s.store.SetMessageElapsedMs(context.Background(), assistantMessageID, elapsedMs); err != nil {
+					s.logger.Error("failed to persist stopped assistant elapsed", "message_id", assistantMessageID, "error", err)
+				}
 				s.broker.Publish(conversationID, Event{
 					Type:      "stopped",
 					MessageID: assistantMessageID,
+					ElapsedMs: elapsedMs,
 				})
 				return
 			}
+			elapsedMs := time.Since(startTime).Milliseconds()
 			s.logger.Error("generation failed", "conversation_id", conversationID, "error", event.Err)
 			if err := s.store.SetLatestUserMessageError(context.Background(), conversationID, true); err != nil {
 				s.logger.Error("failed to persist user message error state", "conversation_id", conversationID, "error", err)
+			}
+			if err := s.store.SetMessageElapsedMs(context.Background(), assistantMessageID, elapsedMs); err != nil {
+				s.logger.Error("failed to persist errored assistant elapsed", "message_id", assistantMessageID, "error", err)
 			}
 			s.broker.Publish(conversationID, Event{
 				Type:      "error",
 				MessageID: assistantMessageID,
 				Error:     event.Err.Error(),
+				ElapsedMs: elapsedMs,
 			})
 			return
 		}
@@ -480,10 +491,15 @@ func (s *Service) generateAssistant(conversationID string, assistantMessageID st
 			if err := s.store.SetMessageThinking(ctx, assistantMessageID, finalThinking); err != nil {
 				s.logger.Error("failed to persist assistant thinking", "message_id", assistantMessageID, "error", err)
 			}
+			elapsedMs := time.Since(startTime).Milliseconds()
+			if err := s.store.SetMessageElapsedMs(ctx, assistantMessageID, elapsedMs); err != nil {
+				s.logger.Error("failed to persist assistant elapsed", "message_id", assistantMessageID, "error", err)
+			}
 			s.broker.Publish(conversationID, Event{
 				Type:      "done",
 				MessageID: assistantMessageID,
 				Thinking:  finalThinking,
+				ElapsedMs: elapsedMs,
 			})
 			return
 		}

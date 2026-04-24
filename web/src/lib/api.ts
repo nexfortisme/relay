@@ -18,6 +18,7 @@ export type Message = {
   attachments?: string[]
   thinking?: string
   hasError?: boolean
+  elapsedMs?: number
   createdAt: string
 }
 

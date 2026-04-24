@@ -210,6 +210,7 @@ type StreamPayload = {
   token?: string
   thinking?: string
   error?: string
+  elapsedMs?: number
 }
 
 function setupStream(conversationId: string) {
@@ -285,6 +286,9 @@ function applyStreamPayload(conversationId: string, payload: StreamPayload) {
   }
 
   if (payload.type === 'done') {
+    if (payload.messageId && typeof payload.elapsedMs === 'number') {
+      setAssistantElapsedMs(conversationId, payload.messageId, payload.elapsedMs)
+    }
     if (generatingConversationId.value === conversationId) {
       waitingForAssistantResponse.value = false
       waitingForAssistantConversationId.value = null
@@ -295,6 +299,9 @@ function applyStreamPayload(conversationId: string, payload: StreamPayload) {
   }
 
   if (payload.type === 'stopped') {
+    if (payload.messageId && typeof payload.elapsedMs === 'number') {
+      setAssistantElapsedMs(conversationId, payload.messageId, payload.elapsedMs)
+    }
     if (generatingConversationId.value === conversationId) {
       waitingForAssistantResponse.value = false
       waitingForAssistantConversationId.value = null
@@ -399,6 +406,16 @@ function upsertAssistantThinking(conversationId: string, messageId: string, thin
     thinking,
     createdAt: new Date().toISOString(),
   })
+  syncVisibleMessagesFromConversation(conversationId)
+}
+
+function setAssistantElapsedMs(conversationId: string, messageId: string, elapsedMs: number) {
+  const targetMessages = ensureConversationMessages(conversationId)
+  const existing = targetMessages.find((message) => message.id === messageId)
+  if (!existing) {
+    return
+  }
+  existing.elapsedMs = elapsedMs
   syncVisibleMessagesFromConversation(conversationId)
 }
 

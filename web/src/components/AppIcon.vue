@@ -3,6 +3,7 @@ defineProps<{
   name:
     | 'archive'
     | 'check'
+    | 'clock'
     | 'copy'
     | 'file'
     | 'moon'
@@ -42,6 +43,10 @@ defineProps<{
     </template>
     <template v-else-if="name === 'check'">
       <path d="M20 6 9 17l-5-5" />
+    </template>
+    <template v-else-if="name === 'clock'">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
     </template>
     <template v-else-if="name === 'copy'">
       <rect x="8" y="8" width="12" height="12" rx="2" />
