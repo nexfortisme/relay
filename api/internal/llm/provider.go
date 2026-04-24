@@ -156,35 +156,42 @@ func (p *HTTPProvider) generateWithTools(ctx context.Context, messages []ChatMes
 	searchFetchFailures := 0
 
 	for round := 0; round < 8; round++ {
-		response, err := p.generateStream(ctx, currentMessages, requestTools)
+		response, didStream, err := p.generateStream(ctx, currentMessages, requestTools, out)
 		if err != nil {
 			return err
 		}
 
 		if len(response.ToolCalls) == 0 {
-			if response.Thinking != "" {
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case out <- TokenEvent{Thinking: response.Thinking}:
+			if !didStream {
+				// SSE not available — send accumulated response manually.
+				if response.Thinking != "" {
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case out <- TokenEvent{Thinking: response.Thinking}:
+					}
+				}
+				if response.Content != "" {
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case out <- TokenEvent{Token: response.Content}:
+					}
 				}
 			}
-			if response.Content != "" {
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case out <- TokenEvent{Token: response.Content}:
-				}
-			}
+			// When didStream, tokens were already forwarded in consumeSSE.
 			return nil
 		}
 
-		preToolThinking := response.Thinking + response.Content
-		if strings.TrimSpace(preToolThinking) != "" {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case out <- TokenEvent{Thinking: preToolThinking}:
+		if !didStream {
+			// Only send pre-tool content as thinking when it wasn't already streamed.
+			preToolThinking := response.Thinking + response.Content
+			if strings.TrimSpace(preToolThinking) != "" {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case out <- TokenEvent{Thinking: preToolThinking}:
+				}
 			}
 		}
 
@@ -241,7 +248,7 @@ type llmResponse struct {
 	ToolCalls []ToolCall
 }
 
-func (p *HTTPProvider) generateStream(ctx context.Context, messages []ChatMessage, requestTools []openAITool) (llmResponse, error) {
+func (p *HTTPProvider) generateStream(ctx context.Context, messages []ChatMessage, requestTools []openAITool, out chan<- TokenEvent) (llmResponse, bool, error) {
 	payload, err := json.Marshal(chatRequest{
 		Model:      p.model,
 		Messages:   messages,
@@ -250,7 +257,7 @@ func (p *HTTPProvider) generateStream(ctx context.Context, messages []ChatMessag
 		ToolChoice: toolChoice(requestTools),
 	})
 	if err != nil {
-		return llmResponse{}, fmt.Errorf("marshal request: %w", err)
+		return llmResponse{}, false, fmt.Errorf("marshal request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(
@@ -260,34 +267,35 @@ func (p *HTTPProvider) generateStream(ctx context.Context, messages []ChatMessag
 		bytes.NewReader(payload),
 	)
 	if err != nil {
-		return llmResponse{}, fmt.Errorf("create request: %w", err)
+		return llmResponse{}, false, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 
 	res, err := p.client.Do(req)
 	if err != nil {
-		return llmResponse{}, fmt.Errorf("call llm endpoint: %w", err)
+		return llmResponse{}, false, fmt.Errorf("call llm endpoint: %w", err)
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode >= 400 {
 		body, _ := io.ReadAll(res.Body)
-		return llmResponse{}, fmt.Errorf("llm request failed status=%d body=%s", res.StatusCode, string(body))
+		return llmResponse{}, false, fmt.Errorf("llm request failed status=%d body=%s", res.StatusCode, string(body))
 	}
 
 	// Try SSE/line streaming first. If the provider returns standard JSON,
 	// fall back to one-shot decoding.
-	if response, streamed, err := p.consumeSSE(ctx, res.Body); err != nil {
-		return llmResponse{}, err
+	if response, streamed, err := p.consumeSSE(ctx, res.Body, out); err != nil {
+		return llmResponse{}, true, err
 	} else if streamed {
-		return response, nil
+		return response, true, nil
 	}
 
-	return p.consumeSingleJSON(ctx, messages, requestTools)
+	response, err := p.consumeSingleJSON(ctx, messages, requestTools)
+	return response, false, err
 }
 
-func (p *HTTPProvider) consumeSSE(ctx context.Context, body io.Reader) (llmResponse, bool, error) {
+func (p *HTTPProvider) consumeSSE(ctx context.Context, body io.Reader, out chan<- TokenEvent) (llmResponse, bool, error) {
 	scanner := bufio.NewScanner(body)
 	sawStream := false
 	var content strings.Builder
@@ -316,9 +324,19 @@ func (p *HTTPProvider) consumeSSE(ctx context.Context, body io.Reader) (llmRespo
 		token, thinking, calls, ok := extractChunk(raw)
 		if ok && token != "" {
 			content.WriteString(token)
+			select {
+			case <-ctx.Done():
+				return llmResponse{}, true, ctx.Err()
+			case out <- TokenEvent{Token: token}:
+			}
 		}
 		if ok && thinking != "" {
 			thinkingBuilder.WriteString(thinking)
+			select {
+			case <-ctx.Done():
+				return llmResponse{}, true, ctx.Err()
+			case out <- TokenEvent{Thinking: thinking}:
+			}
 		}
 		for _, call := range calls {
 			accumulateToolCall(toolCalls, call)
