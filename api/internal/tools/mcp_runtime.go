@@ -1,24 +1,118 @@
 package tools
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
 
 type MCPRuntime struct {
-	definitions []Definition
+	endpoint string
 }
 
-func NewMCPRuntime(definitions []Definition) *MCPRuntime {
-	return &MCPRuntime{definitions: definitions}
+func NewMCPRuntime(endpoint string) *MCPRuntime {
+	return &MCPRuntime{endpoint: endpoint}
 }
 
-func (r *MCPRuntime) Definitions(context.Context) ([]Definition, error) {
-	return r.definitions, nil
+func (r *MCPRuntime) Definitions(ctx context.Context) ([]Definition, error) {
+	session, err := r.connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer session.Close()
+
+	result, err := session.ListTools(ctx, &mcp.ListToolsParams{})
+	if err != nil {
+		return nil, fmt.Errorf("list mcp tools: %w", err)
+	}
+
+	definitions := make([]Definition, 0, len(result.Tools))
+	for _, tool := range result.Tools {
+		definitions = append(definitions, Definition{
+			Name:        tool.Name,
+			Description: tool.Description,
+			InputSchema: schemaMap(tool.InputSchema),
+		})
+	}
+	return definitions, nil
 }
 
-func (r *MCPRuntime) Execute(_ context.Context, call Call) (Result, error) {
-	// Placeholder implementation for future MCP client wiring.
+func (r *MCPRuntime) Execute(ctx context.Context, call Call) (Result, error) {
+	session, err := r.connect(ctx)
+	if err != nil {
+		return Result{}, err
+	}
+	defer session.Close()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      call.Name,
+		Arguments: call.Arguments,
+	})
+	if err != nil {
+		return Result{}, fmt.Errorf("call mcp tool %q: %w", call.Name, err)
+	}
+
+	output, err := mcpToolOutput(result)
+	if err != nil {
+		return Result{}, err
+	}
 	return Result{
 		Name:    call.Name,
-		Output:  "mcp execution is not wired yet",
-		IsError: true,
+		Output:  output,
+		IsError: result.IsError,
 	}, nil
+}
+
+func (r *MCPRuntime) connect(ctx context.Context) (*mcp.ClientSession, error) {
+	client := mcp.NewClient(&mcp.Implementation{Name: "relay", Version: "0.0.1"}, nil)
+	transport := &mcp.StreamableClientTransport{
+		Endpoint:             r.endpoint,
+		DisableStandaloneSSE: true,
+	}
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		return nil, fmt.Errorf("connect to mcp server at %s: %w", r.endpoint, err)
+	}
+	return session, nil
+}
+
+func schemaMap(schema any) map[string]any {
+	if schema == nil {
+		return map[string]any{"type": "object"}
+	}
+	if typed, ok := schema.(map[string]any); ok {
+		return typed
+	}
+	encoded, err := json.Marshal(schema)
+	if err != nil {
+		return map[string]any{"type": "object"}
+	}
+	var out map[string]any
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return map[string]any{"type": "object"}
+	}
+	return out
+}
+
+func mcpToolOutput(result *mcp.CallToolResult) (string, error) {
+	var sb strings.Builder
+	for _, content := range result.Content {
+		if text, ok := content.(*mcp.TextContent); ok {
+			sb.WriteString(text.Text)
+		}
+	}
+	if sb.Len() > 0 {
+		return sb.String(), nil
+	}
+	if result.StructuredContent != nil {
+		encoded, err := json.Marshal(result.StructuredContent)
+		if err != nil {
+			return "", fmt.Errorf("marshal mcp structured content: %w", err)
+		}
+		return string(encoded), nil
+	}
+	return "", nil
 }

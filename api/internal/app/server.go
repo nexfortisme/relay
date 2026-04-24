@@ -29,7 +29,10 @@ func NewServer(logger *slog.Logger) (*Server, func(), error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("load config: %w", err)
 	}
+	return NewServerWithConfig(logger, cfg)
+}
 
+func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(), error) {
 	st, err := store.New(cfg.SQLitePath)
 	if err != nil {
 		return nil, nil, err
@@ -45,7 +48,7 @@ func NewServer(logger *slog.Logger) (*Server, func(), error) {
 		},
 	})
 	toolRuntime := tools.NewCompositeRuntime(
-		tools.NewMCPRuntime([]tools.Definition{}),
+		tools.NewMCPRuntime(cfg.MCPURL),
 		tools.NoopRuntime{},
 	)
 	chatService := chat.NewService(
@@ -100,7 +103,7 @@ func NewServer(logger *slog.Logger) (*Server, func(), error) {
 		_ = st.Close()
 	}
 
-	logger.Info("server initialized", "port", cfg.Port, "sqlite_path", cfg.SQLitePath)
+	logger.Info("server initialized", "port", cfg.Port, "sqlite_path", cfg.SQLitePath, "mcp_url", cfg.MCPURL)
 	return &Server{
 		engine: engine,
 		addr:   cfg.ListenAddr(),
