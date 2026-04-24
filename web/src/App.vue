@@ -28,6 +28,7 @@ import type { DisplayMessage } from './types'
 
 const conversations = ref<Conversation[]>([])
 const selectedConversationId = ref<string | null>(null)
+const pendingRouteConversationId = ref<string | null>(null)
 
 const messages = ref<DisplayMessage[]>([])
 const conversationMessageCache = new Map<string, DisplayMessage[]>()
@@ -39,7 +40,8 @@ const generatingConversationId = ref<string | null>(null)
 const waitingForAssistantConversationId = ref<string | null>(null)
 const streamError = ref('')
 const showArchived = ref(false)
-const theme = ref<'dark' | 'light'>('dark')
+const themeStorageKey = 'relay.theme'
+const theme = ref<'dark' | 'light'>(getStoredTheme())
 const showSettings = ref(false)
 const settingsForm = ref<Settings>({ llm_url: '', llm_model: '', system_prompt: '' })
 const settingsSaving = ref(false)
@@ -161,13 +163,17 @@ async function loadConversations() {
 async function handleCreateConversation() {
   const conversation = await createConversation()
   await loadConversations()
-  await selectConversation(conversation.id)
+  pendingRouteConversationId.value = conversation.id
+  await selectConversation(conversation.id, { updateUrl: false })
+  updateConversationInUrl(null)
 }
 
-async function selectConversation(conversationId: string) {
+async function selectConversation(conversationId: string, options?: { updateUrl?: boolean }) {
   cacheCurrentConversationMessages()
   selectedConversationId.value = conversationId
-  updateConversationInUrl(conversationId)
+  if (options?.updateUrl !== false) {
+    updateConversationInUrl(conversationId)
+  }
   messages.value = cloneMessages(conversationMessageCache.get(conversationId) ?? [])
   const persistedMessages = await listMessages(conversationId)
   messages.value = mergeMessagesPreservingStreamState(
@@ -434,6 +440,10 @@ async function sendMessage() {
   waitingForAssistantConversationId.value = conversationId
   try {
     await createMessage(conversationId, content, filesToSend)
+    if (pendingRouteConversationId.value === conversationId) {
+      updateConversationInUrl(conversationId)
+      pendingRouteConversationId.value = null
+    }
     await loadConversations()
     await scrollMessagesToBottom()
   } catch (error) {
@@ -519,6 +529,24 @@ function removeSelectedFile(index: number) {
 
 function toggleTheme() {
   theme.value = theme.value === 'dark' ? 'light' : 'dark'
+  storeTheme(theme.value)
+}
+
+function getStoredTheme(): 'dark' | 'light' {
+  try {
+    const stored = window.localStorage.getItem(themeStorageKey)
+    return stored === 'light' ? 'light' : 'dark'
+  } catch {
+    return 'dark'
+  }
+}
+
+function storeTheme(value: 'dark' | 'light') {
+  try {
+    window.localStorage.setItem(themeStorageKey, value)
+  } catch {
+    // Ignore storage write failures (private mode, blocked storage, etc).
+  }
 }
 
 async function openSettings() {
