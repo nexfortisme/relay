@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"image"
+	_ "image/gif"
+	"image/jpeg"
+	_ "image/png"
 	"mime"
 	"path/filepath"
 	"sort"
@@ -27,7 +31,7 @@ type chunk struct {
 }
 
 const (
-	defaultMaxFileBytes  = 3 * 1024 * 1024
+	defaultMaxFileBytes  = 50 * 1024 * 1024
 	defaultMaxImageBytes = 15 * 1024 * 1024
 	inlineCharBudget     = 12000
 	chunkSizeRunes       = 1200
@@ -69,11 +73,12 @@ func BuildPrompt(userPrompt string, files []UploadedFile, opts PromptOptions) (s
 
 		contentType := normalizedContentType(file.ContentType, file.Name)
 		if strings.HasPrefix(contentType, "image/") {
-			if len(file.Data) > options.MaxImageBytes {
+			imageData, imageContentType, err := prepareImageForPrompt(file.Data, contentType, options.MaxImageBytes)
+			if err != nil {
 				skippedImages = append(skippedImages, file.Name)
 				continue
 			}
-			images = append(images, imageBlock(file.Name, contentType, file.Data))
+			images = append(images, imageBlock(file.Name, imageContentType, imageData))
 			continue
 		}
 
@@ -175,6 +180,12 @@ func normalizedContentType(contentType string, filename string) string {
 		return "application/json"
 	case ".csv":
 		return "text/csv"
+	case ".gif":
+		return "image/gif"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
 	default:
 		return contentType
 	}
@@ -188,6 +199,54 @@ func imageBlock(name string, contentType string, raw []byte) string {
 		contentType,
 		base64.StdEncoding.EncodeToString(raw),
 	)
+}
+
+func prepareImageForPrompt(raw []byte, contentType string, maxBytes int) ([]byte, string, error) {
+	if maxBytes <= 0 || len(raw) <= maxBytes {
+		return raw, contentType, nil
+	}
+
+	src, _, err := image.Decode(bytes.NewReader(raw))
+	if err != nil {
+		return nil, "", fmt.Errorf("decode image: %w", err)
+	}
+
+	bounds := src.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+	if width <= 0 || height <= 0 {
+		return nil, "", fmt.Errorf("decode image: empty image")
+	}
+
+	for scale := 1.0; scale >= 0.2; scale *= 0.85 {
+		resized := resizeNearest(src, max(1, int(float64(width)*scale)), max(1, int(float64(height)*scale)))
+		for quality := 85; quality >= 45; quality -= 10 {
+			var out bytes.Buffer
+			if err := jpeg.Encode(&out, resized, &jpeg.Options{Quality: quality}); err != nil {
+				return nil, "", fmt.Errorf("encode image: %w", err)
+			}
+			if out.Len() <= maxBytes {
+				return out.Bytes(), "image/jpeg", nil
+			}
+		}
+	}
+
+	return nil, "", fmt.Errorf("image exceeds max size of %d KB after compression", maxBytes/1024)
+}
+
+func resizeNearest(src image.Image, width int, height int) *image.RGBA {
+	dst := image.NewRGBA(image.Rect(0, 0, width, height))
+	srcBounds := src.Bounds()
+	srcWidth := srcBounds.Dx()
+	srcHeight := srcBounds.Dy()
+	for y := 0; y < height; y++ {
+		srcY := srcBounds.Min.Y + y*srcHeight/height
+		for x := 0; x < width; x++ {
+			srcX := srcBounds.Min.X + x*srcWidth/width
+			dst.Set(x, y, src.At(srcX, srcY))
+		}
+	}
+	return dst
 }
 
 func extractDocumentText(name string, contentType string, raw []byte) (string, error) {

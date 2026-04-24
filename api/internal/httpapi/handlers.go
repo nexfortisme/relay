@@ -1,10 +1,12 @@
 package httpapi
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log/slog"
 	"math"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"strings"
@@ -15,6 +17,8 @@ import (
 	"github.com/nexfortisme/relay/internal/attachments"
 	"github.com/nexfortisme/relay/internal/chat"
 )
+
+const maxSingleFileBytes = 50 << 20
 
 type Handlers struct {
 	chat                     *chat.Service
@@ -148,7 +152,7 @@ func (h *Handlers) CreateMessage(c *gin.Context) {
 		}
 		content = strings.TrimSpace(c.PostForm("content"))
 		formFiles := c.Request.MultipartForm.File["files"]
-		parsedFiles, err := parseUploadedFiles(formFiles)
+		parsedFiles, err := h.parseUploadedFiles(formFiles)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -239,21 +243,28 @@ func bytesLabel(bytes int64) string {
 	return fmt.Sprintf("%dB", bytes)
 }
 
-func parseUploadedFiles(formFiles []*multipart.FileHeader) ([]attachments.UploadedFile, error) {
+func (h *Handlers) parseUploadedFiles(formFiles []*multipart.FileHeader) ([]attachments.UploadedFile, error) {
 	files := make([]attachments.UploadedFile, 0, len(formFiles))
 	for _, fileHeader := range formFiles {
+		if fileHeader.Size > maxSingleFileBytes {
+			return nil, fmt.Errorf("%s exceeds max size of %s", fileHeader.Filename, bytesLabel(maxSingleFileBytes))
+		}
+
 		file, err := fileHeader.Open()
 		if err != nil {
 			return nil, fmt.Errorf("open %s: %w", fileHeader.Filename, err)
 		}
 
-		raw, readErr := io.ReadAll(file)
+		raw, readErr := io.ReadAll(io.LimitReader(file, maxSingleFileBytes+1))
 		closeErr := file.Close()
 		if readErr != nil {
 			return nil, fmt.Errorf("read %s: %w", fileHeader.Filename, readErr)
 		}
 		if closeErr != nil {
 			return nil, fmt.Errorf("close %s: %w", fileHeader.Filename, closeErr)
+		}
+		if int64(len(raw)) > maxSingleFileBytes {
+			return nil, fmt.Errorf("%s exceeds max size of %s", fileHeader.Filename, bytesLabel(maxSingleFileBytes))
 		}
 
 		files = append(files, attachments.UploadedFile{
@@ -326,12 +337,18 @@ func (h *Handlers) DownloadMessageAttachment(c *gin.Context) {
 		return
 	}
 
-	path, storedName, err := h.chat.GetMessageAttachment(c.Request.Context(), conversationID, messageID, attachmentIndex)
+	attachment, err := h.chat.GetMessageAttachment(c.Request.Context(), conversationID, messageID, attachmentIndex)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
-	c.FileAttachment(path, storedName)
+	contentType := attachment.ContentType
+	if strings.TrimSpace(contentType) == "" {
+		contentType = http.DetectContentType(attachment.Data)
+	}
+	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": attachment.Name})
+	c.Header("Content-Disposition", disposition)
+	c.DataFromReader(http.StatusOK, attachment.SizeBytes, contentType, bytes.NewReader(attachment.Data), nil)
 }
 
 func (h *Handlers) StreamConversation(c *gin.Context) {

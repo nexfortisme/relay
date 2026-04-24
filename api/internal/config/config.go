@@ -31,7 +31,7 @@ func Load() (Config, error) {
 		SQLitePath:     envOrDefault("SQLITE_PATH", "relay.db"),
 		WebOrigin:      envOrDefault("WEB_ORIGIN", "http://localhost:5173"),
 		RelayDir:       envOrDefault("RELAY_DIR", filepath.Join("..", ".relay")),
-		MaxUploadBytes: envInt64OrDefault("MAX_UPLOAD_BYTES", 30<<20),
+		MaxUploadBytes: envInt64OrDefault("MAX_UPLOAD_BYTES", 50<<20),
 		MaxImageBytes:  envIntOrDefault("MAX_IMAGE_BYTES", 15*1024*1024),
 	}
 

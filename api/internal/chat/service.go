@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -129,13 +128,22 @@ func (s *Service) AddUserMessageAndGenerate(ctx context.Context, conversationID 
 func (s *Service) AddUserMessageAndGenerateWithFiles(ctx context.Context, conversationID string, content string, files []attachments.UploadedFile) (store.Message, error) {
 	now := time.Now().UTC()
 	userMessageID := uuid.NewString()
-	persistedNames, err := attachments.PersistUploadedFiles(s.relayDir, conversationID, userMessageID, files)
-	if err != nil {
-		return store.Message{}, err
-	}
 	prompt, err := attachments.BuildPrompt(content, files, s.attachmentOptions)
 	if err != nil {
 		return store.Message{}, err
+	}
+	attachmentNames := make([]string, 0, len(files))
+	attachmentBlobs := make([]store.MessageAttachment, 0, len(files))
+	for idx, file := range files {
+		attachmentNames = append(attachmentNames, file.Name)
+		attachmentBlobs = append(attachmentBlobs, store.MessageAttachment{
+			MessageID:   userMessageID,
+			Index:       idx,
+			Name:        file.Name,
+			ContentType: file.ContentType,
+			Data:        file.Data,
+			CreatedAt:   now,
+		})
 	}
 	return s.addUserMessageAndGenerate(ctx, conversationID, content, prompt, &store.Message{
 		ID:             userMessageID,
@@ -144,9 +152,9 @@ func (s *Service) AddUserMessageAndGenerateWithFiles(ctx context.Context, conver
 		Content:        content,
 		UserContent:    content,
 		LLMContent:     prompt,
-		Attachments:    persistedNames,
+		Attachments:    attachmentNames,
 		CreatedAt:      now,
-	})
+	}, attachmentBlobs)
 }
 
 func (s *Service) AddFailedUserMessage(
@@ -179,6 +187,7 @@ func (s *Service) addUserMessageAndGenerate(
 	displayContent string,
 	llmContent string,
 	preparedUserMessage *store.Message,
+	preparedAttachments ...[]store.MessageAttachment,
 ) (store.Message, error) {
 	now := time.Now().UTC()
 	userMsg := preparedUserMessage
@@ -194,7 +203,11 @@ func (s *Service) addUserMessageAndGenerate(
 		}
 	}
 
-	if err := s.store.AppendMessage(ctx, *userMsg); err != nil {
+	var userAttachments []store.MessageAttachment
+	if len(preparedAttachments) > 0 {
+		userAttachments = preparedAttachments[0]
+	}
+	if err := s.store.AppendMessageWithAttachments(ctx, *userMsg, userAttachments); err != nil {
 		return store.Message{}, err
 	}
 	if err := s.ensureConversationTitle(ctx, conversationID, displayContent); err != nil {
@@ -254,32 +267,16 @@ func (s *Service) StopGeneration(conversationID string) bool {
 	return true
 }
 
-func (s *Service) GetMessageAttachment(ctx context.Context, conversationID string, messageID string, attachmentIndex int) (string, string, error) {
+func (s *Service) GetMessageAttachment(ctx context.Context, conversationID string, messageID string, attachmentIndex int) (store.MessageAttachment, error) {
 	message, err := s.store.GetMessage(ctx, conversationID, messageID)
 	if err != nil {
-		return "", "", err
+		return store.MessageAttachment{}, err
 	}
 	if attachmentIndex < 0 || attachmentIndex >= len(message.Attachments) {
-		return "", "", fmt.Errorf("attachment not found")
+		return store.MessageAttachment{}, fmt.Errorf("attachment not found")
 	}
 
-	path, storedName, err := attachments.ResolveUploadedFilePath(
-		s.relayDir,
-		conversationID,
-		messageID,
-		attachmentIndex,
-		message.Attachments[attachmentIndex],
-	)
-	if err != nil {
-		return "", "", err
-	}
-	if _, err := os.Stat(path); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", "", fmt.Errorf("attachment not found")
-		}
-		return "", "", err
-	}
-	return path, storedName, nil
+	return s.store.GetMessageAttachment(ctx, conversationID, messageID, attachmentIndex)
 }
 
 func (s *Service) generateAssistant(conversationID string, assistantMessageID string, messages []llm.ChatMessage, settings RuntimeSettings) {
