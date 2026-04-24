@@ -36,7 +36,7 @@ const (
 	inlineCharBudget     = 12000
 	chunkSizeRunes       = 1200
 	chunkOverlapRunes    = 180
-	maxReturnedChunks    = 8
+	maxReturnedChunks    = 20
 )
 
 type PromptOptions struct {
@@ -127,7 +127,7 @@ func BuildPrompt(userPrompt string, files []UploadedFile, opts PromptOptions) (s
 		return strings.TrimSpace(builder.String()), nil
 	}
 
-	if totalDocChars <= inlineCharBudget && len(files) <= 2 {
+	if totalDocChars <= inlineCharBudget {
 		builder.WriteString("Decision: include documents in full context.\n\n")
 		for _, c := range documents {
 			builder.WriteString(fmt.Sprintf("[Document %s part %d]\n%s\n\n", c.Source, c.Index, c.Text))
