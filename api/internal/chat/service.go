@@ -95,6 +95,30 @@ func (s *Service) AddUserMessageAndGenerateWithFiles(ctx context.Context, conver
 	})
 }
 
+func (s *Service) AddFailedUserMessage(
+	ctx context.Context,
+	conversationID string,
+	content string,
+	attachments []string,
+) (store.Message, error) {
+	now := time.Now().UTC()
+	userMsg := store.Message{
+		ID:             uuid.NewString(),
+		ConversationID: conversationID,
+		Role:           "user",
+		Content:        content,
+		UserContent:    content,
+		LLMContent:     content,
+		Attachments:    attachments,
+		HasError:       true,
+		CreatedAt:      now,
+	}
+	if err := s.store.AppendMessage(ctx, userMsg); err != nil {
+		return store.Message{}, err
+	}
+	return userMsg, nil
+}
+
 func (s *Service) addUserMessageAndGenerate(
 	ctx context.Context,
 	conversationID string,
@@ -231,6 +255,9 @@ func (s *Service) generateAssistant(conversationID string, assistantMessageID st
 				return
 			}
 			s.logger.Error("generation failed", "conversation_id", conversationID, "error", event.Err)
+			if err := s.store.SetLatestUserMessageError(context.Background(), conversationID, true); err != nil {
+				s.logger.Error("failed to persist user message error state", "conversation_id", conversationID, "error", err)
+			}
 			s.broker.Publish(conversationID, Event{
 				Type:      "error",
 				MessageID: assistantMessageID,

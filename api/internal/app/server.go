@@ -89,6 +89,7 @@ func NewServer(logger *slog.Logger) (*Server, func(), error) {
 		api.POST("/conversations/:id/stop", handlers.StopConversationGeneration)
 		api.GET("/conversations/:id/messages", handlers.ListMessages)
 		api.POST("/conversations/:id/messages", handlers.CreateMessage)
+		api.POST("/conversations/:id/messages/failed", handlers.CreateFailedMessage)
 		api.GET("/conversations/:id/messages/:messageId/attachments/:attachmentIndex/download", handlers.DownloadMessageAttachment)
 		api.GET("/conversations/:id/stream", handlers.StreamConversation)
 	}

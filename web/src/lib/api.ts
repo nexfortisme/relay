@@ -17,7 +17,22 @@ export type Message = {
   llmContent?: string
   attachments?: string[]
   thinking?: string
+  hasError?: boolean
   createdAt: string
+}
+
+function normalizeCreateMessageError(rawMessage: string, includesFiles: boolean): string {
+  const message = rawMessage.trim()
+  const lower = message.toLowerCase()
+  if (includesFiles) {
+    if (lower.includes('request body too large') || lower.includes('payload too large') || lower.includes('too large')) {
+      return message
+    }
+    if (lower.includes('failed to fetch') || lower.includes('networkerror')) {
+      return 'Upload failed. One or more files may be too large for the server upload limit.'
+    }
+  }
+  return message || 'Failed to send message'
 }
 
 export async function createConversation(): Promise<Conversation> {
@@ -55,24 +70,29 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
 
 export async function createMessage(conversationId: string, content: string, files: File[] = []): Promise<void> {
   let response: Response
-  if (files.length > 0) {
-    const formData = new FormData()
-    formData.set('content', content)
-    for (const file of files) {
-      formData.append('files', file)
+  try {
+    if (files.length > 0) {
+      const formData = new FormData()
+      formData.set('content', content)
+      for (const file of files) {
+        formData.append('files', file)
+      }
+      response = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
+        method: 'POST',
+        body: formData,
+      })
+    } else {
+      response = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content }),
+      })
     }
-    response = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
-      method: 'POST',
-      body: formData,
-    })
-  } else {
-    response = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ content }),
-    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to send message'
+    throw new Error(normalizeCreateMessageError(message, files.length > 0))
   }
   if (!response.ok) {
     let message = 'Failed to send message'
@@ -84,8 +104,29 @@ export async function createMessage(conversationId: string, content: string, fil
     } catch {
       // Keep default message when response is not JSON.
     }
-    throw new Error(message)
+    throw new Error(normalizeCreateMessageError(message, files.length > 0))
   }
+}
+
+export async function createFailedMessage(
+  conversationId: string,
+  content: string,
+  attachments: string[] = [],
+): Promise<Message> {
+  const response = await fetch(`${API_BASE}/conversations/${conversationId}/messages/failed`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      content,
+      attachments,
+    }),
+  })
+  if (!response.ok) {
+    throw new Error('Failed to persist failed message')
+  }
+  return response.json()
 }
 
 export function conversationStreamUrl(conversationId: string): string {

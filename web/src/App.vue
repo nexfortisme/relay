@@ -7,6 +7,7 @@ import {
   conversationHttpStreamUrl,
   conversationStreamUrl,
   createConversation,
+  createFailedMessage,
   deleteConversation,
   createMessage,
   listConversations,
@@ -21,12 +22,16 @@ import {
 
 const conversations = ref<Conversation[]>([])
 const selectedConversationId = ref<string | null>(null)
-type DisplayMessage = Message & { thinking?: string }
+type DisplayMessage = Message & { thinking?: string; hasError?: boolean }
 
 const messages = ref<DisplayMessage[]>([])
+const conversationMessageCache = new Map<string, DisplayMessage[]>()
 const draft = ref('')
 const selectedFiles = ref<File[]>([])
 const isSending = ref(false)
+const waitingForAssistantResponse = ref(false)
+const generatingConversationId = ref<string | null>(null)
+const waitingForAssistantConversationId = ref<string | null>(null)
 const streamError = ref('')
 const showArchived = ref(false)
 const theme = ref<'dark' | 'light'>('dark')
@@ -48,6 +53,29 @@ const selectedConversation = computed(() =>
 )
 const activeConversations = computed(() => conversations.value.filter((c) => !c.archived))
 const archivedConversations = computed(() => conversations.value.filter((c) => c.archived))
+const isSelectedConversationGenerating = computed(
+  () => !!selectedConversationId.value && generatingConversationId.value === selectedConversationId.value,
+)
+const isSelectedConversationWaitingForAssistant = computed(
+  () =>
+    !!selectedConversationId.value &&
+    waitingForAssistantResponse.value &&
+    waitingForAssistantConversationId.value === selectedConversationId.value,
+)
+const hasSelectedConversationAssistantOutput = computed(() =>
+  messages.value.some((message) => {
+    if (message.role !== 'assistant') {
+      return false
+    }
+    if (message.content.trim().length > 0) {
+      return true
+    }
+    return (message.thinking ?? '').trim().length > 0
+  }),
+)
+const shouldShowPendingAssistantPlaceholder = computed(
+  () => isSelectedConversationGenerating.value && !hasSelectedConversationAssistantOutput.value,
+)
 
 const displayMessages = computed(() => messages.value)
 
@@ -72,6 +100,21 @@ function formatBytesLabel(bytes: number): string {
     return Number.isInteger(kb) ? `${kb}KB` : `${kb.toFixed(1)}KB`
   }
   return `${bytes}B`
+}
+
+function notifyUploadError(message: string) {
+  streamError.value = message
+  window.alert(message)
+}
+
+function markLatestUserMessageError(conversationId: string) {
+  const latestUserMessage = [...messages.value]
+    .reverse()
+    .find((message) => message.conversationId === conversationId && message.role === 'user')
+  if (!latestUserMessage) {
+    return
+  }
+  latestUserMessage.hasError = true
 }
 
 function displayUserMessage(message: DisplayMessage): string {
@@ -134,9 +177,16 @@ async function handleCreateConversation() {
 }
 
 async function selectConversation(conversationId: string) {
+  cacheCurrentConversationMessages()
   selectedConversationId.value = conversationId
   updateConversationInUrl(conversationId)
-  messages.value = await listMessages(conversationId)
+  messages.value = cloneMessages(conversationMessageCache.get(conversationId) ?? [])
+  const persistedMessages = await listMessages(conversationId)
+  messages.value = mergeMessagesPreservingStreamState(
+    persistedMessages,
+    conversationMessageCache.get(conversationId) ?? [],
+  )
+  conversationMessageCache.set(conversationId, cloneMessages(messages.value))
   renameDraft.value = selectedConversation.value?.title ?? ''
   isEditingTitle.value = false
   setupStream(conversationId)
@@ -194,7 +244,12 @@ function setupStream(conversationId: string) {
       return
     }
     streamError.value = 'Stream disconnected'
-    isSending.value = false
+    if (generatingConversationId.value === conversationId) {
+      isSending.value = false
+      generatingConversationId.value = null
+      waitingForAssistantResponse.value = false
+      waitingForAssistantConversationId.value = null
+    }
   }
 
   streamSocket.onclose = (event) => {
@@ -204,36 +259,67 @@ function setupStream(conversationId: string) {
     }
     if (!event.wasClean) {
       streamError.value = `Stream closed (code ${event.code})`
-      isSending.value = false
+      if (generatingConversationId.value === conversationId) {
+        isSending.value = false
+        generatingConversationId.value = null
+        waitingForAssistantResponse.value = false
+        waitingForAssistantConversationId.value = null
+      }
     }
   }
 }
 
 function applyStreamPayload(conversationId: string, payload: StreamPayload) {
   if (payload.type === 'token' && payload.messageId) {
+    if (waitingForAssistantConversationId.value === conversationId) {
+      waitingForAssistantResponse.value = false
+      waitingForAssistantConversationId.value = null
+    }
     upsertAssistantMessage(conversationId, payload.messageId, payload.token ?? '')
     void scrollMessagesToBottom()
     return
   }
 
   if (payload.type === 'thinking' && payload.messageId) {
+    if (waitingForAssistantConversationId.value === conversationId) {
+      waitingForAssistantResponse.value = false
+      waitingForAssistantConversationId.value = null
+    }
     upsertAssistantThinking(conversationId, payload.messageId, payload.thinking ?? '')
     return
   }
 
   if (payload.type === 'done') {
-    isSending.value = false
+    if (generatingConversationId.value === conversationId) {
+      waitingForAssistantResponse.value = false
+      waitingForAssistantConversationId.value = null
+      generatingConversationId.value = null
+      isSending.value = false
+    }
     return
   }
 
   if (payload.type === 'stopped') {
-    isSending.value = false
+    if (generatingConversationId.value === conversationId) {
+      waitingForAssistantResponse.value = false
+      waitingForAssistantConversationId.value = null
+      generatingConversationId.value = null
+      isSending.value = false
+    }
     return
   }
 
   if (payload.type === 'error') {
+    if (waitingForAssistantConversationId.value === conversationId) {
+      waitingForAssistantResponse.value = false
+      waitingForAssistantConversationId.value = null
+    }
     streamError.value = payload.error ?? 'Stream error'
-    isSending.value = false
+    markLatestUserMessageError(conversationId)
+    if (generatingConversationId.value === conversationId) {
+      generatingConversationId.value = null
+      isSending.value = false
+    }
   }
 }
 
@@ -261,7 +347,12 @@ function setupEventSourceFallback(conversationId: string) {
     const payload = safeParseStreamPayload(messageEvent.data)
     applyStreamPayload(conversationId, payload)
     streamError.value = payload.error ?? 'Stream disconnected'
-    isSending.value = false
+    if (generatingConversationId.value === conversationId) {
+      isSending.value = false
+      generatingConversationId.value = null
+      waitingForAssistantResponse.value = false
+      waitingForAssistantConversationId.value = null
+    }
   })
 }
 
@@ -277,30 +368,35 @@ function safeParseStreamPayload(raw: unknown): StreamPayload {
 }
 
 function upsertAssistantMessage(conversationId: string, messageId: string, token: string) {
-  const existing = messages.value.find((message) => message.id === messageId)
+  const targetMessages = ensureConversationMessages(conversationId)
+  const existing = targetMessages.find((message) => message.id === messageId)
   if (existing) {
     existing.content += token
+    syncVisibleMessagesFromConversation(conversationId)
     return
   }
-  messages.value.push({
+  targetMessages.push({
     id: messageId,
     conversationId,
     role: 'assistant',
     content: token,
     createdAt: new Date().toISOString(),
   })
+  syncVisibleMessagesFromConversation(conversationId)
 }
 
 function upsertAssistantThinking(conversationId: string, messageId: string, thinking: string) {
   if (!thinking) {
     return
   }
-  const existing = messages.value.find((message) => message.id === messageId)
+  const targetMessages = ensureConversationMessages(conversationId)
+  const existing = targetMessages.find((message) => message.id === messageId)
   if (existing) {
     existing.thinking = (existing.thinking ?? '') + thinking
+    syncVisibleMessagesFromConversation(conversationId)
     return
   }
-  messages.value.push({
+  targetMessages.push({
     id: messageId,
     conversationId,
     role: 'assistant',
@@ -308,6 +404,7 @@ function upsertAssistantThinking(conversationId: string, messageId: string, thin
     thinking,
     createdAt: new Date().toISOString(),
   })
+  syncVisibleMessagesFromConversation(conversationId)
 }
 
 async function beginConversationTitleEdit() {
@@ -331,8 +428,9 @@ async function sendMessage() {
 
   const conversationId = selectedConversationId.value
   const filesToSend = [...selectedFiles.value]
+  const localMessageId = `local-${Date.now()}`
   messages.value.push({
-    id: `local-${Date.now()}`,
+    id: localMessageId,
     conversationId,
     role: 'user',
     content,
@@ -341,6 +439,7 @@ async function sendMessage() {
     attachments: filesToSend.map((file) => file.name),
     createdAt: new Date().toISOString(),
   })
+  conversationMessageCache.set(conversationId, cloneMessages(messages.value))
 
   draft.value = ''
   selectedFiles.value = []
@@ -348,13 +447,54 @@ async function sendMessage() {
     fileInputEl.value.value = ''
   }
   isSending.value = true
+  generatingConversationId.value = conversationId
+  waitingForAssistantResponse.value = true
+  waitingForAssistantConversationId.value = conversationId
   try {
     await createMessage(conversationId, content, filesToSend)
     await loadConversations()
     await scrollMessagesToBottom()
   } catch (error) {
-    isSending.value = false
-    streamError.value = error instanceof Error ? error.message : 'Failed to send message'
+    if (generatingConversationId.value === conversationId) {
+      isSending.value = false
+      generatingConversationId.value = null
+    }
+    if (waitingForAssistantConversationId.value === conversationId) {
+      waitingForAssistantResponse.value = false
+      waitingForAssistantConversationId.value = null
+    }
+    const message = error instanceof Error ? error.message : 'Failed to send message'
+    streamError.value = message
+    const localMessageIndex = messages.value.findIndex((item) => item.id === localMessageId)
+    if (localMessageIndex >= 0) {
+      const localMessage = messages.value[localMessageIndex]
+      if (localMessage) {
+        messages.value[localMessageIndex] = {
+          ...localMessage,
+          hasError: true,
+        }
+        conversationMessageCache.set(conversationId, cloneMessages(messages.value))
+        try {
+          const persisted = await createFailedMessage(
+            conversationId,
+            content,
+            filesToSend.map((file) => file.name),
+          )
+          messages.value[localMessageIndex] = persisted
+          conversationMessageCache.set(conversationId, cloneMessages(messages.value))
+          await loadConversations()
+        } catch (persistError) {
+          console.error('failed to persist failed user message', persistError)
+        }
+      }
+    }
+    const lower = message.toLowerCase()
+    if (
+      filesToSend.length > 0 &&
+      (lower.includes('too large') || lower.includes('upload limit') || lower.includes('exceeds max size'))
+    ) {
+      window.alert(message)
+    }
   }
 }
 
@@ -365,7 +505,9 @@ function handleFileSelection(event: Event) {
   if (totalBytes > maxTotalUploadBytes) {
     selectedFiles.value = []
     input.value = ''
-    streamError.value = `Selected files exceed the ${maxTotalUploadLabel} total upload limit. Remove some files and try again.`
+    notifyUploadError(
+      `Selected files exceed the ${maxTotalUploadLabel} total upload limit. Remove some files and try again.`,
+    )
     return
   }
   const oversizedImages = files.filter(
@@ -374,7 +516,9 @@ function handleFileSelection(event: Event) {
   if (oversizedImages.length > 0) {
     selectedFiles.value = []
     input.value = ''
-    streamError.value = `Image files must be ${maxImageUploadLabel} or smaller: ${oversizedImages.map((file) => file.name).join(', ')}`
+    notifyUploadError(
+      `Image files must be ${maxImageUploadLabel} or smaller: ${oversizedImages.map((file) => file.name).join(', ')}`,
+    )
     return
   }
   selectedFiles.value = files
@@ -416,10 +560,83 @@ async function saveConversationTitle() {
 }
 
 async function stopGeneration() {
-  if (!selectedConversationId.value || !isSending.value) {
+  if (!selectedConversationId.value || generatingConversationId.value !== selectedConversationId.value) {
     return
   }
   await stopConversationGeneration(selectedConversationId.value)
+}
+
+function cacheCurrentConversationMessages() {
+  if (!selectedConversationId.value) {
+    return
+  }
+  conversationMessageCache.set(selectedConversationId.value, cloneMessages(messages.value))
+}
+
+function ensureConversationMessages(conversationId: string): DisplayMessage[] {
+  const cached = conversationMessageCache.get(conversationId)
+  if (cached) {
+    return cached
+  }
+  const initial = conversationId === selectedConversationId.value ? cloneMessages(messages.value) : []
+  conversationMessageCache.set(conversationId, initial)
+  return initial
+}
+
+function syncVisibleMessagesFromConversation(conversationId: string) {
+  if (conversationId !== selectedConversationId.value) {
+    return
+  }
+  messages.value = cloneMessages(conversationMessageCache.get(conversationId) ?? [])
+}
+
+function cloneMessages(items: DisplayMessage[]): DisplayMessage[] {
+  return items.map((item) => ({ ...item }))
+}
+
+function mergeMessagesPreservingStreamState(
+  persisted: DisplayMessage[],
+  cached: DisplayMessage[],
+): DisplayMessage[] {
+  if (cached.length === 0) {
+    return persisted
+  }
+
+  const cachedById = new Map(cached.map((message) => [message.id, message]))
+  const merged = persisted.map((message) => {
+    const local = cachedById.get(message.id)
+    if (!local || message.role !== 'assistant') {
+      return message
+    }
+    return {
+      ...message,
+      content: pickLongestOrPrefix(local.content, message.content),
+      thinking: pickLongestOrPrefix(local.thinking ?? '', message.thinking ?? '') || undefined,
+    }
+  })
+
+  for (const localMessage of cached) {
+    if (localMessage.id.startsWith('local-')) {
+      continue
+    }
+    if (!merged.some((item) => item.id === localMessage.id)) {
+      merged.push(localMessage)
+    }
+  }
+  return merged
+}
+
+function pickLongestOrPrefix(cached: string, persisted: string): string {
+  if (!cached) {
+    return persisted
+  }
+  if (!persisted) {
+    return cached
+  }
+  if (cached.startsWith(persisted) || persisted.startsWith(cached)) {
+    return cached.length >= persisted.length ? cached : persisted
+  }
+  return persisted.length >= cached.length ? persisted : cached
 }
 
 function confirmArchive(conversationId: string): boolean {
@@ -434,8 +651,12 @@ function confirmDelete(conversationId: string): boolean {
   return window.confirm(`Delete "${title}"? This cannot be undone.`)
 }
 
-async function archiveSelectedConversation() {
+async function archiveSelectedConversation(event?: MouseEvent) {
   if (!selectedConversationId.value) {
+    return
+  }
+  if (event?.shiftKey) {
+    await deleteChat(selectedConversationId.value)
     return
   }
   const toArchive = selectedConversationId.value
@@ -456,7 +677,11 @@ async function archiveSelectedConversation() {
   }
 }
 
-async function archiveChat(conversationId: string) {
+async function archiveChat(conversationId: string, event?: MouseEvent) {
+  if (event?.shiftKey) {
+    await deleteChat(conversationId)
+    return
+  }
   if (!confirmArchive(conversationId)) {
     return
   }
@@ -543,7 +768,17 @@ function attachmentDownloadUrl(message: Message, attachmentIndex: number): strin
           <button class="conversation-item" @click="selectConversation(conversation.id)">
             {{ conversation.title }}
           </button>
-          <button class="icon-button" title="Archive chat" @click.stop="archiveChat(conversation.id)">
+          <span
+            v-if="generatingConversationId === conversation.id"
+            class="sidebar-generating-indicator"
+            aria-label="Generating response"
+            title="Generating response"
+          />
+          <button
+            class="icon-button"
+            title="Archive chat (Shift+click to delete)"
+            @click.stop="archiveChat(conversation.id, $event)"
+          >
             📦
           </button>
         </div>
@@ -581,7 +816,12 @@ function attachmentDownloadUrl(message: Message, attachmentIndex: number): strin
               </svg>
               Rename
             </button>
-            <button class="title-edit-button" :disabled="!selectedConversationId" @click="archiveSelectedConversation">
+            <button
+              class="title-edit-button"
+              :disabled="!selectedConversationId"
+              title="Archive chat (Shift+click to delete)"
+              @click="archiveSelectedConversation($event)"
+            >
               Archive
             </button>
           </template>
@@ -603,7 +843,7 @@ function attachmentDownloadUrl(message: Message, attachmentIndex: number): strin
           v-for="message in displayMessages"
           :key="message.id"
           class="message"
-          :class="message.role"
+          :class="[message.role, { error: message.hasError }]"
         >
           <details v-if="message.role === 'assistant' && message.thinking" class="message-thinking">
             <summary>Thinking</summary>
@@ -614,6 +854,7 @@ function attachmentDownloadUrl(message: Message, attachmentIndex: number): strin
             <p>{{ displayUserMessage(message) }}</p>
             <div v-if="message.attachments?.length" class="message-attachments">
               <a
+                v-if="!message.hasError"
                 v-for="(attachment, index) in message.attachments"
                 :key="`${attachment}-${index}`"
                 class="message-attachment-chip"
@@ -624,6 +865,16 @@ function attachmentDownloadUrl(message: Message, attachmentIndex: number): strin
                 <span aria-hidden="true">📄</span>
                 {{ attachment }}
               </a>
+              <span
+                v-else
+                v-for="(attachment, index) in message.attachments"
+                :key="`${attachment}-${index}`"
+                class="message-attachment-chip"
+                :title="attachment"
+              >
+                <span aria-hidden="true">📄</span>
+                {{ attachment }}
+              </span>
             </div>
           </template>
           <div
@@ -631,6 +882,14 @@ function attachmentDownloadUrl(message: Message, attachmentIndex: number): strin
             class="message-markdown"
             v-html="renderAssistantMarkdown(message.content)"
           />
+        </article>
+        <article v-if="shouldShowPendingAssistantPlaceholder" class="message assistant pending-response">
+          <strong class="message-role">assistant</strong>
+          <div class="loading-dots" aria-live="polite" aria-label="Assistant is generating a response">
+            <span />
+            <span />
+            <span />
+          </div>
         </article>
       </div>
       <p v-if="streamError" class="error">{{ streamError }}</p>
@@ -757,12 +1016,35 @@ function attachmentDownloadUrl(message: Message, attachmentIndex: number): strin
 
 .conversation-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   gap: 0.3rem;
 }
 
 .conversation-row.archived {
   grid-template-columns: 1fr auto auto;
+}
+
+.sidebar-generating-indicator {
+  align-self: center;
+  justify-self: center;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--primary);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 60%, transparent);
+  animation: sidebar-generating-pulse 1.4s ease-out infinite;
+}
+
+@keyframes sidebar-generating-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 0.45rem color-mix(in srgb, var(--primary) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 0%, transparent);
+  }
 }
 
 .conversation-row.active .conversation-item {
@@ -878,6 +1160,7 @@ function attachmentDownloadUrl(message: Message, attachmentIndex: number): strin
   max-width: min(60%, 560px);
   line-height: 1.5;
   width: fit-content;
+  transition: background-color 180ms ease, color 180ms ease, border-color 180ms ease;
 }
 
 .message.user {
@@ -886,10 +1169,25 @@ function attachmentDownloadUrl(message: Message, attachmentIndex: number): strin
   color: #fff;
 }
 
+.message.user.error {
+  background: #f9df8b;
+  color: #2f2411;
+}
+
+.message.user.error .message-attachment-chip {
+  background: rgba(255, 255, 255, 0.65);
+  border-color: rgba(47, 36, 17, 0.35);
+  color: #2f2411;
+}
+
 .message.assistant {
   margin-right: auto;
   background: var(--surface);
   border: 1px solid var(--border);
+}
+
+.message.pending-response {
+  min-width: 4.8rem;
 }
 
 .message-role {
@@ -978,6 +1276,42 @@ function attachmentDownloadUrl(message: Message, attachmentIndex: number): strin
 .message-thinking p {
   margin-top: 0.35rem;
   white-space: pre-wrap;
+}
+
+.loading-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1rem;
+}
+
+.loading-dots span {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 72%, transparent);
+  animation: loading-dot-bounce 1s ease-in-out infinite;
+}
+
+.loading-dots span:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+.loading-dots span:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+@keyframes loading-dot-bounce {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  40% {
+    transform: translateY(-0.2rem);
+    opacity: 1;
+  }
 }
 
 .composer {

@@ -76,6 +76,11 @@ type createMessageRequest struct {
 	Content string `json:"content"`
 }
 
+type createFailedMessageRequest struct {
+	Content     string   `json:"content"`
+	Attachments []string `json:"attachments"`
+}
+
 type renameConversationRequest struct {
 	Title string `json:"title"`
 }
@@ -143,6 +148,27 @@ func (h *Handlers) CreateMessage(c *gin.Context) {
 	c.JSON(http.StatusAccepted, gin.H{
 		"assistantMessageId": assistantMessageID,
 	})
+}
+
+func (h *Handlers) CreateFailedMessage(c *gin.Context) {
+	conversationID := c.Param("id")
+	var req createFailedMessageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+		return
+	}
+	content := strings.TrimSpace(req.Content)
+	if content == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "content is required"})
+		return
+	}
+
+	msg, err := h.chat.AddFailedUserMessage(c.Request.Context(), conversationID, content, req.Attachments)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, msg)
 }
 
 func bytesLabel(bytes int64) string {
