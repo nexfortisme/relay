@@ -52,6 +52,49 @@ func (h *Handlers) CreateConversation(c *gin.Context) {
 	c.JSON(http.StatusCreated, conversation)
 }
 
+func (h *Handlers) GetSettings(c *gin.Context) {
+	settings, err := h.chat.GetSettings(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, settings)
+}
+
+type updateSettingsRequest struct {
+	LLMUrl       *string `json:"llm_url"`
+	LLMModel     *string `json:"llm_model"`
+	SystemPrompt *string `json:"system_prompt"`
+}
+
+func (h *Handlers) UpdateSettings(c *gin.Context) {
+	var req updateSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	updates := make(map[string]string)
+	if req.LLMUrl != nil {
+		updates["llm_url"] = *req.LLMUrl
+	}
+	if req.LLMModel != nil {
+		updates["llm_model"] = *req.LLMModel
+	}
+	if req.SystemPrompt != nil {
+		updates["system_prompt"] = *req.SystemPrompt
+	}
+	if err := h.chat.UpdateSettings(c.Request.Context(), updates); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	settings, err := h.chat.GetSettings(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, settings)
+}
+
 func (h *Handlers) ListConversations(c *gin.Context) {
 	includeArchived := c.Query("includeArchived") == "1" || c.Query("includeArchived") == "true"
 	conversations, err := h.chat.ListConversations(c.Request.Context(), includeArchived)

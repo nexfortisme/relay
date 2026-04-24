@@ -19,7 +19,8 @@ import (
 
 type Service struct {
 	store             *store.Store
-	llm               llm.Provider
+	defaultLLMURL     string
+	defaultLLMModel   string
 	broker            *Broker
 	tools             tools.Runtime
 	logger            *slog.Logger
@@ -32,7 +33,8 @@ type Service struct {
 
 func NewService(
 	st *store.Store,
-	provider llm.Provider,
+	defaultLLMURL string,
+	defaultLLMModel string,
 	toolRuntime tools.Runtime,
 	logger *slog.Logger,
 	relayDir string,
@@ -40,7 +42,8 @@ func NewService(
 ) *Service {
 	return &Service{
 		store:             st,
-		llm:               provider,
+		defaultLLMURL:     defaultLLMURL,
+		defaultLLMModel:   defaultLLMModel,
 		broker:            NewBroker(),
 		tools:             toolRuntime,
 		logger:            logger,
@@ -49,6 +52,57 @@ func NewService(
 		timeout:           60 * time.Second,
 		cancels:           make(map[string]context.CancelFunc),
 	}
+}
+
+func (s *Service) settingOrDefault(ctx context.Context, key, defaultVal string) string {
+	val, ok, err := s.store.GetSetting(ctx, key)
+	if err != nil || !ok || val == "" {
+		return defaultVal
+	}
+	return val
+}
+
+type RuntimeSettings struct {
+	LLMURL       string
+	LLMModel     string
+	SystemPrompt string
+}
+
+func (s *Service) LoadRuntimeSettings(ctx context.Context) RuntimeSettings {
+	return RuntimeSettings{
+		LLMURL:       s.settingOrDefault(ctx, "llm_url", s.defaultLLMURL),
+		LLMModel:     s.settingOrDefault(ctx, "llm_model", s.defaultLLMModel),
+		SystemPrompt: s.settingOrDefault(ctx, "system_prompt", ""),
+	}
+}
+
+func (s *Service) GetSettings(ctx context.Context) (map[string]string, error) {
+	dbSettings, err := s.store.GetAllSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := map[string]string{
+		"llm_url":       s.defaultLLMURL,
+		"llm_model":     s.defaultLLMModel,
+		"system_prompt": "",
+	}
+	for k, v := range dbSettings {
+		result[k] = v
+	}
+	return result, nil
+}
+
+func (s *Service) UpdateSettings(ctx context.Context, settings map[string]string) error {
+	allowed := map[string]bool{"llm_url": true, "llm_model": true, "system_prompt": true}
+	for k, v := range settings {
+		if !allowed[k] {
+			continue
+		}
+		if err := s.store.UpsertSetting(ctx, k, v); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) CreateConversation(ctx context.Context) (store.Conversation, error) {
@@ -164,7 +218,8 @@ func (s *Service) addUserMessageAndGenerate(
 		return store.Message{}, err
 	}
 
-	go s.generateAssistant(conversationID, assistantMsg.ID, toLLMMessages(history))
+	settings := s.LoadRuntimeSettings(ctx)
+	go s.generateAssistant(conversationID, assistantMsg.ID, toLLMMessages(history, settings.SystemPrompt), settings)
 	return assistantMsg, nil
 }
 
@@ -227,13 +282,14 @@ func (s *Service) GetMessageAttachment(ctx context.Context, conversationID strin
 	return path, storedName, nil
 }
 
-func (s *Service) generateAssistant(conversationID string, assistantMessageID string, messages []llm.ChatMessage) {
+func (s *Service) generateAssistant(conversationID string, assistantMessageID string, messages []llm.ChatMessage, settings RuntimeSettings) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
 	s.registerCancel(conversationID, cancel)
 	defer s.unregisterCancel(conversationID)
 
-	stream := s.llm.GenerateStream(ctx, messages, s.tools)
+	provider := llm.NewHTTPProvider(settings.LLMURL, settings.LLMModel)
+	stream := provider.GenerateStream(ctx, messages, s.tools)
 	var contentBuilder strings.Builder
 	var thinkingBuilder strings.Builder
 
@@ -324,9 +380,19 @@ func errorsIsContextDone(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
-func toLLMMessages(messages []store.Message) []llm.ChatMessage {
-	out := make([]llm.ChatMessage, 0, len(messages))
+func toLLMMessages(messages []store.Message, systemPrompt string) []llm.ChatMessage {
+	capacity := len(messages)
+	if systemPrompt != "" {
+		capacity++
+	}
+	out := make([]llm.ChatMessage, 0, capacity)
+	if systemPrompt != "" {
+		out = append(out, llm.ChatMessage{Role: "system", Content: systemPrompt})
+	}
 	for _, m := range messages {
+		if m.Role == "system" {
+			continue
+		}
 		llmContent := m.LLMContent
 		if llmContent == "" {
 			llmContent = m.Content

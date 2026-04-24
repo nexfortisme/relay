@@ -10,6 +10,8 @@ import {
   createFailedMessage,
   deleteConversation,
   createMessage,
+  getSettings,
+  updateSettings,
   listConversations,
   listMessages,
   messageAttachmentDownloadUrl,
@@ -18,6 +20,7 @@ import {
   stopConversationGeneration,
   type Conversation,
   type Message,
+  type Settings,
 } from './lib/api'
 
 const conversations = ref<Conversation[]>([])
@@ -35,6 +38,10 @@ const waitingForAssistantConversationId = ref<string | null>(null)
 const streamError = ref('')
 const showArchived = ref(false)
 const theme = ref<'dark' | 'light'>('dark')
+const showSettings = ref(false)
+const settingsForm = ref<Settings>({ llm_url: '', llm_model: '', system_prompt: '' })
+const settingsSaving = ref(false)
+const settingsError = ref('')
 const renameDraft = ref('')
 const isRenaming = ref(false)
 const isEditingTitle = ref(false)
@@ -539,6 +546,31 @@ function toggleTheme() {
   theme.value = theme.value === 'dark' ? 'light' : 'dark'
 }
 
+async function openSettings() {
+  settingsError.value = ''
+  try {
+    const s = await getSettings()
+    settingsForm.value = { ...s }
+  } catch {
+    settingsForm.value = { llm_url: '', llm_model: '', system_prompt: '' }
+  }
+  showSettings.value = true
+}
+
+async function saveSettings() {
+  settingsSaving.value = true
+  settingsError.value = ''
+  try {
+    const saved = await updateSettings(settingsForm.value)
+    settingsForm.value = { ...saved }
+    showSettings.value = false
+  } catch (e) {
+    settingsError.value = e instanceof Error ? e.message : 'Failed to save settings'
+  } finally {
+    settingsSaving.value = false
+  }
+}
+
 async function saveConversationTitle() {
   if (!selectedConversationId.value) {
     return
@@ -751,12 +783,23 @@ function attachmentDownloadUrl(message: Message, attachmentIndex: number): strin
     <aside class="sidebar">
       <div class="sidebar-actions">
         <button class="new-chat" @click="handleCreateConversation">New Chat</button>
-        <button class="theme-toggle" @click="showArchived = !showArchived">
-          {{ showArchived ? 'Hide archived' : 'Show archived' }}
-        </button>
-        <button class="theme-toggle" @click="toggleTheme">
-          {{ theme === 'dark' ? 'Light mode' : 'Dark mode' }}
-        </button>
+        <div class="sidebar-controls">
+          <button
+            class="control-btn"
+            :title="showArchived ? 'Hide archived' : 'Show archived'"
+            @click="showArchived = !showArchived"
+          >
+            {{ showArchived ? '📂' : '📁' }}
+          </button>
+          <button
+            class="control-btn"
+            :title="theme === 'dark' ? 'Light mode' : 'Dark mode'"
+            @click="toggleTheme"
+          >
+            {{ theme === 'dark' ? '☀️' : '🌙' }}
+          </button>
+          <button class="control-btn" title="Settings" @click="openSettings">⚙️</button>
+        </div>
       </div>
       <div class="conversation-list">
         <div
@@ -929,6 +972,34 @@ function attachmentDownloadUrl(message: Message, attachmentIndex: number): strin
         </button>
       </form>
     </section>
+  <div v-if="showSettings" class="settings-overlay" @click.self="showSettings = false">
+    <div class="settings-panel">
+      <div class="settings-header">
+        <h2 class="settings-title">Settings</h2>
+        <button class="settings-close" @click="showSettings = false">✕</button>
+      </div>
+      <div class="settings-body">
+        <label class="settings-label">LLM URL</label>
+        <input class="settings-input" v-model="settingsForm.llm_url" placeholder="http://localhost:11434/v1" />
+        <label class="settings-label">Model</label>
+        <input class="settings-input" v-model="settingsForm.llm_model" placeholder="gpt-4o-mini" />
+        <label class="settings-label">System Prompt</label>
+        <textarea
+          class="settings-textarea"
+          v-model="settingsForm.system_prompt"
+          placeholder="You are a helpful assistant."
+          rows="6"
+        />
+        <p v-if="settingsError" class="settings-error">{{ settingsError }}</p>
+      </div>
+      <div class="settings-footer">
+        <button class="settings-cancel" @click="showSettings = false">Cancel</button>
+        <button class="settings-save" :disabled="settingsSaving" @click="saveSettings">
+          {{ settingsSaving ? 'Saving…' : 'Save' }}
+        </button>
+      </div>
+    </div>
+  </div>
   </main>
 </template>
 
@@ -996,15 +1067,148 @@ function attachmentDownloadUrl(message: Message, attachmentIndex: number): strin
   cursor: pointer;
 }
 
-.theme-toggle {
-  width: 100%;
+.sidebar-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.4rem;
+}
+
+.control-btn {
+  padding: 0.5rem 0;
+  border-radius: 0.6rem;
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 1rem;
+  text-align: center;
+}
+
+.control-btn:hover {
+  background: var(--surface);
+}
+
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.settings-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  width: min(480px, 90vw);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  max-height: 85vh;
+  overflow: hidden;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.settings-close {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.4rem;
+}
+
+.settings-close:hover {
+  color: var(--text);
+  background: var(--surface-soft);
+}
+
+.settings-body {
+  padding: 1.25rem;
+  display: grid;
+  gap: 0.5rem;
+  overflow-y: auto;
+}
+
+.settings-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 0.4rem;
+}
+
+.settings-input,
+.settings-textarea {
   padding: 0.6rem 0.75rem;
+  border-radius: 0.55rem;
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.settings-textarea {
+  resize: vertical;
+  min-height: 100px;
+}
+
+.settings-error {
+  color: #ef4444;
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.settings-footer {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.settings-cancel {
+  padding: 0.55rem 1rem;
   border-radius: 0.6rem;
   border: 1px solid var(--border);
   background: var(--surface-soft);
   color: var(--text);
   font-weight: 600;
   cursor: pointer;
+}
+
+.settings-save {
+  padding: 0.55rem 1.1rem;
+  border-radius: 0.6rem;
+  border: none;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .conversation-list {
