@@ -50,8 +50,10 @@ const fileInputEl = ref<HTMLInputElement | null>(null)
 const messagesEl = ref<HTMLElement | null>(null)
 let streamSocket: WebSocket | null = null
 let eventSourceFallback: EventSource | null = null
-const maxTotalUploadBytes = parsePositiveInt(import.meta.env.VITE_MAX_UPLOAD_BYTES, 30 * 1024 * 1024)
+const maxTotalUploadBytes = parsePositiveInt(import.meta.env.VITE_MAX_UPLOAD_BYTES, 50 * 1024 * 1024)
 const maxTotalUploadLabel = formatBytesLabel(maxTotalUploadBytes)
+const maxSingleFileBytes = 50 * 1024 * 1024
+const maxSingleFileLabel = formatBytesLabel(maxSingleFileBytes)
 const maxImageUploadBytes = parsePositiveInt(import.meta.env.VITE_MAX_IMAGE_BYTES, 15 * 1024 * 1024)
 const maxImageUploadLabel = formatBytesLabel(maxImageUploadBytes)
 
@@ -508,6 +510,15 @@ async function sendMessage() {
 function handleFileSelection(event: Event) {
   const input = event.target as HTMLInputElement
   const files = input.files ? Array.from(input.files) : []
+  const oversizedFiles = files.filter((file) => file.size > maxSingleFileBytes)
+  if (oversizedFiles.length > 0) {
+    selectedFiles.value = []
+    input.value = ''
+    notifyUploadError(
+      `Files must be ${maxSingleFileLabel} or smaller: ${oversizedFiles.map((file) => file.name).join(', ')}`,
+    )
+    return
+  }
   const totalBytes = files.reduce((sum, file) => sum + file.size, 0)
   if (totalBytes > maxTotalUploadBytes) {
     selectedFiles.value = []
