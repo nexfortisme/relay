@@ -10,7 +10,6 @@ import (
 	"github.com/nexfortisme/relay/internal/chat"
 	"github.com/nexfortisme/relay/internal/config"
 	"github.com/nexfortisme/relay/internal/httpapi"
-	"github.com/nexfortisme/relay/internal/llm"
 	"github.com/nexfortisme/relay/internal/skills"
 	"github.com/nexfortisme/relay/internal/store"
 	"github.com/nexfortisme/relay/internal/tools"
@@ -36,7 +35,6 @@ func NewServer(logger *slog.Logger) (*Server, func(), error) {
 		return nil, nil, err
 	}
 
-	llmProvider := llm.NewHTTPProvider(cfg.LLMURL, cfg.LLMModel)
 	_ = skills.NewStaticRegistry([]skills.Descriptor{
 		{
 			Name:              "default-chat",
@@ -52,7 +50,8 @@ func NewServer(logger *slog.Logger) (*Server, func(), error) {
 	)
 	chatService := chat.NewService(
 		st,
-		llmProvider,
+		cfg.LLMURL,
+		cfg.LLMModel,
 		toolRuntime,
 		logger,
 		cfg.RelayDir,
@@ -68,7 +67,7 @@ func NewServer(logger *slog.Logger) (*Server, func(), error) {
 	engine.Use(httpapi.RequestLogger(logger))
 	engine.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{cfg.WebOrigin},
-		AllowMethods:     []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
+		AllowMethods:     []string{"GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "X-Request-ID"},
 		ExposeHeaders:    []string{"X-Request-ID"},
 		AllowCredentials: true,
@@ -80,6 +79,8 @@ func NewServer(logger *slog.Logger) (*Server, func(), error) {
 
 	api := engine.Group("/api")
 	{
+		api.GET("/settings", handlers.GetSettings)
+		api.PUT("/settings", handlers.UpdateSettings)
 		api.POST("/conversations", handlers.CreateConversation)
 		api.GET("/conversations", handlers.ListConversations)
 		api.PATCH("/conversations/:id", handlers.RenameConversation)

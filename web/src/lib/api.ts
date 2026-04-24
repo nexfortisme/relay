@@ -193,6 +193,32 @@ export async function stopConversationGeneration(conversationId: string): Promis
   }
 }
 
+export type Settings = {
+  llm_url: string
+  llm_model: string
+  system_prompt: string
+}
+
+export async function getSettings(): Promise<Settings> {
+  const response = await fetch(`${API_BASE}/settings`)
+  if (!response.ok) {
+    throw new Error('Failed to load settings')
+  }
+  return response.json()
+}
+
+export async function updateSettings(settings: Partial<Settings>): Promise<Settings> {
+  const response = await fetch(`${API_BASE}/settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  })
+  if (!response.ok) {
+    throw new Error('Failed to save settings')
+  }
+  return response.json()
+}
+
 export function messageAttachmentDownloadUrl(
   conversationId: string,
   messageId: string,
