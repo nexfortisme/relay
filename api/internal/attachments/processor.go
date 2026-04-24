@@ -28,7 +28,7 @@ type chunk struct {
 
 const (
 	defaultMaxFileBytes  = 3 * 1024 * 1024
-	defaultMaxImageBytes = 700 * 1024
+	defaultMaxImageBytes = 15 * 1024 * 1024
 	inlineCharBudget     = 12000
 	chunkSizeRunes       = 1200
 	chunkOverlapRunes    = 180
@@ -66,9 +66,6 @@ func BuildPrompt(userPrompt string, files []UploadedFile, opts PromptOptions) (s
 		if len(file.Data) == 0 {
 			continue
 		}
-		if len(file.Data) > options.MaxFileBytes {
-			return "", fmt.Errorf("%s exceeds max size of %d MB", file.Name, options.MaxFileBytes/(1024*1024))
-		}
 
 		contentType := normalizedContentType(file.ContentType, file.Name)
 		if strings.HasPrefix(contentType, "image/") {
@@ -78,6 +75,10 @@ func BuildPrompt(userPrompt string, files []UploadedFile, opts PromptOptions) (s
 			}
 			images = append(images, imageBlock(file.Name, contentType, file.Data))
 			continue
+		}
+
+		if len(file.Data) > options.MaxFileBytes {
+			return "", fmt.Errorf("%s exceeds max size of %d MB", file.Name, options.MaxFileBytes/(1024*1024))
 		}
 
 		text, err := extractDocumentText(file.Name, contentType, file.Data)
