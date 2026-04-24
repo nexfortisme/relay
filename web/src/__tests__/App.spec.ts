@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
-import { shallowMount } from '@vue/test-utils'
+import { flushPromises, shallowMount } from '@vue/test-utils'
 import App from '../App.vue'
+import ConversationSidebar from '../components/ConversationSidebar.vue'
 
 describe('App', () => {
   it('renders the chat shell', async () => {
@@ -16,7 +17,7 @@ describe('App', () => {
           }),
         )
       }
-      if (url.endsWith('/api/conversations')) {
+      if (url.includes('/api/conversations')) {
         return new Response(JSON.stringify({ items: [] }))
       }
       if (url.includes('/messages')) {
@@ -30,10 +31,10 @@ describe('App', () => {
 
     try {
       const wrapper = shallowMount(App)
-      await Promise.resolve()
-      await Promise.resolve()
+      await flushPromises()
+      await flushPromises()
 
-      expect(wrapper.text()).toContain('New Chat')
+      expect(wrapper.findComponent(ConversationSidebar).exists()).toBe(true)
     } finally {
       ;(globalThis as { fetch: typeof fetch }).fetch = originalFetch
     }
