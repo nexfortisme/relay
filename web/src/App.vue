@@ -18,6 +18,7 @@ import {
   listConversations,
   listMessages,
   renameConversation,
+  suggestConversationTitle,
   restoreConversation,
   stopConversationGeneration,
   type Conversation,
@@ -45,6 +46,7 @@ const settingsSaving = ref(false)
 const settingsError = ref('')
 const renameDraft = ref('')
 const isRenaming = ref(false)
+const isSuggestingTitle = ref(false)
 const isEditingTitle = ref(false)
 const messageListEl = ref<InstanceType<typeof MessageList> | null>(null)
 let streamSocket: WebSocket | null = null
@@ -548,7 +550,7 @@ async function saveConversationTitle() {
   if (!selectedConversationId.value) {
     return
   }
-  const title = renameDraft.value.trim()
+  const title = clampTitleForDisplay(renameDraft.value)
   if (!title) {
     renameDraft.value = selectedConversation.value?.title ?? 'New chat'
     isEditingTitle.value = false
@@ -556,11 +558,36 @@ async function saveConversationTitle() {
   }
   isRenaming.value = true
   try {
+    renameDraft.value = title
     await renameConversation(selectedConversationId.value, title)
     await loadConversations()
     isEditingTitle.value = false
   } finally {
     isRenaming.value = false
+  }
+}
+
+function clampTitleForDisplay(title: string): string {
+  const normalized = title.trim().replace(/\s+/g, ' ')
+  if (normalized.length <= 40) {
+    return normalized
+  }
+  return normalized.slice(0, 40).trim()
+}
+
+async function suggestConversationTitleWithLLM() {
+  if (!selectedConversationId.value || isRenaming.value || isSuggestingTitle.value) {
+    return
+  }
+  isSuggestingTitle.value = true
+  try {
+    const suggestedTitle = await suggestConversationTitle(selectedConversationId.value)
+    renameDraft.value = clampTitleForDisplay(suggestedTitle)
+    await saveConversationTitle()
+  } catch (error) {
+    streamError.value = error instanceof Error ? error.message : 'Failed to suggest conversation title'
+  } finally {
+    isSuggestingTitle.value = false
   }
 }
 
@@ -758,12 +785,14 @@ async function scrollMessagesToBottom() {
         v-model:rename-draft="renameDraft"
         :is-editing="isEditingTitle"
         :is-renaming="isRenaming"
+        :is-suggesting-title="isSuggestingTitle"
         :selected-conversation-id="selectedConversationId"
         :title="selectedConversation?.title ?? 'New chat'"
         @archive="archiveSelectedConversation"
         @begin-edit="beginConversationTitleEdit"
         @cancel-edit="cancelConversationTitleEdit"
         @save-title="saveConversationTitle"
+        @suggest-title="suggestConversationTitleWithLLM"
       />
       <MessageList
         ref="messageListEl"

@@ -12,6 +12,7 @@ defineProps<{
     | 'send'
     | 'settings'
     | 'square'
+    | 'sparkles'
     | 'sun'
     | 'trash'
     | 'x'
@@ -72,6 +73,11 @@ defineProps<{
     </template>
     <template v-else-if="name === 'square'">
       <rect x="6" y="6" width="12" height="12" rx="2" />
+    </template>
+    <template v-else-if="name === 'sparkles'">
+      <path d="m12 3 1.5 3.5L17 8l-3.5 1.5L12 13l-1.5-3.5L7 8l3.5-1.5z" />
+      <path d="m5 14 .9 2.1L8 17l-2.1.9L5 20l-.9-2.1L2 17l2.1-.9z" />
+      <path d="m19 13 .8 1.8L21.6 16l-1.8.8L19 18.6l-.8-1.8-1.8-.8 1.8-.8z" />
     </template>
     <template v-else-if="name === 'sun'">
       <circle cx="12" cy="12" r="4" />

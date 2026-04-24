@@ -157,6 +157,20 @@ export async function renameConversation(conversationId: string, title: string):
   }
 }
 
+export async function suggestConversationTitle(conversationId: string): Promise<string> {
+  const response = await fetch(`${API_BASE}/conversations/${conversationId}/suggest-title`, {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    throw new Error('Failed to suggest conversation title')
+  }
+  const data = (await response.json()) as { title?: string }
+  if (!data.title) {
+    throw new Error('Title suggestion was empty')
+  }
+  return data.title
+}
+
 export async function archiveConversation(conversationId: string): Promise<void> {
   const response = await fetch(`${API_BASE}/conversations/${conversationId}/archive`, {
     method: 'PATCH',

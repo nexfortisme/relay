@@ -5,6 +5,7 @@ import AppIcon from './AppIcon.vue'
 const props = defineProps<{
   isEditing: boolean
   isRenaming: boolean
+  isSuggestingTitle: boolean
   renameDraft: string
   selectedConversationId: string | null
   title: string
@@ -15,6 +16,7 @@ defineEmits<{
   beginEdit: []
   cancelEdit: []
   saveTitle: []
+  suggestTitle: []
   'update:renameDraft': [value: string]
 }>()
 
@@ -37,15 +39,24 @@ watch(
   <header class="chat-header">
     <div v-if="!isEditing" class="title-line">
       <div class="title-group">
-        <h1 class="chat-title">{{ title }}</h1>
+        <h1 class="chat-title" :class="{ 'chat-title-suggesting': isSuggestingTitle }">{{ title }}</h1>
         <button
           class="title-icon-button"
-          :disabled="isRenaming"
+          :disabled="isRenaming || isSuggestingTitle"
           title="Rename chat"
           aria-label="Rename chat"
           @click="$emit('beginEdit')"
         >
           <AppIcon name="pencil" :size="16" />
+        </button>
+        <button
+          class="title-icon-button"
+          :disabled="!selectedConversationId || isRenaming || isSuggestingTitle"
+          title="Suggest title with AI"
+          aria-label="Suggest title with AI"
+          @click="$emit('suggestTitle')"
+        >
+          <AppIcon name="sparkles" :size="16" />
         </button>
       </div>
       <button
@@ -112,6 +123,32 @@ watch(
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.chat-title-suggesting {
+  background: linear-gradient(
+    110deg,
+    color-mix(in srgb, var(--text) 70%, #fff) 5%,
+    color-mix(in srgb, var(--primary) 60%, #fff) 35%,
+    #fff 50%,
+    color-mix(in srgb, var(--primary) 60%, #fff) 65%,
+    color-mix(in srgb, var(--text) 70%, #fff) 95%
+  );
+  background-size: 260% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 0.4rem color-mix(in srgb, var(--primary) 35%, transparent));
+  animation: title-shimmer 1s linear infinite;
+}
+
+@keyframes title-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -20% 0;
+  }
 }
 
 .title-icon-button,

@@ -30,6 +30,8 @@ type Service struct {
 	cancels           map[string]context.CancelFunc
 }
 
+const maxConversationTitleLength = 40
+
 func NewService(
 	st *store.Store,
 	defaultLLMURL string,
@@ -237,11 +239,53 @@ func (s *Service) addUserMessageAndGenerate(
 }
 
 func (s *Service) RenameConversation(ctx context.Context, conversationID string, title string) error {
-	trimmed := strings.TrimSpace(title)
+	trimmed := clampConversationTitle(title)
 	if trimmed == "" {
 		return fmt.Errorf("title cannot be empty")
 	}
 	return s.store.UpdateConversationTitle(ctx, conversationID, trimmed)
+}
+
+func (s *Service) SuggestConversationTitle(ctx context.Context, conversationID string) (string, error) {
+	history, err := s.store.GetMessages(ctx, conversationID)
+	if err != nil {
+		return "", err
+	}
+	if len(history) == 0 {
+		return "New chat", nil
+	}
+	settings := s.LoadRuntimeSettings(ctx)
+	provider := llm.NewHTTPProvider(settings.LLMURL, settings.LLMModel)
+	prompt := llm.ChatMessage{
+		Role: "system",
+		Content: "Generate a concise title for this conversation. Return only the title text. " +
+			fmt.Sprintf("Use at most %d characters.", maxConversationTitleLength),
+	}
+	llmMessages := append([]llm.ChatMessage{prompt}, toLLMMessages(history, "")...)
+	stream := provider.GenerateStream(ctx, llmMessages, s.tools)
+	var titleBuilder strings.Builder
+	for event := range stream {
+		if event.Err != nil {
+			return "", event.Err
+		}
+		if event.Token != "" {
+			titleBuilder.WriteString(event.Token)
+		}
+	}
+	title := clampConversationTitle(titleBuilder.String())
+	if title == "" {
+		// Fall back to first user message if the model returns empty output.
+		for _, message := range history {
+			if message.Role == "user" {
+				title = deriveTitle(message.Content)
+				break
+			}
+		}
+	}
+	if title == "" {
+		title = "New chat"
+	}
+	return title, nil
 }
 
 func (s *Service) ArchiveConversation(ctx context.Context, conversationID string) error {
@@ -416,12 +460,24 @@ func (s *Service) ensureConversationTitle(ctx context.Context, conversationID st
 }
 
 func deriveTitle(message string) string {
-	trimmed := strings.TrimSpace(strings.ReplaceAll(message, "\n", " "))
+	trimmed := normalizeConversationTitle(message)
 	if trimmed == "" {
 		return "New chat"
 	}
-	if len(trimmed) <= 40 {
+	if len(trimmed) <= maxConversationTitleLength {
 		return trimmed
 	}
-	return strings.TrimSpace(trimmed[:40]) + "..."
+	return strings.TrimSpace(trimmed[:maxConversationTitleLength]) + "..."
+}
+
+func clampConversationTitle(title string) string {
+	normalized := normalizeConversationTitle(title)
+	if len(normalized) <= maxConversationTitleLength {
+		return normalized
+	}
+	return strings.TrimSpace(normalized[:maxConversationTitleLength])
+}
+
+func normalizeConversationTitle(title string) string {
+	return strings.TrimSpace(strings.ReplaceAll(title, "\n", " "))
 }

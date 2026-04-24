@@ -296,6 +296,16 @@ func (h *Handlers) RenameConversation(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+func (h *Handlers) SuggestConversationTitle(c *gin.Context) {
+	conversationID := c.Param("id")
+	title, err := h.chat.SuggestConversationTitle(c.Request.Context(), conversationID)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"title": title})
+}
+
 func (h *Handlers) ArchiveConversation(c *gin.Context) {
 	if err := h.chat.ArchiveConversation(c.Request.Context(), c.Param("id")); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

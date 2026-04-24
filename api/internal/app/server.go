@@ -84,6 +84,7 @@ func NewServer(logger *slog.Logger) (*Server, func(), error) {
 		api.POST("/conversations", handlers.CreateConversation)
 		api.GET("/conversations", handlers.ListConversations)
 		api.PATCH("/conversations/:id", handlers.RenameConversation)
+		api.POST("/conversations/:id/suggest-title", handlers.SuggestConversationTitle)
 		api.PATCH("/conversations/:id/archive", handlers.ArchiveConversation)
 		api.PATCH("/conversations/:id/restore", handlers.RestoreConversation)
 		api.DELETE("/conversations/:id", handlers.DeleteConversation)
