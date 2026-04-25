@@ -861,6 +861,7 @@ async function scrollMessagesToBottom() {
         :messages="messages"
         :pending-assistant="shouldShowPendingAssistantPlaceholder"
         :requeue-disabled="isSending"
+        :theme="theme"
         @requeue="handleRequeueMessage"
       />
       <p v-if="streamError" class="error">{{ streamError }}</p>

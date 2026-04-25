@@ -45,6 +45,7 @@ describe('MessageList attachment preview', () => {
       props: {
         messages: [userMessage(['data.json'])],
         pendingAssistant: false,
+        theme: 'light',
       },
     })
 
@@ -56,6 +57,9 @@ describe('MessageList attachment preview', () => {
     )
     expect(document.body.textContent).toContain('"b": 2')
     expect(document.body.textContent).toContain('"a": 1')
+    expect(document.body.querySelector('.file-preview-overlay')?.getAttribute('data-theme')).toBe(
+      'light',
+    )
 
     wrapper.unmount()
   })
@@ -64,8 +68,8 @@ describe('MessageList attachment preview', () => {
     const fetchMock = vi.fn<typeof fetch>(async () => {
       return new Response(new Blob(['pdf'], { type: 'application/pdf' }))
     })
-    const createObjectURL = vi.fn(() => 'blob:pdf-preview')
-    const revokeObjectURL = vi.fn()
+    const createObjectURL = vi.fn<() => string>(() => 'blob:pdf-preview')
+    const revokeObjectURL = vi.fn<() => void>()
     vi.stubGlobal('fetch', fetchMock)
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,

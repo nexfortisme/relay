@@ -17,6 +17,7 @@ const props = defineProps<{
   messages: DisplayMessage[]
   pendingAssistant: boolean
   requeueDisabled?: boolean
+  theme?: 'dark' | 'light'
 }>()
 
 const emit = defineEmits<{
@@ -440,7 +441,12 @@ defineExpose({ scrollToBottom })
   </div>
 
   <Teleport to="body">
-    <div v-if="preview" class="file-preview-overlay" @click.self="closePreview">
+    <div
+      v-if="preview"
+      class="file-preview-overlay"
+      :data-theme="theme ?? 'dark'"
+      @click.self="closePreview"
+    >
       <div
         class="file-preview-dialog"
         :class="`file-preview-dialog--${preview.kind}`"
@@ -697,6 +703,19 @@ defineExpose({ scrollToBottom })
 }
 
 .file-preview-overlay {
+  --bg: #0f1115;
+  --surface: #191d27;
+  --surface-soft: #202533;
+  --surface-hover: #262c3a;
+  --selected: #222b3f;
+  --text: #f4f7fb;
+  --muted: #9aa5b5;
+  --border: #2b3240;
+  --primary: #3b82f6;
+  --primary-strong: #2563eb;
+  --danger: #dc2626;
+  --danger-strong: #b91c1c;
+  --shadow: 0 18px 46px rgba(0, 0, 0, 0.34);
   position: fixed;
   inset: 0;
   background: rgba(4, 9, 20, 0.82);
@@ -705,6 +724,22 @@ defineExpose({ scrollToBottom })
   justify-content: center;
   z-index: 200;
   padding: 1.5rem;
+}
+
+.file-preview-overlay[data-theme='light'] {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-soft: #f1f3f6;
+  --surface-hover: #e9edf2;
+  --selected: #eef4ff;
+  --text: #111827;
+  --muted: #667085;
+  --border: #d9dee7;
+  --primary: #2563eb;
+  --primary-strong: #1d4ed8;
+  --danger: #dc2626;
+  --danger-strong: #b91c1c;
+  --shadow: 0 18px 46px rgba(31, 41, 55, 0.16);
 }
 
 .file-preview-dialog {
@@ -809,6 +844,7 @@ defineExpose({ scrollToBottom })
 
 .file-preview-text {
   width: 100%;
+  box-sizing: border-box;
   max-height: calc(90vh - 5.2rem);
   margin: 0;
   padding: 1rem;
