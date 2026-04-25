@@ -1,148 +1,148 @@
 <script setup lang="ts">
-import DOMPurify from 'dompurify'
-import { marked } from 'marked'
-import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { messageAttachmentDownloadUrl, type Message } from '../lib/api'
+import DOMPurify from "dompurify";
+import { marked } from "marked";
+import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { messageAttachmentDownloadUrl, type Message } from "../lib/api";
 import {
   attachmentPreviewKind,
   formatPreviewText,
   isImageFile,
   isPreviewableAttachment,
   type AttachmentPreviewKind,
-} from '../lib/fileTypes'
-import type { DisplayMessage } from '../types'
-import AppIcon from './AppIcon.vue'
+} from "../lib/fileTypes";
+import type { DisplayMessage } from "../types";
+import AppIcon from "./AppIcon.vue";
 
 const props = defineProps<{
-  messages: DisplayMessage[]
-  pendingAssistant: boolean
-  requeueDisabled?: boolean
-  theme?: 'dark' | 'light'
-}>()
+  messages: DisplayMessage[];
+  pendingAssistant: boolean;
+  requeueDisabled?: boolean;
+  theme?: "dark" | "light";
+}>();
 
 const emit = defineEmits<{
-  requeue: [message: DisplayMessage]
-}>()
+  requeue: [message: DisplayMessage];
+}>();
 
-const messagesEl = ref<HTMLElement | null>(null)
-const copiedMessageId = ref<string | null>(null)
-let copiedResetTimer: ReturnType<typeof setTimeout> | null = null
+const messagesEl = ref<HTMLElement | null>(null);
+const copiedMessageId = ref<string | null>(null);
+let copiedResetTimer: ReturnType<typeof setTimeout> | null = null;
 
 type PreviewState = {
-  kind: AttachmentPreviewKind
-  src: string
-  downloadSrc: string
-  filename: string
-  text: string
-  isLoading: boolean
-  error: string
-  objectUrl?: string
-}
+  kind: AttachmentPreviewKind;
+  src: string;
+  downloadSrc: string;
+  filename: string;
+  text: string;
+  isLoading: boolean;
+  error: string;
+  objectUrl?: string;
+};
 
-const preview = ref<PreviewState | null>(null)
-let previewRequestId = 0
+const preview = ref<PreviewState | null>(null);
+let previewRequestId = 0;
 
 function revokePreviewObjectUrl() {
-  const objectUrl = preview.value?.objectUrl
+  const objectUrl = preview.value?.objectUrl;
   if (objectUrl) {
-    URL.revokeObjectURL(objectUrl)
+    URL.revokeObjectURL(objectUrl);
   }
 }
 
 function setPreview(nextPreview: PreviewState) {
-  revokePreviewObjectUrl()
-  preview.value = nextPreview
+  revokePreviewObjectUrl();
+  preview.value = nextPreview;
 }
 
 function openImagePreview(src: string, filename: string) {
-  previewRequestId += 1
+  previewRequestId += 1;
   setPreview({
-    kind: 'image',
+    kind: "image",
     src,
     downloadSrc: src,
     filename,
-    text: '',
+    text: "",
     isLoading: false,
-    error: '',
-  })
+    error: "",
+  });
 }
 
 function closePreview() {
-  previewRequestId += 1
-  revokePreviewObjectUrl()
-  preview.value = null
+  previewRequestId += 1;
+  revokePreviewObjectUrl();
+  preview.value = null;
 }
 
 function handleMarkdownClick(event: MouseEvent) {
-  const target = event.target
-  if (!(target instanceof HTMLImageElement)) return
-  event.preventDefault()
-  openImagePreview(target.src, target.alt || 'image')
+  const target = event.target;
+  if (!(target instanceof HTMLImageElement)) return;
+  event.preventDefault();
+  openImagePreview(target.src, target.alt || "image");
 }
 
 function handleKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && preview.value) {
-    closePreview()
+  if (event.key === "Escape" && preview.value) {
+    closePreview();
   }
 }
 
 async function handleAttachmentPreviewClick(event: MouseEvent, message: Message, index: number) {
-  event.preventDefault()
-  const src = attachmentDownloadUrl(message, index)
-  const filename = message.attachments?.[index] ?? 'attachment'
-  const kind = attachmentPreviewKind(filename)
+  event.preventDefault();
+  const src = attachmentDownloadUrl(message, index);
+  const filename = message.attachments?.[index] ?? "attachment";
+  const kind = attachmentPreviewKind(filename);
   if (!kind) {
-    return
+    return;
   }
 
-  if (kind === 'image') {
-    openImagePreview(src, filename)
-    return
+  if (kind === "image") {
+    openImagePreview(src, filename);
+    return;
   }
 
-  const requestId = previewRequestId + 1
-  previewRequestId = requestId
+  const requestId = previewRequestId + 1;
+  previewRequestId = requestId;
   setPreview({
     kind,
     src,
     downloadSrc: src,
     filename,
-    text: '',
+    text: "",
     isLoading: true,
-    error: '',
-  })
+    error: "",
+  });
 
   try {
-    const response = await fetch(src)
+    const response = await fetch(src);
     if (!response.ok) {
-      throw new Error('Preview request failed')
+      throw new Error("Preview request failed");
     }
     if (requestId !== previewRequestId) {
-      return
+      return;
     }
 
-    if (kind === 'pdf') {
-      const blob = await response.blob()
+    if (kind === "pdf") {
+      const blob = await response.blob();
       if (requestId !== previewRequestId) {
-        return
+        return;
       }
-      const objectUrl = URL.createObjectURL(blob)
+      const objectUrl = URL.createObjectURL(blob);
       setPreview({
         kind,
         src: objectUrl,
         downloadSrc: src,
         filename,
-        text: '',
+        text: "",
         isLoading: false,
-        error: '',
+        error: "",
         objectUrl,
-      })
-      return
+      });
+      return;
     }
 
-    const text = await response.text()
+    const text = await response.text();
     if (requestId !== previewRequestId) {
-      return
+      return;
     }
     setPreview({
       kind,
@@ -151,173 +151,173 @@ async function handleAttachmentPreviewClick(event: MouseEvent, message: Message,
       filename,
       text: formatPreviewText(filename, text),
       isLoading: false,
-      error: '',
-    })
+      error: "",
+    });
   } catch {
     if (requestId !== previewRequestId) {
-      return
+      return;
     }
     setPreview({
       kind,
       src,
       downloadSrc: src,
       filename,
-      text: '',
+      text: "",
       isLoading: false,
-      error: 'Unable to load preview.',
-    })
+      error: "Unable to load preview.",
+    });
   }
 }
 
 marked.setOptions({
   gfm: true,
   breaks: true,
-})
+});
 
 // Open external citation links in a new tab. Only absolute http(s) URLs get
 // target=_blank — relative links and in-page fragments still navigate in place.
-DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   if (!(node instanceof HTMLAnchorElement)) {
-    return
+    return;
   }
-  const href = node.getAttribute('href') ?? ''
+  const href = node.getAttribute("href") ?? "";
   if (!/^https?:\/\//i.test(href)) {
-    return
+    return;
   }
-  node.setAttribute('target', '_blank')
-  node.setAttribute('rel', 'noopener noreferrer')
-})
+  node.setAttribute("target", "_blank");
+  node.setAttribute("rel", "noopener noreferrer");
+});
 
 watch(
   () => {
-    const latestMessage = props.messages[props.messages.length - 1]
+    const latestMessage = props.messages[props.messages.length - 1];
     return [
       props.messages.length,
       props.pendingAssistant,
       latestMessage?.content,
       latestMessage?.thinking,
-    ]
+    ];
   },
   () => {
-    void scrollToBottom()
+    void scrollToBottom();
   },
-  { flush: 'post' },
-)
+  { flush: "post" },
+);
 
 function displayUserMessage(message: DisplayMessage): string {
-  const fromUserContent = message.userContent?.trim()
+  const fromUserContent = message.userContent?.trim();
   if (fromUserContent) {
-    return fromUserContent
+    return fromUserContent;
   }
-  const legacy = message.content
-  const divider = '\n\n---\n'
-  const dividerIndex = legacy.indexOf(divider)
+  const legacy = message.content;
+  const divider = "\n\n---\n";
+  const dividerIndex = legacy.indexOf(divider);
   if (dividerIndex >= 0) {
-    return legacy.slice(0, dividerIndex).trim()
+    return legacy.slice(0, dividerIndex).trim();
   }
-  return legacy
+  return legacy;
 }
 
 function formatElapsed(ms: number | undefined): string {
-  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) {
-    return ''
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) {
+    return "";
   }
   if (ms < 1000) {
-    return `${ms} ms`
+    return `${ms} ms`;
   }
-  const seconds = ms / 1000
+  const seconds = ms / 1000;
   if (seconds < 60) {
-    return `${seconds.toFixed(seconds < 10 ? 2 : 1)} s`
+    return `${seconds.toFixed(seconds < 10 ? 2 : 1)} s`;
   }
-  const totalSeconds = Math.round(seconds)
-  const minutes = Math.floor(totalSeconds / 60)
-  const remSeconds = totalSeconds % 60
-  return `${minutes}m ${remSeconds}s`
+  const totalSeconds = Math.round(seconds);
+  const minutes = Math.floor(totalSeconds / 60);
+  const remSeconds = totalSeconds % 60;
+  return `${minutes}m ${remSeconds}s`;
 }
 
 function renderMarkdown(content: string): string {
-  const parsed = marked.parse(content, { async: false })
-  return DOMPurify.sanitize(parsed)
+  const parsed = marked.parse(content, { async: false });
+  return DOMPurify.sanitize(parsed);
 }
 
 function attachmentDownloadUrl(message: Message, attachmentIndex: number): string {
-  return messageAttachmentDownloadUrl(message.conversationId, message.id, attachmentIndex)
+  return messageAttachmentDownloadUrl(message.conversationId, message.id, attachmentIndex);
 }
 
 function copyTextForMessage(message: DisplayMessage): string {
-  if (message.role === 'assistant') {
-    return message.content
+  if (message.role === "assistant") {
+    return message.content;
   }
-  return displayUserMessage(message)
+  return displayUserMessage(message);
 }
 
 async function copyMessage(message: DisplayMessage) {
-  const text = copyTextForMessage(message)
+  const text = copyTextForMessage(message);
   if (!text) {
-    return
+    return;
   }
-  await writeClipboardText(text)
-  copiedMessageId.value = message.id
+  await writeClipboardText(text);
+  copiedMessageId.value = message.id;
   if (copiedResetTimer) {
-    clearTimeout(copiedResetTimer)
+    clearTimeout(copiedResetTimer);
   }
   copiedResetTimer = setTimeout(() => {
-    copiedMessageId.value = null
-    copiedResetTimer = null
-  }, 1600)
+    copiedMessageId.value = null;
+    copiedResetTimer = null;
+  }, 1600);
 }
 
 async function writeClipboardText(text: string) {
   if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-    return
+    await navigator.clipboard.writeText(text);
+    return;
   }
 
-  const textarea = document.createElement('textarea')
-  textarea.value = text
-  textarea.setAttribute('readonly', '')
-  textarea.style.position = 'fixed'
-  textarea.style.left = '-9999px'
-  document.body.appendChild(textarea)
-  textarea.select()
-  document.execCommand('copy')
-  document.body.removeChild(textarea)
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
 }
 
 function handleThinkingPanelClick(event: MouseEvent) {
-  const details = event.currentTarget
+  const details = event.currentTarget;
   if (!(details instanceof HTMLDetailsElement) || !details.open) {
-    return
+    return;
   }
-  const target = event.target
-  if (target instanceof Element && target.closest('summary')) {
-    return
+  const target = event.target;
+  if (target instanceof Element && target.closest("summary")) {
+    return;
   }
-  details.open = false
+  details.open = false;
 }
 
 async function scrollToBottom() {
-  await nextTick()
-  const el = messagesEl.value
+  await nextTick();
+  const el = messagesEl.value;
   if (!el) {
-    return
+    return;
   }
-  el.scrollTop = el.scrollHeight
+  el.scrollTop = el.scrollHeight;
 }
 
 onMounted(() => {
-  document.addEventListener('keydown', handleKeydown)
-})
+  document.addEventListener("keydown", handleKeydown);
+});
 
 onUnmounted(() => {
   if (copiedResetTimer) {
-    clearTimeout(copiedResetTimer)
+    clearTimeout(copiedResetTimer);
   }
-  closePreview()
-  document.removeEventListener('keydown', handleKeydown)
-})
+  closePreview();
+  document.removeEventListener("keydown", handleKeydown);
+});
 
-defineExpose({ scrollToBottom })
+defineExpose({ scrollToBottom });
 </script>
 
 <template>
@@ -432,11 +432,12 @@ defineExpose({ scrollToBottom })
     </article>
     <article v-if="pendingAssistant" class="message assistant pending-response">
       <strong class="message-role">assistant</strong>
-      <div class="loading-dots" aria-live="polite" aria-label="Assistant is generating a response">
+      <LoaderPrism :size="120" :spin-duration="2.4" color="#0e7490" />
+      <!-- <div class="loading-dots" aria-live="polite" aria-label="Assistant is generating a response">
         <span />
         <span />
         <span />
-      </div>
+      </div> -->
     </article>
   </div>
 
@@ -504,7 +505,9 @@ defineExpose({ scrollToBottom })
             class="file-preview-text file-preview-markdown"
             v-html="renderMarkdown(preview.text)"
           />
-          <pre v-else-if="preview.kind === 'text'" class="file-preview-text">{{ preview.text }}</pre>
+          <pre v-else-if="preview.kind === 'text'" class="file-preview-text">{{
+            preview.text
+          }}</pre>
         </div>
       </div>
     </div>
@@ -726,7 +729,7 @@ defineExpose({ scrollToBottom })
   padding: 1.5rem;
 }
 
-.file-preview-overlay[data-theme='light'] {
+.file-preview-overlay[data-theme="light"] {
   --bg: #f6f7f9;
   --surface: #ffffff;
   --surface-soft: #f1f3f6;
@@ -851,7 +854,12 @@ defineExpose({ scrollToBottom })
   overflow: auto;
   background: var(--surface-soft);
   color: var(--text);
-  font: 0.84rem/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font:
+    0.84rem/1.55 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
