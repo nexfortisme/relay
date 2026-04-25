@@ -253,23 +253,9 @@ func (s *Service) addUserMessageAndGenerate(
 	preparedAttachments ...[]store.MessageAttachment,
 ) (store.Message, error) {
 	now := time.Now().UTC()
-	userMsg := preparedUserMessage
-	if userMsg == nil {
-		userMsg = &store.Message{
-			ID:             uuid.NewString(),
-			ConversationID: conversationID,
-			Role:           "user",
-			Content:        displayContent,
-			UserContent:    displayContent,
-			LLMContent:     llmContent,
-			CreatedAt:      now,
-		}
-	}
+	userMsg := preparedOrNewUserMessage(preparedUserMessage, conversationID, displayContent, llmContent, now)
+	userAttachments := firstAttachmentSet(preparedAttachments)
 
-	var userAttachments []store.MessageAttachment
-	if len(preparedAttachments) > 0 {
-		userAttachments = preparedAttachments[0]
-	}
 	if err := s.store.AppendMessageWithAttachments(ctx, *userMsg, userAttachments); err != nil {
 		return store.Message{}, err
 	}
@@ -297,6 +283,28 @@ func (s *Service) addUserMessageAndGenerate(
 	settings := s.LoadRuntimeSettings(ctx)
 	go s.generateAssistant(conversationID, assistantMsg.ID, toLLMMessages(history, settings.SystemPrompt, citeSourcesDirective), settings)
 	return assistantMsg, nil
+}
+
+func preparedOrNewUserMessage(prepared *store.Message, conversationID string, displayContent string, llmContent string, now time.Time) *store.Message {
+	if prepared != nil {
+		return prepared
+	}
+	return &store.Message{
+		ID:             uuid.NewString(),
+		ConversationID: conversationID,
+		Role:           "user",
+		Content:        displayContent,
+		UserContent:    displayContent,
+		LLMContent:     llmContent,
+		CreatedAt:      now,
+	}
+}
+
+func firstAttachmentSet(attachmentSets [][]store.MessageAttachment) []store.MessageAttachment {
+	if len(attachmentSets) == 0 {
+		return nil
+	}
+	return attachmentSets[0]
 }
 
 func (s *Service) RenameConversation(ctx context.Context, conversationID string, title string) error {
@@ -393,122 +401,153 @@ func (s *Service) generateAssistant(conversationID string, assistantMessageID st
 	startTime := time.Now()
 	provider := llm.NewHTTPProvider(settings.LLMURL, settings.LLMModel, s.responseTimeout)
 	stream := provider.GenerateStream(ctx, messages, s.tools)
-	var contentBuilder strings.Builder
-	var thinkingBuilder strings.Builder
+	accumulator := assistantAccumulator{}
 
 	for event := range stream {
 		if event.Err != nil {
 			if errorsIsContextDone(event.Err) {
-				elapsedMs := time.Since(startTime).Milliseconds()
-				finalContent := strings.TrimSpace(contentBuilder.String())
-				finalThinking := strings.TrimSpace(thinkingBuilder.String())
-				if err := s.store.SetMessageContent(context.Background(), assistantMessageID, finalContent); err != nil {
-					s.logger.Error("failed to persist stopped assistant message", "message_id", assistantMessageID, "error", err)
-				}
-				if err := s.store.SetMessageThinking(context.Background(), assistantMessageID, finalThinking); err != nil {
-					s.logger.Error("failed to persist stopped assistant thinking", "message_id", assistantMessageID, "error", err)
-				}
-				if err := s.store.SetMessageElapsedMs(context.Background(), assistantMessageID, elapsedMs); err != nil {
-					s.logger.Error("failed to persist stopped assistant elapsed", "message_id", assistantMessageID, "error", err)
-				}
-				s.broker.Publish(conversationID, Event{
-					Type:      "stopped",
-					MessageID: assistantMessageID,
-					ElapsedMs: elapsedMs,
-				})
+				s.finishStoppedGeneration(conversationID, assistantMessageID, startTime, &accumulator)
 				return
 			}
-			elapsedMs := time.Since(startTime).Milliseconds()
-			s.logger.Error("generation failed", "conversation_id", conversationID, "error", event.Err)
-			if err := s.store.SetLatestUserMessageError(context.Background(), conversationID, true); err != nil {
-				s.logger.Error("failed to persist user message error state", "conversation_id", conversationID, "error", err)
-			}
-			if err := s.store.SetMessageElapsedMs(context.Background(), assistantMessageID, elapsedMs); err != nil {
-				s.logger.Error("failed to persist errored assistant elapsed", "message_id", assistantMessageID, "error", err)
-			}
-			s.broker.Publish(conversationID, Event{
-				Type:      "error",
-				MessageID: assistantMessageID,
-				Error:     event.Err.Error(),
-				ElapsedMs: elapsedMs,
-			})
+			s.finishFailedGeneration(conversationID, assistantMessageID, startTime, event.Err)
 			return
 		}
 
-		if event.Token != "" {
-			contentBuilder.WriteString(event.Token)
-			s.broker.Publish(conversationID, Event{
-				Type:      "token",
-				MessageID: assistantMessageID,
-				Token:     event.Token,
-			})
-		}
-		if event.Thinking != "" {
-			thinkingBuilder.WriteString(event.Thinking)
-			s.broker.Publish(conversationID, Event{
-				Type:      "thinking",
-				MessageID: assistantMessageID,
-				Thinking:  event.Thinking,
-			})
-		}
+		s.publishGenerationDelta(conversationID, assistantMessageID, event, &accumulator)
 
 		if event.Done {
-			finalContent := strings.TrimSpace(contentBuilder.String())
-			finalThinking := strings.TrimSpace(thinkingBuilder.String())
-			if finalContent == "" {
-				followUp := append(append([]llm.ChatMessage(nil), messages...), llm.ChatMessage{
-					Role:    "user",
-					Content: "Please provide a response. If you need more information from the user to answer, ask them directly.",
-				})
-				for ev := range provider.GenerateStream(ctx, followUp, tools.NoopRuntime{}) {
-					if ev.Err != nil {
-						break
-					}
-					if ev.Token != "" {
-						contentBuilder.WriteString(ev.Token)
-						s.broker.Publish(conversationID, Event{
-							Type:      "token",
-							MessageID: assistantMessageID,
-							Token:     ev.Token,
-						})
-					}
-					if ev.Thinking != "" {
-						thinkingBuilder.WriteString(ev.Thinking)
-						s.broker.Publish(conversationID, Event{
-							Type:      "thinking",
-							MessageID: assistantMessageID,
-							Thinking:  ev.Thinking,
-						})
-					}
-					if ev.Done {
-						break
-					}
-				}
-				finalContent = strings.TrimSpace(contentBuilder.String())
-				finalThinking = strings.TrimSpace(thinkingBuilder.String())
-			}
-			if err := s.store.SetMessageContent(ctx, assistantMessageID, finalContent); err != nil {
-				s.logger.Error("failed to persist final assistant message", "message_id", assistantMessageID, "error", err)
-				s.broker.Publish(conversationID, Event{
-					Type:      "error",
-					MessageID: assistantMessageID,
-					Error:     fmt.Sprintf("failed to persist message: %v", err),
-				})
-				return
-			}
-			if err := s.store.SetMessageThinking(ctx, assistantMessageID, finalThinking); err != nil {
-				s.logger.Error("failed to persist assistant thinking", "message_id", assistantMessageID, "error", err)
-			}
-			elapsedMs := time.Since(startTime).Milliseconds()
-			if err := s.store.SetMessageElapsedMs(ctx, assistantMessageID, elapsedMs); err != nil {
-				s.logger.Error("failed to persist assistant elapsed", "message_id", assistantMessageID, "error", err)
-			}
-			s.broker.Publish(conversationID, Event{
-				Type:      "done",
-				MessageID: assistantMessageID,
-				Thinking:  finalThinking,
-				ElapsedMs: elapsedMs,
-			})
+			s.finishCompletedGeneration(ctx, conversationID, assistantMessageID, startTime, provider, messages, &accumulator)
+			return
+		}
+	}
+}
+
+type assistantAccumulator struct {
+	content  strings.Builder
+	thinking strings.Builder
+}
+
+func (a *assistantAccumulator) finalContent() string {
+	return strings.TrimSpace(a.content.String())
+}
+
+func (a *assistantAccumulator) finalThinking() string {
+	return strings.TrimSpace(a.thinking.String())
+}
+
+func (s *Service) publishGenerationDelta(conversationID string, assistantMessageID string, event llm.TokenEvent, accumulator *assistantAccumulator) {
+	if event.Token != "" {
+		accumulator.content.WriteString(event.Token)
+		s.broker.Publish(conversationID, Event{
+			Type:      "token",
+			MessageID: assistantMessageID,
+			Token:     event.Token,
+		})
+	}
+	if event.Thinking != "" {
+		accumulator.thinking.WriteString(event.Thinking)
+		s.broker.Publish(conversationID, Event{
+			Type:      "thinking",
+			MessageID: assistantMessageID,
+			Thinking:  event.Thinking,
+		})
+	}
+}
+
+func (s *Service) finishStoppedGeneration(conversationID string, assistantMessageID string, startTime time.Time, accumulator *assistantAccumulator) {
+	elapsedMs := time.Since(startTime).Milliseconds()
+	if err := s.store.SetMessageContent(context.Background(), assistantMessageID, accumulator.finalContent()); err != nil {
+		s.logger.Error("failed to persist stopped assistant message", "message_id", assistantMessageID, "error", err)
+	}
+	if err := s.store.SetMessageThinking(context.Background(), assistantMessageID, accumulator.finalThinking()); err != nil {
+		s.logger.Error("failed to persist stopped assistant thinking", "message_id", assistantMessageID, "error", err)
+	}
+	if err := s.store.SetMessageElapsedMs(context.Background(), assistantMessageID, elapsedMs); err != nil {
+		s.logger.Error("failed to persist stopped assistant elapsed", "message_id", assistantMessageID, "error", err)
+	}
+	s.broker.Publish(conversationID, Event{
+		Type:      "stopped",
+		MessageID: assistantMessageID,
+		ElapsedMs: elapsedMs,
+	})
+}
+
+func (s *Service) finishFailedGeneration(conversationID string, assistantMessageID string, startTime time.Time, err error) {
+	elapsedMs := time.Since(startTime).Milliseconds()
+	s.logger.Error("generation failed", "conversation_id", conversationID, "error", err)
+	if persistErr := s.store.SetLatestUserMessageError(context.Background(), conversationID, true); persistErr != nil {
+		s.logger.Error("failed to persist user message error state", "conversation_id", conversationID, "error", persistErr)
+	}
+	if persistErr := s.store.SetMessageElapsedMs(context.Background(), assistantMessageID, elapsedMs); persistErr != nil {
+		s.logger.Error("failed to persist errored assistant elapsed", "message_id", assistantMessageID, "error", persistErr)
+	}
+	s.broker.Publish(conversationID, Event{
+		Type:      "error",
+		MessageID: assistantMessageID,
+		Error:     err.Error(),
+		ElapsedMs: elapsedMs,
+	})
+}
+
+func (s *Service) finishCompletedGeneration(
+	ctx context.Context,
+	conversationID string,
+	assistantMessageID string,
+	startTime time.Time,
+	provider llm.Provider,
+	messages []llm.ChatMessage,
+	accumulator *assistantAccumulator,
+) {
+	if accumulator.finalContent() == "" {
+		s.requestFallbackAssistantResponse(ctx, conversationID, assistantMessageID, provider, messages, accumulator)
+	}
+
+	finalContent := accumulator.finalContent()
+	finalThinking := accumulator.finalThinking()
+	if err := s.store.SetMessageContent(ctx, assistantMessageID, finalContent); err != nil {
+		s.logger.Error("failed to persist final assistant message", "message_id", assistantMessageID, "error", err)
+		s.broker.Publish(conversationID, Event{
+			Type:      "error",
+			MessageID: assistantMessageID,
+			Error:     fmt.Sprintf("failed to persist message: %v", err),
+		})
+		return
+	}
+	if err := s.store.SetMessageThinking(ctx, assistantMessageID, finalThinking); err != nil {
+		s.logger.Error("failed to persist assistant thinking", "message_id", assistantMessageID, "error", err)
+	}
+	elapsedMs := time.Since(startTime).Milliseconds()
+	if err := s.store.SetMessageElapsedMs(ctx, assistantMessageID, elapsedMs); err != nil {
+		s.logger.Error("failed to persist assistant elapsed", "message_id", assistantMessageID, "error", err)
+	}
+	s.broker.Publish(conversationID, Event{
+		Type:      "done",
+		MessageID: assistantMessageID,
+		Thinking:  finalThinking,
+		ElapsedMs: elapsedMs,
+	})
+}
+
+func (s *Service) requestFallbackAssistantResponse(
+	ctx context.Context,
+	conversationID string,
+	assistantMessageID string,
+	provider llm.Provider,
+	messages []llm.ChatMessage,
+	accumulator *assistantAccumulator,
+) {
+	// Some tool-capable local models finish with only tool/thinking output.
+	// Ask once more, without tools, so the UI gets a visible assistant reply.
+	followUp := append(append([]llm.ChatMessage(nil), messages...), llm.ChatMessage{
+		Role:    "user",
+		Content: "Please provide a response. If you need more information from the user to answer, ask them directly.",
+	})
+	for event := range provider.GenerateStream(ctx, followUp, tools.NoopRuntime{}) {
+		if event.Err != nil {
+			return
+		}
+		s.publishGenerationDelta(conversationID, assistantMessageID, event, accumulator)
+		if event.Done {
 			return
 		}
 	}

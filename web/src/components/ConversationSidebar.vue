@@ -22,8 +22,12 @@ defineEmits<{
   toggleTheme: []
 }>()
 
-const activeConversations = computed(() => props.conversations.filter((conversation) => !conversation.archived))
-const archivedConversations = computed(() => props.conversations.filter((conversation) => conversation.archived))
+const activeConversations = computed(() =>
+  props.conversations.filter((conversation) => !conversation.archived),
+)
+const archivedConversations = computed(() =>
+  props.conversations.filter((conversation) => conversation.archived),
+)
 
 const isShiftPressed = ref(false)
 const hoveredArchiveConversationId = ref<string | null>(null)
@@ -113,7 +117,11 @@ onBeforeUnmount(() => {
           @click.stop="$emit('archive', conversation.id, $event)"
         >
           <AppIcon
-            :name="hoveredArchiveConversationId === conversation.id && isShiftPressed ? 'trash' : 'archive'"
+            :name="
+              hoveredArchiveConversationId === conversation.id && isShiftPressed
+                ? 'trash'
+                : 'archive'
+            "
             :size="15"
           />
         </button>
@@ -129,10 +137,18 @@ onBeforeUnmount(() => {
           <button class="conversation-item" @click="$emit('select', conversation.id)">
             {{ conversation.title }}
           </button>
-          <button class="icon-button" title="Restore chat" @click.stop="$emit('restore', conversation.id)">
+          <button
+            class="icon-button"
+            title="Restore chat"
+            @click.stop="$emit('restore', conversation.id)"
+          >
             <AppIcon name="restore" :size="15" />
           </button>
-          <button class="icon-button danger" title="Delete chat" @click.stop="$emit('delete', conversation.id)">
+          <button
+            class="icon-button danger"
+            title="Delete chat"
+            @click.stop="$emit('delete', conversation.id)"
+          >
             <AppIcon name="trash" :size="15" />
           </button>
         </div>

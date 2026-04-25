@@ -26,7 +26,11 @@ function normalizeCreateMessageError(rawMessage: string, includesFiles: boolean)
   const message = rawMessage.trim()
   const lower = message.toLowerCase()
   if (includesFiles) {
-    if (lower.includes('request body too large') || lower.includes('payload too large') || lower.includes('too large')) {
+    if (
+      lower.includes('request body too large') ||
+      lower.includes('payload too large') ||
+      lower.includes('too large')
+    ) {
       return message
     }
     if (lower.includes('failed to fetch') || lower.includes('networkerror')) {
@@ -36,14 +40,48 @@ function normalizeCreateMessageError(rawMessage: string, includesFiles: boolean)
   return message || 'Failed to send message'
 }
 
-export async function createConversation(): Promise<Conversation> {
-  const response = await fetch(`${API_BASE}/conversations`, {
-    method: 'POST',
-  })
+function apiPath(path: string): string {
+  return `${API_BASE}${path}`
+}
+
+async function responseErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const data = (await response.json()) as { error?: string }
+    return data.error || fallback
+  } catch {
+    return fallback
+  }
+}
+
+async function fetchJson<T>(
+  path: string,
+  init: RequestInit | undefined,
+  errorMessage: string,
+): Promise<T> {
+  const response = await fetch(apiPath(path), init)
   if (!response.ok) {
-    throw new Error('Failed to create conversation')
+    throw new Error(await responseErrorMessage(response, errorMessage))
   }
   return response.json()
+}
+
+async function fetchNoContent(
+  path: string,
+  init: RequestInit | undefined,
+  errorMessage: string,
+): Promise<void> {
+  const response = await fetch(apiPath(path), init)
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, errorMessage))
+  }
+}
+
+export async function createConversation(): Promise<Conversation> {
+  return fetchJson<Conversation>(
+    '/conversations',
+    { method: 'POST' },
+    'Failed to create conversation',
+  )
 }
 
 export async function listConversations(includeArchived = false): Promise<Conversation[]> {
@@ -52,24 +90,28 @@ export async function listConversations(includeArchived = false): Promise<Conver
     params.set('includeArchived', '1')
   }
   const suffix = params.toString() ? `?${params.toString()}` : ''
-  const response = await fetch(`${API_BASE}/conversations${suffix}`)
-  if (!response.ok) {
-    throw new Error('Failed to load conversations')
-  }
-  const data = (await response.json()) as { items: Conversation[] }
+  const data = await fetchJson<{ items: Conversation[] }>(
+    `/conversations${suffix}`,
+    undefined,
+    'Failed to load conversations',
+  )
   return data.items
 }
 
 export async function listMessages(conversationId: string): Promise<Message[]> {
-  const response = await fetch(`${API_BASE}/conversations/${conversationId}/messages`)
-  if (!response.ok) {
-    throw new Error('Failed to load messages')
-  }
-  const data = (await response.json()) as { items: Message[] }
+  const data = await fetchJson<{ items: Message[] }>(
+    `/conversations/${conversationId}/messages`,
+    undefined,
+    'Failed to load messages',
+  )
   return data.items
 }
 
-export async function createMessage(conversationId: string, content: string, files: File[] = []): Promise<void> {
+export async function createMessage(
+  conversationId: string,
+  content: string,
+  files: File[] = [],
+): Promise<void> {
   let response: Response
   try {
     if (files.length > 0) {
@@ -78,12 +120,12 @@ export async function createMessage(conversationId: string, content: string, fil
       for (const file of files) {
         formData.append('files', file)
       }
-      response = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
+      response = await fetch(apiPath(`/conversations/${conversationId}/messages`), {
         method: 'POST',
         body: formData,
       })
     } else {
-      response = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
+      response = await fetch(apiPath(`/conversations/${conversationId}/messages`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -96,15 +138,7 @@ export async function createMessage(conversationId: string, content: string, fil
     throw new Error(normalizeCreateMessageError(message, files.length > 0))
   }
   if (!response.ok) {
-    let message = 'Failed to send message'
-    try {
-      const data = (await response.json()) as { error?: string }
-      if (data.error) {
-        message = data.error
-      }
-    } catch {
-      // Keep default message when response is not JSON.
-    }
+    const message = await responseErrorMessage(response, 'Failed to send message')
     throw new Error(normalizeCreateMessageError(message, files.length > 0))
   }
 }
@@ -114,42 +148,33 @@ export async function createFailedMessage(
   content: string,
   attachments: string[] = [],
 ): Promise<Message> {
-  const response = await fetch(`${API_BASE}/conversations/${conversationId}/messages/failed`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
+  return fetchJson<Message>(
+    `/conversations/${conversationId}/messages/failed`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        content,
+        attachments,
+      }),
     },
-    body: JSON.stringify({
-      content,
-      attachments,
-    }),
-  })
-  if (!response.ok) {
-    throw new Error('Failed to persist failed message')
-  }
-  return response.json()
+    'Failed to persist failed message',
+  )
 }
 
 export async function requeueMessage(
   conversationId: string,
   messageId: string,
 ): Promise<{ userMessage: Message; assistantMessageId: string }> {
-  const response = await fetch(`${API_BASE}/conversations/${conversationId}/messages/${messageId}/requeue`, {
-    method: 'POST',
-  })
-  if (!response.ok) {
-    let message = 'Failed to requeue message'
-    try {
-      const data = (await response.json()) as { error?: string }
-      if (data.error) {
-        message = data.error
-      }
-    } catch {
-      // Keep default message when response is not JSON.
-    }
-    throw new Error(message)
-  }
-  return response.json()
+  return fetchJson<{ userMessage: Message; assistantMessageId: string }>(
+    `/conversations/${conversationId}/messages/${messageId}/requeue`,
+    {
+      method: 'POST',
+    },
+    'Failed to requeue message',
+  )
 }
 
 export function conversationStreamUrl(conversationId: string): string {
@@ -164,26 +189,25 @@ export function conversationStreamUrl(conversationId: string): string {
 }
 
 export async function renameConversation(conversationId: string, title: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/conversations/${conversationId}`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
+  await fetchNoContent(
+    `/conversations/${conversationId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title }),
     },
-    body: JSON.stringify({ title }),
-  })
-  if (!response.ok) {
-    throw new Error('Failed to rename conversation')
-  }
+    'Failed to rename conversation',
+  )
 }
 
 export async function suggestConversationTitle(conversationId: string): Promise<string> {
-  const response = await fetch(`${API_BASE}/conversations/${conversationId}/suggest-title`, {
-    method: 'POST',
-  })
-  if (!response.ok) {
-    throw new Error('Failed to suggest conversation title')
-  }
-  const data = (await response.json()) as { title?: string }
+  const data = await fetchJson<{ title?: string }>(
+    `/conversations/${conversationId}/suggest-title`,
+    { method: 'POST' },
+    'Failed to suggest conversation title',
+  )
   if (!data.title) {
     throw new Error('Title suggestion was empty')
   }
@@ -191,38 +215,35 @@ export async function suggestConversationTitle(conversationId: string): Promise<
 }
 
 export async function archiveConversation(conversationId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/conversations/${conversationId}/archive`, {
-    method: 'PATCH',
-  })
-  if (!response.ok) {
-    throw new Error('Failed to archive conversation')
-  }
+  await fetchNoContent(
+    `/conversations/${conversationId}/archive`,
+    { method: 'PATCH' },
+    'Failed to archive conversation',
+  )
 }
 
 export async function restoreConversation(conversationId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/conversations/${conversationId}/restore`, {
-    method: 'PATCH',
-  })
-  if (!response.ok) {
-    throw new Error('Failed to restore conversation')
-  }
+  await fetchNoContent(
+    `/conversations/${conversationId}/restore`,
+    { method: 'PATCH' },
+    'Failed to restore conversation',
+  )
 }
 
 export async function deleteConversation(conversationId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/conversations/${conversationId}`, {
-    method: 'DELETE',
-  })
-  if (!response.ok) {
-    throw new Error('Failed to delete conversation')
-  }
+  await fetchNoContent(
+    `/conversations/${conversationId}`,
+    { method: 'DELETE' },
+    'Failed to delete conversation',
+  )
 }
 
 export async function stopConversationGeneration(conversationId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/conversations/${conversationId}/stop`, {
+  const response = await fetch(apiPath(`/conversations/${conversationId}/stop`), {
     method: 'POST',
   })
   if (!response.ok && response.status !== 409) {
-    throw new Error('Failed to stop generation')
+    throw new Error(await responseErrorMessage(response, 'Failed to stop generation'))
   }
 }
 
@@ -233,23 +254,19 @@ export type Settings = {
 }
 
 export async function getSettings(): Promise<Settings> {
-  const response = await fetch(`${API_BASE}/settings`)
-  if (!response.ok) {
-    throw new Error('Failed to load settings')
-  }
-  return response.json()
+  return fetchJson<Settings>('/settings', undefined, 'Failed to load settings')
 }
 
 export async function updateSettings(settings: Partial<Settings>): Promise<Settings> {
-  const response = await fetch(`${API_BASE}/settings`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(settings),
-  })
-  if (!response.ok) {
-    throw new Error('Failed to save settings')
-  }
-  return response.json()
+  return fetchJson<Settings>(
+    '/settings',
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings),
+    },
+    'Failed to save settings',
+  )
 }
 
 export function messageAttachmentDownloadUrl(

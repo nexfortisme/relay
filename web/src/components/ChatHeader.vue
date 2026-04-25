@@ -39,7 +39,9 @@ watch(
   <header class="chat-header">
     <div v-if="!isEditing" class="title-line">
       <div class="title-group">
-        <h1 class="chat-title" :class="{ 'chat-title-suggesting': isSuggestingTitle }">{{ title }}</h1>
+        <h1 class="chat-title" :class="{ 'chat-title-suggesting': isSuggestingTitle }">
+          {{ title }}
+        </h1>
         <button
           class="title-icon-button"
           :disabled="isRenaming || isSuggestingTitle"
@@ -81,10 +83,19 @@ watch(
         @keydown.enter.prevent="$emit('saveTitle')"
         @keydown.esc.prevent="$emit('cancelEdit')"
       />
-      <button class="title-icon-button" :disabled="isRenaming" title="Save title" @mousedown.prevent="$emit('saveTitle')">
+      <button
+        class="title-icon-button"
+        :disabled="isRenaming"
+        title="Save title"
+        @mousedown.prevent="$emit('saveTitle')"
+      >
         <AppIcon name="check" :size="16" />
       </button>
-      <button class="title-icon-button" title="Cancel rename" @mousedown.prevent="$emit('cancelEdit')">
+      <button
+        class="title-icon-button"
+        title="Cancel rename"
+        @mousedown.prevent="$emit('cancelEdit')"
+      >
         <AppIcon name="x" :size="16" />
       </button>
     </div>

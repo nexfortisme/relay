@@ -43,7 +43,12 @@ function handleFileSelection(event: Event) {
     <div v-if="selectedFiles.length" class="file-list">
       <span v-for="(file, index) in selectedFiles" :key="`${file.name}-${index}`" class="file-chip">
         <span class="file-chip-label">{{ file.name }}</span>
-        <button type="button" class="file-chip-remove" title="Remove file" @click="$emit('removeFile', index)">
+        <button
+          type="button"
+          class="file-chip-remove"
+          title="Remove file"
+          @click="$emit('removeFile', index)"
+        >
           <AppIcon name="x" :size="13" />
         </button>
       </span>

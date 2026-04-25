@@ -5,7 +5,7 @@ import ConversationSidebar from '../components/ConversationSidebar.vue'
 
 describe('App', () => {
   it('renders the chat shell', async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchMock = vi.fn<typeof fetch>(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.endsWith('/api/conversations') && init?.method === 'POST') {
         return new Response(

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -138,59 +139,32 @@ type renameConversationRequest struct {
 	Title string `json:"title"`
 }
 
+type messagePayload struct {
+	Content string
+	Files   []attachments.UploadedFile
+}
+
+type requestError struct {
+	status  int
+	message string
+}
+
 func (h *Handlers) CreateMessage(c *gin.Context) {
 	conversationID := c.Param("id")
 
-	contentType := c.ContentType()
-	var content string
-	files := make([]attachments.UploadedFile, 0)
-
-	if strings.HasPrefix(contentType, "multipart/form-data") {
-		if err := c.Request.ParseMultipartForm(h.maxMultipartPayloadBytes); err != nil {
-			if strings.Contains(strings.ToLower(err.Error()), "request body too large") {
-				c.JSON(http.StatusRequestEntityTooLarge, gin.H{
-					"error": fmt.Sprintf("total file upload size exceeds %s", h.maxMultipartPayloadLabel),
-				})
-				return
-			}
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid multipart payload"})
-			return
-		}
-		content = strings.TrimSpace(c.PostForm("content"))
-		formFiles := c.Request.MultipartForm.File["files"]
-		parsedFiles, err := h.parseUploadedFiles(formFiles)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		files = parsedFiles
-	} else {
-		var req createMessageRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
-			return
-		}
-		content = strings.TrimSpace(req.Content)
+	payload, reqErr := h.parseCreateMessagePayload(c)
+	if reqErr != nil {
+		c.JSON(reqErr.status, gin.H{"error": reqErr.message})
+		return
 	}
-
-	if content == "" {
+	if payload.Content == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "content is required"})
 		return
 	}
 
-	var assistantMessageID string
-	var err error
-	if len(files) > 0 {
-		msg, withFilesErr := h.chat.AddUserMessageAndGenerateWithFiles(c.Request.Context(), conversationID, content, files)
-		err = withFilesErr
-		assistantMessageID = msg.ID
-	} else {
-		msg, noFileErr := h.chat.AddUserMessageAndGenerate(c.Request.Context(), conversationID, content)
-		err = noFileErr
-		assistantMessageID = msg.ID
-	}
+	assistantMessageID, err := h.queueAssistantResponse(c.Request.Context(), conversationID, payload)
 	if err != nil {
-		if len(files) > 0 {
+		if len(payload.Files) > 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -201,6 +175,48 @@ func (h *Handlers) CreateMessage(c *gin.Context) {
 	c.JSON(http.StatusAccepted, gin.H{
 		"assistantMessageId": assistantMessageID,
 	})
+}
+
+func (h *Handlers) parseCreateMessagePayload(c *gin.Context) (messagePayload, *requestError) {
+	if strings.HasPrefix(c.ContentType(), "multipart/form-data") {
+		return h.parseMultipartMessagePayload(c)
+	}
+
+	var req createMessageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		return messagePayload{}, &requestError{status: http.StatusBadRequest, message: "invalid payload"}
+	}
+	return messagePayload{Content: strings.TrimSpace(req.Content)}, nil
+}
+
+func (h *Handlers) parseMultipartMessagePayload(c *gin.Context) (messagePayload, *requestError) {
+	if err := c.Request.ParseMultipartForm(h.maxMultipartPayloadBytes); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "request body too large") {
+			return messagePayload{}, &requestError{
+				status:  http.StatusRequestEntityTooLarge,
+				message: fmt.Sprintf("total file upload size exceeds %s", h.maxMultipartPayloadLabel),
+			}
+		}
+		return messagePayload{}, &requestError{status: http.StatusBadRequest, message: "invalid multipart payload"}
+	}
+
+	files, err := h.parseUploadedFiles(c.Request.MultipartForm.File["files"])
+	if err != nil {
+		return messagePayload{}, &requestError{status: http.StatusBadRequest, message: err.Error()}
+	}
+	return messagePayload{
+		Content: strings.TrimSpace(c.PostForm("content")),
+		Files:   files,
+	}, nil
+}
+
+func (h *Handlers) queueAssistantResponse(ctx context.Context, conversationID string, payload messagePayload) (string, error) {
+	if len(payload.Files) > 0 {
+		msg, err := h.chat.AddUserMessageAndGenerateWithFiles(ctx, conversationID, payload.Content, payload.Files)
+		return msg.ID, err
+	}
+	msg, err := h.chat.AddUserMessageAndGenerate(ctx, conversationID, payload.Content)
+	return msg.ID, err
 }
 
 func (h *Handlers) CreateFailedMessage(c *gin.Context) {
