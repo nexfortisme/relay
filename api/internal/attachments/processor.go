@@ -11,11 +11,20 @@ import (
 	"mime"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 
 	"github.com/ledongthuc/pdf"
 )
+
+func ParseAttachmentIndex(raw string) (int, error) {
+	index, err := strconv.Atoi(raw)
+	if err != nil || index < 0 {
+		return 0, fmt.Errorf("invalid attachment index")
+	}
+	return index, nil
+}
 
 type UploadedFile struct {
 	Name        string

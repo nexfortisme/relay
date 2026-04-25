@@ -25,6 +25,20 @@ marked.setOptions({
   breaks: true,
 })
 
+// Open external citation links in a new tab. Only absolute http(s) URLs get
+// target=_blank — relative links and in-page fragments still navigate in place.
+DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+  if (!(node instanceof HTMLAnchorElement)) {
+    return
+  }
+  const href = node.getAttribute('href') ?? ''
+  if (!/^https?:\/\//i.test(href)) {
+    return
+  }
+  node.setAttribute('target', '_blank')
+  node.setAttribute('rel', 'noopener noreferrer')
+})
+
 watch(
   () => {
     const latestMessage = props.messages[props.messages.length - 1]

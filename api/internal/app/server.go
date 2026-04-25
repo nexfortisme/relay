@@ -10,7 +10,6 @@ import (
 	"github.com/nexfortisme/relay/internal/chat"
 	"github.com/nexfortisme/relay/internal/config"
 	"github.com/nexfortisme/relay/internal/httpapi"
-	"github.com/nexfortisme/relay/internal/skills"
 	"github.com/nexfortisme/relay/internal/store"
 	"github.com/nexfortisme/relay/internal/tools"
 )
@@ -38,15 +37,6 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 		return nil, nil, err
 	}
 
-	_ = skills.NewStaticRegistry([]skills.Descriptor{
-		{
-			Name:              "default-chat",
-			Description:       "Default chat behavior without external tools",
-			Trigger:           "always",
-			RequiredTools:     []string{},
-			SystemPromptPatch: "",
-		},
-	})
 	toolRuntime := tools.NewCompositeRuntime(
 		tools.NewMCPRuntime(cfg.MCPURL),
 		tools.NoopRuntime{},
@@ -57,10 +47,7 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 		cfg.LLMModel,
 		toolRuntime,
 		logger,
-		cfg.RelayDir,
-		attachments.PromptOptions{
-			MaxImageBytes: cfg.MaxImageBytes,
-		},
+		attachments.PromptOptions{MaxImageBytes: cfg.MaxImageBytes},
 	)
 	handlers := httpapi.NewHandlers(chatService, logger, cfg.MaxUploadBytes)
 
