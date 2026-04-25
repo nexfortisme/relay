@@ -370,6 +370,11 @@ async function sendMessage() {
   waitingForAssistantConversationId.value = conversationId
   try {
     await createMessage(conversationId, content, filesToSend)
+    try {
+      await reconcileSentUserMessage(conversationId, localMessageId)
+    } catch (reconcileError) {
+      console.error('failed to reconcile sent user message', reconcileError)
+    }
     if (pendingRouteConversationId.value === conversationId) {
       updateConversationInUrl(conversationId)
       pendingRouteConversationId.value = null
@@ -597,6 +602,47 @@ function syncVisibleMessagesFromConversation(conversationId: string) {
     return
   }
   messages.value = cloneMessages(conversationMessageCache.get(conversationId) ?? [])
+}
+
+async function reconcileSentUserMessage(conversationId: string, localMessageId: string) {
+  const cachedMessages = conversationMessageCache.get(conversationId) ?? []
+  const localIndex = cachedMessages.findIndex((message) => message.id === localMessageId)
+  if (localIndex < 0) {
+    return
+  }
+  const localMessage = cachedMessages[localIndex]
+  if (!localMessage) {
+    return
+  }
+  const persistedMessages = await listMessages(conversationId)
+  const persistedUserMessage = [...persistedMessages].reverse().find((message) =>
+    isPersistedVersionOfLocalUserMessage(message, localMessage),
+  )
+  if (!persistedUserMessage) {
+    return
+  }
+
+  const nextMessages = cloneMessages(cachedMessages)
+  nextMessages[localIndex] = persistedUserMessage
+  conversationMessageCache.set(conversationId, nextMessages)
+  if (conversationId === selectedConversationId.value) {
+    messages.value = cloneMessages(nextMessages)
+  }
+}
+
+function isPersistedVersionOfLocalUserMessage(message: DisplayMessage, localMessage: DisplayMessage): boolean {
+  return (
+    message.role === 'user' &&
+    !message.id.startsWith('local-') &&
+    message.content === localMessage.content &&
+    sameAttachments(message.attachments, localMessage.attachments)
+  )
+}
+
+function sameAttachments(left: string[] | undefined, right: string[] | undefined): boolean {
+  const leftItems = left ?? []
+  const rightItems = right ?? []
+  return leftItems.length === rightItems.length && leftItems.every((item, index) => item === rightItems[index])
 }
 
 function cloneMessages(items: DisplayMessage[]): DisplayMessage[] {
