@@ -39,7 +39,7 @@ var streamUpgrader = websocket.Upgrader{
 
 func NewHandlers(chatService *chat.Service, logger *slog.Logger, maxMultipartPayloadBytes int64) *Handlers {
 	if maxMultipartPayloadBytes <= 0 {
-		maxMultipartPayloadBytes = 30 << 20
+		maxMultipartPayloadBytes = 30 << 20 // 30MB
 	}
 	return &Handlers{
 		chat:                     chatService,

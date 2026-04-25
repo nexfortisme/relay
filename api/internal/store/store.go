@@ -93,51 +93,53 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) migrate(ctx context.Context) error {
+
 	const schema = `
-CREATE TABLE IF NOT EXISTS conversations (
-  id TEXT PRIMARY KEY,
-  title TEXT NOT NULL DEFAULT 'New chat',
-  archived_at DATETIME,
-  created_at DATETIME NOT NULL,
-  updated_at DATETIME NOT NULL
-);
+		CREATE TABLE IF NOT EXISTS conversations (
+		id TEXT PRIMARY KEY,
+		title TEXT NOT NULL DEFAULT 'New chat',
+		archived_at DATETIME,
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL
+		);
 
-CREATE TABLE IF NOT EXISTS messages (
-  id TEXT PRIMARY KEY,
-  conversation_id TEXT NOT NULL,
-  role TEXT NOT NULL,
-  content TEXT NOT NULL DEFAULT '',
-  user_content TEXT NOT NULL DEFAULT '',
-  llm_content TEXT NOT NULL DEFAULT '',
-  attachments_json TEXT NOT NULL DEFAULT '[]',
-  thinking TEXT NOT NULL DEFAULT '',
-  has_error INTEGER NOT NULL DEFAULT 0,
-  elapsed_ms INTEGER NOT NULL DEFAULT 0,
-  created_at DATETIME NOT NULL,
-  FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
-);
+		CREATE TABLE IF NOT EXISTS messages (
+		id TEXT PRIMARY KEY,
+		conversation_id TEXT NOT NULL,
+		role TEXT NOT NULL,
+		content TEXT NOT NULL DEFAULT '',
+		user_content TEXT NOT NULL DEFAULT '',
+		llm_content TEXT NOT NULL DEFAULT '',
+		attachments_json TEXT NOT NULL DEFAULT '[]',
+		thinking TEXT NOT NULL DEFAULT '',
+		has_error INTEGER NOT NULL DEFAULT 0,
+		elapsed_ms INTEGER NOT NULL DEFAULT 0,
+		created_at DATETIME NOT NULL,
+		FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+		);
 
-CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
-  ON messages(conversation_id, created_at);
+		CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
+		ON messages(conversation_id, created_at);
 
-CREATE TABLE IF NOT EXISTS message_attachments (
-  message_id TEXT NOT NULL,
-  attachment_index INTEGER NOT NULL,
-  name TEXT NOT NULL,
-  content_type TEXT NOT NULL DEFAULT '',
-  size_bytes INTEGER NOT NULL,
-  data BLOB NOT NULL,
-  created_at DATETIME NOT NULL,
-  PRIMARY KEY(message_id, attachment_index),
-  FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
-);
+		CREATE TABLE IF NOT EXISTS message_attachments (
+		message_id TEXT NOT NULL,
+		attachment_index INTEGER NOT NULL,
+		name TEXT NOT NULL,
+		content_type TEXT NOT NULL DEFAULT '',
+		size_bytes INTEGER NOT NULL,
+		data BLOB NOT NULL,
+		created_at DATETIME NOT NULL,
+		PRIMARY KEY(message_id, attachment_index),
+		FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
+		);
 
-CREATE TABLE IF NOT EXISTS settings (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL,
-  updated_at DATETIME NOT NULL
-);
-`
+		CREATE TABLE IF NOT EXISTS settings (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL,
+		updated_at DATETIME NOT NULL
+		);
+	`
+
 	_, err := s.db.ExecContext(ctx, schema)
 	if err != nil {
 		return fmt.Errorf("migrate sqlite schema: %w", err)
@@ -149,18 +151,20 @@ CREATE TABLE IF NOT EXISTS settings (
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'`)
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN has_error INTEGER NOT NULL DEFAULT 0`)
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN elapsed_ms INTEGER NOT NULL DEFAULT 0`)
+
 	_, err = s.db.ExecContext(ctx, `
-CREATE TABLE IF NOT EXISTS message_attachments (
-  message_id TEXT NOT NULL,
-  attachment_index INTEGER NOT NULL,
-  name TEXT NOT NULL,
-  content_type TEXT NOT NULL DEFAULT '',
-  size_bytes INTEGER NOT NULL,
-  data BLOB NOT NULL,
-  created_at DATETIME NOT NULL,
-  PRIMARY KEY(message_id, attachment_index),
-  FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
-)`)
+		CREATE TABLE IF NOT EXISTS message_attachments (
+		message_id TEXT NOT NULL,
+		attachment_index INTEGER NOT NULL,
+		name TEXT NOT NULL,
+		content_type TEXT NOT NULL DEFAULT '',
+		size_bytes INTEGER NOT NULL,
+		data BLOB NOT NULL,
+		created_at DATETIME NOT NULL,
+		PRIMARY KEY(message_id, attachment_index),
+		FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
+	)`)
+
 	if err != nil {
 		return fmt.Errorf("migrate message attachments: %w", err)
 	}
@@ -188,8 +192,9 @@ func (s *Store) CreateConversation(ctx context.Context, id string, title string,
 
 func (s *Store) ListConversations(ctx context.Context, includeArchived bool) ([]Conversation, error) {
 	query := `
-SELECT id, title, archived_at, created_at, updated_at
-FROM conversations`
+		SELECT id, title, archived_at, created_at, updated_at
+		FROM conversations
+	`
 	if !includeArchived {
 		query += "\nWHERE archived_at IS NULL"
 	}
@@ -442,13 +447,13 @@ func (s *Store) SetLatestUserMessageError(ctx context.Context, conversationID st
 	_, err := s.db.ExecContext(
 		ctx,
 		`UPDATE messages
-SET has_error = ?
-WHERE id = (
-  SELECT id FROM messages
-  WHERE conversation_id = ? AND role = 'user'
-  ORDER BY created_at DESC
-  LIMIT 1
-)`,
+			SET has_error = ?
+			WHERE id = (
+			SELECT id FROM messages
+			WHERE conversation_id = ? AND role = 'user'
+			ORDER BY created_at DESC
+			LIMIT 1
+		)`,
 		hasError,
 		conversationID,
 	)

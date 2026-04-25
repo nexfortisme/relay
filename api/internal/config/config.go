@@ -23,7 +23,9 @@ type Config struct {
 }
 
 func Load() (Config, error) {
+	// load environment variables from .env file
 	_ = godotenv.Overload(filepath.Join("..", ".env"))
+	
 	expandEnvKeys(
 		"LLM_BASE_URL",
 		"LLM_URL",
