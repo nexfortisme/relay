@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { ACCEPTED_FILE_TYPES } from '../lib/fileTypes'
 import AppIcon from './AppIcon.vue'
 
 const props = defineProps<{
@@ -67,7 +68,7 @@ function handleFileSelection(event: Event) {
       class="file-picker-hidden"
       type="file"
       multiple
-      accept="image/*,.pdf,.txt,.md,.markdown,.json,.csv,.xml,.yaml,.yml"
+      :accept="ACCEPTED_FILE_TYPES"
       @change="handleFileSelection"
     />
     <input
