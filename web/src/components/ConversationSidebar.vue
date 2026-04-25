@@ -97,14 +97,14 @@ onBeforeUnmount(() => {
         :class="{ active: conversation.id === selectedConversationId }"
       >
         <button class="conversation-item" @click="$emit('select', conversation.id)">
-          {{ conversation.title }}
+          <span class="conversation-title">{{ conversation.title }}</span>
+          <span
+            v-if="generatingConversationId === conversation.id"
+            class="sidebar-generating-indicator"
+            aria-label="Generating response"
+            title="Generating response"
+          />
         </button>
-        <span
-          v-if="generatingConversationId === conversation.id"
-          class="sidebar-generating-indicator"
-          aria-label="Generating response"
-          title="Generating response"
-        />
         <button
           class="icon-button"
           :title="
@@ -135,7 +135,7 @@ onBeforeUnmount(() => {
           class="conversation-row archived"
         >
           <button class="conversation-item" @click="$emit('select', conversation.id)">
-            {{ conversation.title }}
+            <span class="conversation-title">{{ conversation.title }}</span>
           </button>
           <button
             class="icon-button"
@@ -230,7 +230,7 @@ onBeforeUnmount(() => {
 
 .conversation-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.28rem;
   align-items: center;
 }
@@ -258,6 +258,14 @@ onBeforeUnmount(() => {
   line-height: 1.2;
   width: 100%;
   box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.conversation-title {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
