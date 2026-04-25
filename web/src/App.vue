@@ -26,10 +26,38 @@ import {
 } from './lib/api'
 import type { DisplayMessage } from './types'
 
+const DEFAULT_CONVERSATION_TITLE = 'New chat'
+const MAX_CONVERSATION_TITLE_LENGTH = 40
+const themeStorageKey = 'relay.theme'
+const maxSingleFileBytes = 50 * 1024 * 1024
+const maxTotalUploadBytes = parsePositiveInt(
+  import.meta.env.VITE_MAX_UPLOAD_BYTES,
+  50 * 1024 * 1024,
+)
+const maxImageUploadBytes = parsePositiveInt(import.meta.env.VITE_MAX_IMAGE_BYTES, 15 * 1024 * 1024)
+const maxSingleFileLabel = formatBytesLabel(maxSingleFileBytes)
+const maxTotalUploadLabel = formatBytesLabel(maxTotalUploadBytes)
+const maxImageUploadLabel = formatBytesLabel(maxImageUploadBytes)
+
+type ConversationSelectionOptions = {
+  updateUrl?: boolean
+}
+
+type StreamPayload = {
+  type: string
+  messageId?: string
+  token?: string
+  thinking?: string
+  error?: string
+  elapsedMs?: number
+}
+
 const conversations = ref<Conversation[]>([])
 const selectedConversationId = ref<string | null>(null)
 const pendingRouteConversationId = ref<string | null>(null)
 
+// Messages stream in before they are persisted. The per-conversation cache
+// lets users switch chats without losing in-flight assistant tokens.
 const messages = ref<DisplayMessage[]>([])
 const conversationMessageCache = new Map<string, DisplayMessage[]>()
 const draft = ref('')
@@ -40,7 +68,6 @@ const generatingConversationId = ref<string | null>(null)
 const waitingForAssistantConversationId = ref<string | null>(null)
 const streamError = ref('')
 const showArchived = ref(false)
-const themeStorageKey = 'relay.theme'
 const theme = ref<'dark' | 'light'>(getStoredTheme())
 const showSettings = ref(false)
 const settingsForm = ref<Settings>({ llm_url: '', llm_model: '', system_prompt: '' })
@@ -52,40 +79,26 @@ const isSuggestingTitle = ref(false)
 const isEditingTitle = ref(false)
 const messageListEl = ref<InstanceType<typeof MessageList> | null>(null)
 let streamSocket: WebSocket | null = null
-const maxTotalUploadBytes = parsePositiveInt(import.meta.env.VITE_MAX_UPLOAD_BYTES, 50 * 1024 * 1024)
-const maxTotalUploadLabel = formatBytesLabel(maxTotalUploadBytes)
-const maxSingleFileBytes = 50 * 1024 * 1024
-const maxSingleFileLabel = formatBytesLabel(maxSingleFileBytes)
-const maxImageUploadBytes = parsePositiveInt(import.meta.env.VITE_MAX_IMAGE_BYTES, 15 * 1024 * 1024)
-const maxImageUploadLabel = formatBytesLabel(maxImageUploadBytes)
 
 const selectedConversation = computed(() =>
   conversations.value.find((c) => c.id === selectedConversationId.value),
 )
 const activeConversations = computed(() => conversations.value.filter((c) => !c.archived))
-const isSelectedConversationGenerating = computed(
-  () => !!selectedConversationId.value && generatingConversationId.value === selectedConversationId.value,
-)
 const isSelectedConversationWaitingForAssistant = computed(
   () =>
     !!selectedConversationId.value &&
     waitingForAssistantResponse.value &&
     waitingForAssistantConversationId.value === selectedConversationId.value,
 )
-const hasSelectedConversationAssistantOutput = computed(() =>
-  messages.value.some((message) => {
-    if (message.role !== 'assistant') {
-      return false
-    }
-    if (message.content.trim().length > 0) {
-      return true
-    }
-    return (message.thinking ?? '').trim().length > 0
-  }),
-)
 const shouldShowPendingAssistantPlaceholder = computed(
   () => isSelectedConversationWaitingForAssistant.value,
 )
+
+onMounted(initializeApp)
+
+onUnmounted(() => {
+  streamSocket?.close()
+})
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
   if (!value) {
@@ -115,21 +128,13 @@ function notifyUploadError(message: string) {
   window.alert(message)
 }
 
-function markLatestUserMessageError(conversationId: string) {
-  const latestUserMessage = [...messages.value]
-    .reverse()
-    .find((message) => message.conversationId === conversationId && message.role === 'user')
-  if (!latestUserMessage) {
-    return
-  }
-  latestUserMessage.hasError = true
-}
-
-onMounted(async () => {
+async function initializeApp() {
   await loadConversations()
   const requestedConversationId = getConversationIdFromUrl()
   if (requestedConversationId) {
-    const requestedConversation = conversations.value.find((conversation) => conversation.id === requestedConversationId)
+    const requestedConversation = conversations.value.find(
+      (conversation) => conversation.id === requestedConversationId,
+    )
     if (requestedConversation) {
       await selectConversation(requestedConversation.id)
       return
@@ -144,11 +149,7 @@ onMounted(async () => {
     return
   }
   await selectConversation(firstConversation.id)
-})
-
-onUnmounted(() => {
-  streamSocket?.close()
-})
+}
 
 async function loadConversations() {
   conversations.value = await listConversations(true)
@@ -162,7 +163,7 @@ async function handleCreateConversation() {
   updateConversationInUrl(null)
 }
 
-async function selectConversation(conversationId: string, options?: { updateUrl?: boolean }) {
+async function selectConversation(conversationId: string, options?: ConversationSelectionOptions) {
   cacheCurrentConversationMessages()
   selectedConversationId.value = conversationId
   if (options?.updateUrl !== false) {
@@ -197,15 +198,6 @@ function updateConversationInUrl(conversationId: string | null) {
   window.history.replaceState(window.history.state, '', nextUrl)
 }
 
-type StreamPayload = {
-  type: string
-  messageId?: string
-  token?: string
-  thinking?: string
-  error?: string
-  elapsedMs?: number
-}
-
 function setupStream(conversationId: string) {
   streamSocket?.close()
   streamError.value = ''
@@ -229,6 +221,14 @@ function setupStream(conversationId: string) {
   }
 }
 
+function startGenerationFor(conversationId: string) {
+  isSending.value = true
+  generatingConversationId.value = conversationId
+  waitingForAssistantResponse.value = true
+  waitingForAssistantConversationId.value = conversationId
+  streamError.value = ''
+}
+
 function resetGenerationFor(conversationId: string) {
   if (generatingConversationId.value !== conversationId) {
     return
@@ -240,44 +240,49 @@ function resetGenerationFor(conversationId: string) {
 }
 
 function applyStreamPayload(conversationId: string, payload: StreamPayload) {
-  if (payload.type === 'token' && payload.messageId) {
-    if (waitingForAssistantConversationId.value === conversationId) {
-      waitingForAssistantResponse.value = false
-      waitingForAssistantConversationId.value = null
-    }
-    upsertAssistantMessage(conversationId, payload.messageId, payload.token ?? '')
-    void scrollMessagesToBottom()
+  switch (payload.type) {
+    case 'token':
+      if (!payload.messageId) return
+      clearAssistantWaitFor(conversationId)
+      upsertAssistantMessage(conversationId, payload.messageId, payload.token ?? '')
+      void scrollMessagesToBottom()
+      return
+    case 'thinking':
+      if (!payload.messageId) return
+      clearAssistantWaitFor(conversationId)
+      upsertAssistantThinking(conversationId, payload.messageId, payload.thinking ?? '')
+      return
+    case 'done':
+    case 'stopped':
+      finishAssistantStream(conversationId, payload)
+      return
+    case 'error':
+      failAssistantStream(conversationId, payload.error ?? 'Stream error')
+  }
+}
+
+function clearAssistantWaitFor(conversationId: string) {
+  if (waitingForAssistantConversationId.value !== conversationId) {
     return
   }
+  waitingForAssistantResponse.value = false
+  waitingForAssistantConversationId.value = null
+}
 
-  if (payload.type === 'thinking' && payload.messageId) {
-    if (waitingForAssistantConversationId.value === conversationId) {
-      waitingForAssistantResponse.value = false
-      waitingForAssistantConversationId.value = null
-    }
-    upsertAssistantThinking(conversationId, payload.messageId, payload.thinking ?? '')
-    return
+function finishAssistantStream(conversationId: string, payload: StreamPayload) {
+  if (payload.messageId && typeof payload.elapsedMs === 'number') {
+    setAssistantElapsedMs(conversationId, payload.messageId, payload.elapsedMs)
   }
+  resetGenerationFor(conversationId)
+}
 
-  if (payload.type === 'done' || payload.type === 'stopped') {
-    if (payload.messageId && typeof payload.elapsedMs === 'number') {
-      setAssistantElapsedMs(conversationId, payload.messageId, payload.elapsedMs)
-    }
-    resetGenerationFor(conversationId)
-    return
-  }
-
-  if (payload.type === 'error') {
-    if (waitingForAssistantConversationId.value === conversationId) {
-      waitingForAssistantResponse.value = false
-      waitingForAssistantConversationId.value = null
-    }
-    streamError.value = payload.error ?? 'Stream error'
-    markLatestUserMessageError(conversationId)
-    if (generatingConversationId.value === conversationId) {
-      generatingConversationId.value = null
-      isSending.value = false
-    }
+function failAssistantStream(conversationId: string, message: string) {
+  clearAssistantWaitFor(conversationId)
+  streamError.value = message
+  markLatestUserMessageError(conversationId)
+  if (generatingConversationId.value === conversationId) {
+    generatingConversationId.value = null
+    isSending.value = false
   }
 }
 
@@ -332,13 +337,13 @@ function setAssistantElapsedMs(conversationId: string, messageId: string, elapse
 }
 
 async function beginConversationTitleEdit() {
-  renameDraft.value = selectedConversation.value?.title ?? 'New chat'
+  renameDraft.value = selectedConversation.value?.title ?? DEFAULT_CONVERSATION_TITLE
   isEditingTitle.value = true
 }
 
 function cancelConversationTitleEdit() {
   isEditingTitle.value = false
-  renameDraft.value = selectedConversation.value?.title ?? 'New chat'
+  renameDraft.value = selectedConversation.value?.title ?? DEFAULT_CONVERSATION_TITLE
 }
 
 async function sendMessage() {
@@ -349,25 +354,11 @@ async function sendMessage() {
 
   const conversationId = selectedConversationId.value
   const filesToSend = [...selectedFiles.value]
-  const localMessageId = `local-${Date.now()}`
-  messages.value.push({
-    id: localMessageId,
-    conversationId,
-    role: 'user',
-    content,
-    userContent: content,
-    llmContent: content,
-    attachments: filesToSend.map((file) => file.name),
-    createdAt: new Date().toISOString(),
-  })
-  conversationMessageCache.set(conversationId, cloneMessages(messages.value))
-
+  const localMessageId = appendOptimisticUserMessage(conversationId, content, filesToSend)
   draft.value = ''
   selectedFiles.value = []
-  isSending.value = true
-  generatingConversationId.value = conversationId
-  waitingForAssistantResponse.value = true
-  waitingForAssistantConversationId.value = conversationId
+  startGenerationFor(conversationId)
+
   try {
     await createMessage(conversationId, content, filesToSend)
     if (pendingRouteConversationId.value === conversationId) {
@@ -377,40 +368,88 @@ async function sendMessage() {
     await loadConversations()
     await scrollMessagesToBottom()
   } catch (error) {
-    resetGenerationFor(conversationId)
-    const message = error instanceof Error ? error.message : 'Failed to send message'
-    streamError.value = message
-    const localMessageIndex = messages.value.findIndex((item) => item.id === localMessageId)
-    if (localMessageIndex >= 0) {
-      const localMessage = messages.value[localMessageIndex]
-      if (localMessage) {
-        messages.value[localMessageIndex] = {
-          ...localMessage,
-          hasError: true,
-        }
-        conversationMessageCache.set(conversationId, cloneMessages(messages.value))
-        try {
-          const persisted = await createFailedMessage(
-            conversationId,
-            content,
-            filesToSend.map((file) => file.name),
-          )
-          messages.value[localMessageIndex] = persisted
-          conversationMessageCache.set(conversationId, cloneMessages(messages.value))
-          await loadConversations()
-        } catch (persistError) {
-          console.error('failed to persist failed user message', persistError)
-        }
-      }
-    }
-    const lower = message.toLowerCase()
-    if (
-      filesToSend.length > 0 &&
-      (lower.includes('too large') || lower.includes('upload limit') || lower.includes('exceeds max size'))
-    ) {
-      window.alert(message)
-    }
+    await handleSendMessageFailure(conversationId, localMessageId, content, filesToSend, error)
   }
+}
+
+function appendOptimisticUserMessage(
+  conversationId: string,
+  content: string,
+  files: File[],
+): string {
+  const localMessageId = `local-${Date.now()}`
+  messages.value.push({
+    id: localMessageId,
+    conversationId,
+    role: 'user',
+    content,
+    userContent: content,
+    llmContent: content,
+    attachments: files.map((file) => file.name),
+    createdAt: new Date().toISOString(),
+  })
+  conversationMessageCache.set(conversationId, cloneMessages(messages.value))
+  return localMessageId
+}
+
+async function handleSendMessageFailure(
+  conversationId: string,
+  localMessageId: string,
+  content: string,
+  files: File[],
+  error: unknown,
+) {
+  resetGenerationFor(conversationId)
+  const message = error instanceof Error ? error.message : 'Failed to send message'
+  streamError.value = message
+  await persistFailedLocalMessage(conversationId, localMessageId, content, files)
+  if (shouldAlertUploadFailure(message, files)) {
+    window.alert(message)
+  }
+}
+
+async function persistFailedLocalMessage(
+  conversationId: string,
+  localMessageId: string,
+  content: string,
+  files: File[],
+) {
+  const localMessageIndex = messages.value.findIndex((item) => item.id === localMessageId)
+  if (localMessageIndex < 0) {
+    return
+  }
+  const localMessage = messages.value[localMessageIndex]
+  if (!localMessage) {
+    return
+  }
+
+  messages.value[localMessageIndex] = { ...localMessage, hasError: true }
+  conversationMessageCache.set(conversationId, cloneMessages(messages.value))
+
+  try {
+    const persisted = await createFailedMessage(
+      conversationId,
+      content,
+      files.map((file) => file.name),
+    )
+    messages.value[localMessageIndex] = persisted
+    conversationMessageCache.set(conversationId, cloneMessages(messages.value))
+    await loadConversations()
+  } catch (persistError) {
+    console.error('failed to persist failed user message', persistError)
+  }
+}
+
+function shouldAlertUploadFailure(message: string, files: File[]): boolean {
+  if (files.length === 0) {
+    return false
+  }
+  const lower = message.toLowerCase()
+  return (
+    lower.includes('too large') ||
+    lower.includes('upload limit') ||
+    lower.includes('exceeds max size')
+  )
 }
 
 async function handleRequeueMessage(message: DisplayMessage) {
@@ -419,17 +458,16 @@ async function handleRequeueMessage(message: DisplayMessage) {
     return
   }
 
-  isSending.value = true
-  generatingConversationId.value = conversationId
-  waitingForAssistantResponse.value = true
-  waitingForAssistantConversationId.value = conversationId
-  streamError.value = ''
+  startGenerationFor(conversationId)
   try {
     const { userMessage } = await requeueMessage(conversationId, message.id)
     messages.value.push(userMessage)
     conversationMessageCache.set(conversationId, cloneMessages(messages.value))
     const persistedMessages = await listMessages(conversationId)
-    messages.value = mergeMessagesPreservingStreamState(persistedMessages, conversationMessageCache.get(conversationId) ?? [])
+    messages.value = mergeMessagesPreservingStreamState(
+      persistedMessages,
+      conversationMessageCache.get(conversationId) ?? [],
+    )
     conversationMessageCache.set(conversationId, cloneMessages(messages.value))
     await loadConversations()
     await scrollMessagesToBottom()
@@ -440,34 +478,39 @@ async function handleRequeueMessage(message: DisplayMessage) {
 }
 
 function handleSelectedFiles(files: File[]) {
+  const error = validateSelectedFiles(files)
+  if (error) {
+    selectedFiles.value = []
+    notifyUploadError(error)
+    return
+  }
+  selectedFiles.value = files
+  clearResolvedUploadError()
+}
+
+function validateSelectedFiles(files: File[]): string | null {
   const oversizedFiles = files.filter((file) => file.size > maxSingleFileBytes)
   if (oversizedFiles.length > 0) {
-    selectedFiles.value = []
-    notifyUploadError(
-      `Files must be ${maxSingleFileLabel} or smaller: ${oversizedFiles.map((file) => file.name).join(', ')}`,
-    )
-    return
+    return `Files must be ${maxSingleFileLabel} or smaller: ${oversizedFiles.map((file) => file.name).join(', ')}`
   }
   const totalBytes = files.reduce((sum, file) => sum + file.size, 0)
   if (totalBytes > maxTotalUploadBytes) {
-    selectedFiles.value = []
-    notifyUploadError(
-      `Selected files exceed the ${maxTotalUploadLabel} total upload limit. Remove some files and try again.`,
-    )
-    return
+    return `Selected files exceed the ${maxTotalUploadLabel} total upload limit. Remove some files and try again.`
   }
   const oversizedImages = files.filter(
     (file) => file.type.startsWith('image/') && file.size > maxImageUploadBytes,
   )
   if (oversizedImages.length > 0) {
-    selectedFiles.value = []
-    notifyUploadError(
-      `Image files must be ${maxImageUploadLabel} or smaller: ${oversizedImages.map((file) => file.name).join(', ')}`,
-    )
-    return
+    return `Image files must be ${maxImageUploadLabel} or smaller: ${oversizedImages.map((file) => file.name).join(', ')}`
   }
-  selectedFiles.value = files
-  if (streamError.value.includes('upload limit') || streamError.value.includes('Image files must be')) {
+  return null
+}
+
+function clearResolvedUploadError() {
+  if (
+    streamError.value.includes('upload limit') ||
+    streamError.value.includes('Image files must be')
+  ) {
     streamError.value = ''
   }
 }
@@ -529,7 +572,7 @@ async function saveConversationTitle() {
   }
   const title = clampTitleForDisplay(renameDraft.value)
   if (!title) {
-    renameDraft.value = selectedConversation.value?.title ?? 'New chat'
+    renameDraft.value = selectedConversation.value?.title ?? DEFAULT_CONVERSATION_TITLE
     isEditingTitle.value = false
     return
   }
@@ -546,10 +589,10 @@ async function saveConversationTitle() {
 
 function clampTitleForDisplay(title: string): string {
   const normalized = title.trim().replace(/\s+/g, ' ')
-  if (normalized.length <= 40) {
+  if (normalized.length <= MAX_CONVERSATION_TITLE_LENGTH) {
     return normalized
   }
-  return normalized.slice(0, 40).trim()
+  return normalized.slice(0, MAX_CONVERSATION_TITLE_LENGTH).trim()
 }
 
 async function suggestConversationTitleWithLLM() {
@@ -562,14 +605,18 @@ async function suggestConversationTitleWithLLM() {
     renameDraft.value = clampTitleForDisplay(suggestedTitle)
     await saveConversationTitle()
   } catch (error) {
-    streamError.value = error instanceof Error ? error.message : 'Failed to suggest conversation title'
+    streamError.value =
+      error instanceof Error ? error.message : 'Failed to suggest conversation title'
   } finally {
     isSuggestingTitle.value = false
   }
 }
 
 async function stopGeneration() {
-  if (!selectedConversationId.value || generatingConversationId.value !== selectedConversationId.value) {
+  if (
+    !selectedConversationId.value ||
+    generatingConversationId.value !== selectedConversationId.value
+  ) {
     return
   }
   await stopConversationGeneration(selectedConversationId.value)
@@ -582,12 +629,23 @@ function cacheCurrentConversationMessages() {
   conversationMessageCache.set(selectedConversationId.value, cloneMessages(messages.value))
 }
 
+function markLatestUserMessageError(conversationId: string) {
+  const latestUserMessage = [...messages.value]
+    .reverse()
+    .find((message) => message.conversationId === conversationId && message.role === 'user')
+  if (!latestUserMessage) {
+    return
+  }
+  latestUserMessage.hasError = true
+}
+
 function ensureConversationMessages(conversationId: string): DisplayMessage[] {
   const cached = conversationMessageCache.get(conversationId)
   if (cached) {
     return cached
   }
-  const initial = conversationId === selectedConversationId.value ? cloneMessages(messages.value) : []
+  const initial =
+    conversationId === selectedConversationId.value ? cloneMessages(messages.value) : []
   conversationMessageCache.set(conversationId, initial)
   return initial
 }
@@ -668,22 +726,7 @@ async function archiveSelectedConversation(event?: MouseEvent) {
     await deleteChat(selectedConversationId.value)
     return
   }
-  const toArchive = selectedConversationId.value
-  if (!confirmArchive(toArchive)) {
-    return
-  }
-  await archiveConversation(toArchive)
-  await loadConversations()
-  if (selectedConversationId.value === toArchive) {
-    const replacement = activeConversations.value[0]
-    if (replacement) {
-      await selectConversation(replacement.id)
-    } else {
-      messages.value = []
-      selectedConversationId.value = null
-      updateConversationInUrl(null)
-    }
-  }
+  await archiveChat(selectedConversationId.value)
 }
 
 async function archiveChat(conversationId: string, event?: MouseEvent) {
@@ -696,16 +739,7 @@ async function archiveChat(conversationId: string, event?: MouseEvent) {
   }
   await archiveConversation(conversationId)
   await loadConversations()
-  if (selectedConversationId.value === conversationId) {
-    const replacement = activeConversations.value[0]
-    if (replacement) {
-      await selectConversation(replacement.id)
-    } else {
-      messages.value = []
-      selectedConversationId.value = null
-      updateConversationInUrl(null)
-    }
-  }
+  await moveSelectionAfterConversationLeavesList(conversationId)
 }
 
 async function restoreChat(conversationId: string) {
@@ -719,16 +753,21 @@ async function deleteChat(conversationId: string) {
   }
   await deleteConversation(conversationId)
   await loadConversations()
-  if (selectedConversationId.value === conversationId) {
-    const replacement = activeConversations.value[0]
-    if (replacement) {
-      await selectConversation(replacement.id)
-    } else {
-      messages.value = []
-      selectedConversationId.value = null
-      updateConversationInUrl(null)
-    }
+  await moveSelectionAfterConversationLeavesList(conversationId)
+}
+
+async function moveSelectionAfterConversationLeavesList(conversationId: string) {
+  if (selectedConversationId.value !== conversationId) {
+    return
   }
+  const replacement = activeConversations.value[0]
+  if (replacement) {
+    await selectConversation(replacement.id)
+    return
+  }
+  messages.value = []
+  selectedConversationId.value = null
+  updateConversationInUrl(null)
 }
 
 async function scrollMessagesToBottom() {
@@ -764,7 +803,7 @@ async function scrollMessagesToBottom() {
         :is-renaming="isRenaming"
         :is-suggesting-title="isSuggestingTitle"
         :selected-conversation-id="selectedConversationId"
-        :title="selectedConversation?.title ?? 'New chat'"
+        :title="selectedConversation?.title ?? DEFAULT_CONVERSATION_TITLE"
         @archive="archiveSelectedConversation"
         @begin-edit="beginConversationTitleEdit"
         @cancel-edit="cancelConversationTitleEdit"
@@ -816,7 +855,13 @@ async function scrollMessagesToBottom() {
   background: var(--bg);
   color: var(--text);
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
 }
 
 .layout[data-theme='dark'] {

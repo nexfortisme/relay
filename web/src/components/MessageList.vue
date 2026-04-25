@@ -81,7 +81,12 @@ DOMPurify.addHook('afterSanitizeAttributes', (node) => {
 watch(
   () => {
     const latestMessage = props.messages[props.messages.length - 1]
-    return [props.messages.length, props.pendingAssistant, latestMessage?.content, latestMessage?.thinking]
+    return [
+      props.messages.length,
+      props.pendingAssistant,
+      latestMessage?.content,
+      latestMessage?.thinking,
+    ]
   },
   () => {
     void scrollToBottom()
@@ -225,7 +230,10 @@ defineExpose({ scrollToBottom })
         <p>{{ displayUserMessage(message) }}</p>
         <div v-if="message.attachments?.length" class="message-attachments">
           <template v-if="!message.hasError">
-            <template v-for="(attachment, index) in message.attachments" :key="`${attachment}-${index}`">
+            <template
+              v-for="(attachment, index) in message.attachments"
+              :key="`${attachment}-${index}`"
+            >
               <button
                 v-if="isImageFile(attachment)"
                 type="button"
@@ -265,9 +273,18 @@ defineExpose({ scrollToBottom })
           </template>
         </div>
       </template>
-      <div v-else class="message-markdown" v-html="renderMarkdown(message.content)" @click="handleMarkdownClick" />
       <div
-        v-if="message.role === 'assistant' && typeof message.elapsedMs === 'number' && message.elapsedMs > 0"
+        v-else
+        class="message-markdown"
+        v-html="renderMarkdown(message.content)"
+        @click="handleMarkdownClick"
+      />
+      <div
+        v-if="
+          message.role === 'assistant' &&
+          typeof message.elapsedMs === 'number' &&
+          message.elapsedMs > 0
+        "
         class="message-elapsed"
         :title="`Generated in ${formatElapsed(message.elapsedMs)}`"
       >
@@ -354,7 +371,10 @@ defineExpose({ scrollToBottom })
   max-width: min(68%, 660px);
   line-height: 1.5;
   width: fit-content;
-  transition: background-color 180ms ease, color 180ms ease, border-color 180ms ease;
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    border-color 180ms ease;
 }
 
 .message.user {
@@ -439,7 +459,10 @@ defineExpose({ scrollToBottom })
   justify-content: center;
   cursor: pointer;
   opacity: 0.76;
-  transition: background-color 160ms ease, border-color 160ms ease, opacity 160ms ease;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    opacity 160ms ease;
 }
 
 .message-action-button:hover,
