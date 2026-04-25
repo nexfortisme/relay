@@ -3,6 +3,13 @@ import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { messageAttachmentDownloadUrl, type Message } from '../lib/api'
+import {
+  attachmentPreviewKind,
+  formatPreviewText,
+  isImageFile,
+  isPreviewableAttachment,
+  type AttachmentPreviewKind,
+} from '../lib/fileTypes'
 import type { DisplayMessage } from '../types'
 import AppIcon from './AppIcon.vue'
 
@@ -20,43 +27,145 @@ const messagesEl = ref<HTMLElement | null>(null)
 const copiedMessageId = ref<string | null>(null)
 let copiedResetTimer: ReturnType<typeof setTimeout> | null = null
 
-const previewSrc = ref<string | null>(null)
-const previewFilename = ref<string>('')
-
-const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif|tiff?)$/i
-
-function isImageFile(name: string): boolean {
-  return IMAGE_EXTENSIONS.test(name)
+type PreviewState = {
+  kind: AttachmentPreviewKind
+  src: string
+  downloadSrc: string
+  filename: string
+  text: string
+  isLoading: boolean
+  error: string
+  objectUrl?: string
 }
 
-function openPreview(src: string, filename: string) {
-  previewSrc.value = src
-  previewFilename.value = filename
+const preview = ref<PreviewState | null>(null)
+let previewRequestId = 0
+
+function revokePreviewObjectUrl() {
+  const objectUrl = preview.value?.objectUrl
+  if (objectUrl) {
+    URL.revokeObjectURL(objectUrl)
+  }
+}
+
+function setPreview(nextPreview: PreviewState) {
+  revokePreviewObjectUrl()
+  preview.value = nextPreview
+}
+
+function openImagePreview(src: string, filename: string) {
+  previewRequestId += 1
+  setPreview({
+    kind: 'image',
+    src,
+    downloadSrc: src,
+    filename,
+    text: '',
+    isLoading: false,
+    error: '',
+  })
 }
 
 function closePreview() {
-  previewSrc.value = null
-  previewFilename.value = ''
+  previewRequestId += 1
+  revokePreviewObjectUrl()
+  preview.value = null
 }
 
 function handleMarkdownClick(event: MouseEvent) {
   const target = event.target
   if (!(target instanceof HTMLImageElement)) return
   event.preventDefault()
-  openPreview(target.src, target.alt || 'image')
+  openImagePreview(target.src, target.alt || 'image')
 }
 
 function handleKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && previewSrc.value) {
+  if (event.key === 'Escape' && preview.value) {
     closePreview()
   }
 }
 
-function handleImageAttachmentClick(event: MouseEvent, message: Message, index: number) {
+async function handleAttachmentPreviewClick(event: MouseEvent, message: Message, index: number) {
   event.preventDefault()
   const src = attachmentDownloadUrl(message, index)
-  const filename = message.attachments?.[index] ?? 'image'
-  openPreview(src, filename)
+  const filename = message.attachments?.[index] ?? 'attachment'
+  const kind = attachmentPreviewKind(filename)
+  if (!kind) {
+    return
+  }
+
+  if (kind === 'image') {
+    openImagePreview(src, filename)
+    return
+  }
+
+  const requestId = previewRequestId + 1
+  previewRequestId = requestId
+  setPreview({
+    kind,
+    src,
+    downloadSrc: src,
+    filename,
+    text: '',
+    isLoading: true,
+    error: '',
+  })
+
+  try {
+    const response = await fetch(src)
+    if (!response.ok) {
+      throw new Error('Preview request failed')
+    }
+    if (requestId !== previewRequestId) {
+      return
+    }
+
+    if (kind === 'pdf') {
+      const blob = await response.blob()
+      if (requestId !== previewRequestId) {
+        return
+      }
+      const objectUrl = URL.createObjectURL(blob)
+      setPreview({
+        kind,
+        src: objectUrl,
+        downloadSrc: src,
+        filename,
+        text: '',
+        isLoading: false,
+        error: '',
+        objectUrl,
+      })
+      return
+    }
+
+    const text = await response.text()
+    if (requestId !== previewRequestId) {
+      return
+    }
+    setPreview({
+      kind,
+      src,
+      downloadSrc: src,
+      filename,
+      text: formatPreviewText(filename, text),
+      isLoading: false,
+      error: '',
+    })
+  } catch {
+    if (requestId !== previewRequestId) {
+      return
+    }
+    setPreview({
+      kind,
+      src,
+      downloadSrc: src,
+      filename,
+      text: '',
+      isLoading: false,
+      error: 'Unable to load preview.',
+    })
+  }
 }
 
 marked.setOptions({
@@ -203,6 +312,7 @@ onUnmounted(() => {
   if (copiedResetTimer) {
     clearTimeout(copiedResetTimer)
   }
+  closePreview()
   document.removeEventListener('keydown', handleKeydown)
 })
 
@@ -235,17 +345,21 @@ defineExpose({ scrollToBottom })
               :key="`${attachment}-${index}`"
             >
               <button
-                v-if="isImageFile(attachment)"
+                v-if="isPreviewableAttachment(attachment)"
                 type="button"
-                class="message-attachment-chip message-attachment-chip--image"
+                class="message-attachment-chip"
+                :class="{ 'message-attachment-chip--image': isImageFile(attachment) }"
                 :title="`Preview ${attachment}`"
-                @click="handleImageAttachmentClick($event, message, index)"
+                @click="handleAttachmentPreviewClick($event, message, index)"
               >
-                <img
-                  class="message-attachment-thumb"
-                  :src="attachmentDownloadUrl(message, index)"
-                  :alt="attachment"
-                />
+                <template v-if="isImageFile(attachment)">
+                  <img
+                    class="message-attachment-thumb"
+                    :src="attachmentDownloadUrl(message, index)"
+                    :alt="attachment"
+                  />
+                </template>
+                <AppIcon v-else name="file" :size="14" />
                 <span class="message-attachment-name">{{ attachment }}</span>
               </button>
               <a
@@ -326,30 +440,65 @@ defineExpose({ scrollToBottom })
   </div>
 
   <Teleport to="body">
-    <div v-if="previewSrc" class="image-preview-overlay" @click.self="closePreview">
-      <div class="image-preview-dialog" role="dialog" aria-modal="true" aria-label="Image preview">
-        <div class="image-preview-toolbar">
-          <a
-            class="image-preview-btn"
-            :href="previewSrc"
-            :download="previewFilename"
-            title="Download image"
-            aria-label="Download image"
-          >
-            <AppIcon name="download" :size="17" />
-          </a>
-          <button
-            type="button"
-            class="image-preview-btn"
-            title="Close preview"
-            aria-label="Close preview"
-            @click="closePreview"
-          >
-            <AppIcon name="x" :size="17" />
-          </button>
+    <div v-if="preview" class="file-preview-overlay" @click.self="closePreview">
+      <div
+        class="file-preview-dialog"
+        :class="`file-preview-dialog--${preview.kind}`"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="`${preview.filename} preview`"
+      >
+        <div class="file-preview-toolbar">
+          <span class="file-preview-title" :title="preview.filename">{{ preview.filename }}</span>
+          <div class="file-preview-actions">
+            <a
+              class="file-preview-btn"
+              :href="preview.downloadSrc"
+              :download="preview.filename"
+              title="Download file"
+              aria-label="Download file"
+            >
+              <AppIcon name="download" :size="17" />
+            </a>
+            <button
+              type="button"
+              class="file-preview-btn"
+              title="Close preview"
+              aria-label="Close preview"
+              @click="closePreview"
+            >
+              <AppIcon name="x" :size="17" />
+            </button>
+          </div>
         </div>
-        <div class="image-preview-body">
-          <img class="image-preview-img" :src="previewSrc" :alt="previewFilename" />
+        <div
+          class="file-preview-body"
+          :class="{
+            'file-preview-body--image': preview.kind === 'image',
+            'file-preview-body--pdf': preview.kind === 'pdf',
+            'file-preview-body--text': preview.kind === 'text' || preview.kind === 'markdown',
+          }"
+        >
+          <p v-if="preview.isLoading" class="file-preview-status">Loading preview...</p>
+          <p v-else-if="preview.error" class="file-preview-status">{{ preview.error }}</p>
+          <img
+            v-else-if="preview.kind === 'image'"
+            class="file-preview-img"
+            :src="preview.src"
+            :alt="preview.filename"
+          />
+          <iframe
+            v-else-if="preview.kind === 'pdf'"
+            class="file-preview-frame"
+            :src="preview.src"
+            :title="preview.filename"
+          />
+          <div
+            v-else-if="preview.kind === 'markdown'"
+            class="file-preview-text file-preview-markdown"
+            v-html="renderMarkdown(preview.text)"
+          />
+          <pre v-else-if="preview.kind === 'text'" class="file-preview-text">{{ preview.text }}</pre>
         </div>
       </div>
     </div>
@@ -496,10 +645,10 @@ defineExpose({ scrollToBottom })
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: inherit;
 }
 
 .message-attachment-chip--image {
-  cursor: pointer;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface) 76%, transparent);
   color: inherit;
@@ -511,6 +660,14 @@ defineExpose({ scrollToBottom })
   border-radius: 999px;
   font-size: 0.75rem;
   max-width: 18rem;
+}
+
+.message-attachment-chip:is(a, button) {
+  cursor: pointer;
+}
+
+.message-attachment-chip:is(a, button):hover {
+  border-color: var(--primary);
 }
 
 .message-attachment-chip--image:hover {
@@ -539,7 +696,7 @@ defineExpose({ scrollToBottom })
   display: block;
 }
 
-.image-preview-overlay {
+.file-preview-overlay {
   position: fixed;
   inset: 0;
   background: rgba(4, 9, 20, 0.82);
@@ -550,7 +707,7 @@ defineExpose({ scrollToBottom })
   padding: 1.5rem;
 }
 
-.image-preview-dialog {
+.file-preview-dialog {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 0.75rem;
@@ -562,16 +719,40 @@ defineExpose({ scrollToBottom })
   overflow: hidden;
 }
 
-.image-preview-toolbar {
+.file-preview-dialog--pdf,
+.file-preview-dialog--text,
+.file-preview-dialog--markdown {
+  width: min(90vw, 1000px);
+}
+
+.file-preview-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 1rem;
   padding: 0.5rem 0.6rem;
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
 }
 
-.image-preview-btn {
+.file-preview-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+
+.file-preview-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 0 0 auto;
+}
+
+.file-preview-btn {
   width: 2rem;
   height: 2rem;
   border: 1px solid transparent;
@@ -584,13 +765,13 @@ defineExpose({ scrollToBottom })
   text-decoration: none;
 }
 
-.image-preview-btn:hover {
+.file-preview-btn:hover {
   color: var(--text);
   background: var(--surface-hover);
   border-color: var(--border);
 }
 
-.image-preview-body {
+.file-preview-body {
   overflow: auto;
   display: flex;
   align-items: center;
@@ -598,12 +779,73 @@ defineExpose({ scrollToBottom })
   padding: 1rem;
 }
 
-.image-preview-img {
+.file-preview-body--pdf {
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0;
+  height: min(78vh, 760px);
+}
+
+.file-preview-body--text {
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0;
+}
+
+.file-preview-img {
   max-width: 100%;
   max-height: calc(90vh - 6rem);
   object-fit: contain;
   border-radius: 0.35rem;
   display: block;
+}
+
+.file-preview-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.file-preview-text {
+  width: 100%;
+  max-height: calc(90vh - 5.2rem);
+  margin: 0;
+  padding: 1rem;
+  overflow: auto;
+  background: var(--surface-soft);
+  color: var(--text);
+  font: 0.84rem/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.file-preview-markdown {
+  font-family: inherit;
+  font-size: 0.94rem;
+  line-height: 1.55;
+  white-space: normal;
+}
+
+.file-preview-markdown :deep(> :first-child) {
+  margin-top: 0;
+}
+
+.file-preview-markdown :deep(> :last-child) {
+  margin-bottom: 0;
+}
+
+.file-preview-markdown :deep(pre) {
+  overflow-x: auto;
+  padding: 0.72rem;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--surface) 76%, var(--surface-soft));
+}
+
+.file-preview-status {
+  margin: 0;
+  padding: 2rem;
+  color: var(--muted);
 }
 
 .message-markdown {
