@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
-import { nextTick, onUnmounted, ref, watch } from 'vue'
+import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { messageAttachmentDownloadUrl, type Message } from '../lib/api'
 import type { DisplayMessage } from '../types'
 import AppIcon from './AppIcon.vue'
@@ -19,6 +19,45 @@ const emit = defineEmits<{
 const messagesEl = ref<HTMLElement | null>(null)
 const copiedMessageId = ref<string | null>(null)
 let copiedResetTimer: ReturnType<typeof setTimeout> | null = null
+
+const previewSrc = ref<string | null>(null)
+const previewFilename = ref<string>('')
+
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif|tiff?)$/i
+
+function isImageFile(name: string): boolean {
+  return IMAGE_EXTENSIONS.test(name)
+}
+
+function openPreview(src: string, filename: string) {
+  previewSrc.value = src
+  previewFilename.value = filename
+}
+
+function closePreview() {
+  previewSrc.value = null
+  previewFilename.value = ''
+}
+
+function handleMarkdownClick(event: MouseEvent) {
+  const target = event.target
+  if (!(target instanceof HTMLImageElement)) return
+  event.preventDefault()
+  openPreview(target.src, target.alt || 'image')
+}
+
+function handleKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && previewSrc.value) {
+    closePreview()
+  }
+}
+
+function handleImageAttachmentClick(event: MouseEvent, message: Message, index: number) {
+  event.preventDefault()
+  const src = attachmentDownloadUrl(message, index)
+  const filename = message.attachments?.[index] ?? 'image'
+  openPreview(src, filename)
+}
 
 marked.setOptions({
   gfm: true,
@@ -137,10 +176,15 @@ async function scrollToBottom() {
   el.scrollTop = el.scrollHeight
 }
 
+onMounted(() => {
+  document.addEventListener('keydown', handleKeydown)
+})
+
 onUnmounted(() => {
   if (copiedResetTimer) {
     clearTimeout(copiedResetTimer)
   }
+  document.removeEventListener('keydown', handleKeydown)
 })
 
 defineExpose({ scrollToBottom })
@@ -167,17 +211,32 @@ defineExpose({ scrollToBottom })
         <p>{{ displayUserMessage(message) }}</p>
         <div v-if="message.attachments?.length" class="message-attachments">
           <template v-if="!message.hasError">
-            <a
-              v-for="(attachment, index) in message.attachments"
-              :key="`${attachment}-${index}`"
-              class="message-attachment-chip"
-              :href="attachmentDownloadUrl(message, index)"
-              :download="attachment"
-              :title="`Download ${attachment}`"
-            >
-              <AppIcon name="file" :size="14" />
-              {{ attachment }}
-            </a>
+            <template v-for="(attachment, index) in message.attachments" :key="`${attachment}-${index}`">
+              <button
+                v-if="isImageFile(attachment)"
+                type="button"
+                class="message-attachment-chip message-attachment-chip--image"
+                :title="`Preview ${attachment}`"
+                @click="handleImageAttachmentClick($event, message, index)"
+              >
+                <img
+                  class="message-attachment-thumb"
+                  :src="attachmentDownloadUrl(message, index)"
+                  :alt="attachment"
+                />
+                <span class="message-attachment-name">{{ attachment }}</span>
+              </button>
+              <a
+                v-else
+                class="message-attachment-chip"
+                :href="attachmentDownloadUrl(message, index)"
+                :download="attachment"
+                :title="`Download ${attachment}`"
+              >
+                <AppIcon name="file" :size="14" />
+                {{ attachment }}
+              </a>
+            </template>
           </template>
           <template v-else>
             <span
@@ -192,7 +251,7 @@ defineExpose({ scrollToBottom })
           </template>
         </div>
       </template>
-      <div v-else class="message-markdown" v-html="renderMarkdown(message.content)" />
+      <div v-else class="message-markdown" v-html="renderMarkdown(message.content)" @click="handleMarkdownClick" />
       <div
         v-if="message.role === 'assistant' && typeof message.elapsedMs === 'number' && message.elapsedMs > 0"
         class="message-elapsed"
@@ -234,6 +293,36 @@ defineExpose({ scrollToBottom })
       </div>
     </article>
   </div>
+
+  <Teleport to="body">
+    <div v-if="previewSrc" class="image-preview-overlay" @click.self="closePreview">
+      <div class="image-preview-dialog" role="dialog" aria-modal="true" aria-label="Image preview">
+        <div class="image-preview-toolbar">
+          <a
+            class="image-preview-btn"
+            :href="previewSrc"
+            :download="previewFilename"
+            title="Download image"
+            aria-label="Download image"
+          >
+            <AppIcon name="download" :size="17" />
+          </a>
+          <button
+            type="button"
+            class="image-preview-btn"
+            title="Close preview"
+            aria-label="Close preview"
+            @click="closePreview"
+          >
+            <AppIcon name="x" :size="17" />
+          </button>
+        </div>
+        <div class="image-preview-body">
+          <img class="image-preview-img" :src="previewSrc" :alt="previewFilename" />
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -370,6 +459,114 @@ defineExpose({ scrollToBottom })
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.message-attachment-chip--image {
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 76%, transparent);
+  color: inherit;
+  padding: 0;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  max-width: 18rem;
+}
+
+.message-attachment-chip--image:hover {
+  border-color: var(--primary);
+}
+
+.message-attachment-thumb {
+  width: 1.8rem;
+  height: 1.8rem;
+  object-fit: cover;
+  flex: 0 0 auto;
+  border-radius: 999px 0 0 999px;
+}
+
+.message-attachment-name {
+  padding-right: 0.48rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-markdown :deep(img) {
+  max-width: 100%;
+  border-radius: 0.45rem;
+  cursor: zoom-in;
+  display: block;
+}
+
+.image-preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 9, 20, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 1.5rem;
+}
+
+.image-preview-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  max-width: min(90vw, 1000px);
+  max-height: 90vh;
+  overflow: hidden;
+}
+
+.image-preview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.image-preview-btn {
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 0.45rem;
+  display: inline-grid;
+  place-items: center;
+  text-decoration: none;
+}
+
+.image-preview-btn:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+  border-color: var(--border);
+}
+
+.image-preview-body {
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.image-preview-img {
+  max-width: 100%;
+  max-height: calc(90vh - 6rem);
+  object-fit: contain;
+  border-radius: 0.35rem;
+  display: block;
 }
 
 .message-markdown {
