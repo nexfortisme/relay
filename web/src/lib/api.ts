@@ -153,18 +153,14 @@ export async function requeueMessage(
 }
 
 export function conversationStreamUrl(conversationId: string): string {
-  const streamHttpUrl = conversationHttpStreamUrl(conversationId)
+  const httpUrl = `${API_BASE}/conversations/${conversationId}/stream`
   try {
-    const url = new URL(streamHttpUrl)
+    const url = new URL(httpUrl)
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     return url.toString()
   } catch {
-    return streamHttpUrl.replace(/^http/i, 'ws')
+    return httpUrl.replace(/^http/i, 'ws')
   }
-}
-
-export function conversationHttpStreamUrl(conversationId: string): string {
-  return `${API_BASE}/conversations/${conversationId}/stream`
 }
 
 export async function renameConversation(conversationId: string, title: string): Promise<void> {

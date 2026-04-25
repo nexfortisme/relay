@@ -7,7 +7,6 @@ import MessageList from './components/MessageList.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import {
   archiveConversation,
-  conversationHttpStreamUrl,
   conversationStreamUrl,
   createConversation,
   createFailedMessage,
@@ -53,7 +52,6 @@ const isSuggestingTitle = ref(false)
 const isEditingTitle = ref(false)
 const messageListEl = ref<InstanceType<typeof MessageList> | null>(null)
 let streamSocket: WebSocket | null = null
-let eventSourceFallback: EventSource | null = null
 const maxTotalUploadBytes = parsePositiveInt(import.meta.env.VITE_MAX_UPLOAD_BYTES, 50 * 1024 * 1024)
 const maxTotalUploadLabel = formatBytesLabel(maxTotalUploadBytes)
 const maxSingleFileBytes = 50 * 1024 * 1024
@@ -149,12 +147,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  if (streamSocket) {
-    streamSocket.close()
-  }
-  if (eventSourceFallback) {
-    eventSourceFallback.close()
-  }
+  streamSocket?.close()
 })
 
 async function loadConversations() {
@@ -214,55 +207,36 @@ type StreamPayload = {
 }
 
 function setupStream(conversationId: string) {
-  if (streamSocket) {
-    streamSocket.close()
-  }
-  if (eventSourceFallback) {
-    eventSourceFallback.close()
-    eventSourceFallback = null
-  }
+  streamSocket?.close()
   streamError.value = ''
-  let hasOpenedWebSocket = false
   streamSocket = new WebSocket(conversationStreamUrl(conversationId))
 
-  streamSocket.onopen = () => {
-    hasOpenedWebSocket = true
-  }
-
   streamSocket.onmessage = (event) => {
-    const payload = JSON.parse(event.data) as StreamPayload
-    applyStreamPayload(conversationId, payload)
+    applyStreamPayload(conversationId, JSON.parse(event.data) as StreamPayload)
   }
 
   streamSocket.onerror = () => {
-    if (!hasOpenedWebSocket) {
-      setupEventSourceFallback(conversationId)
-      return
-    }
     streamError.value = 'Stream disconnected'
-    if (generatingConversationId.value === conversationId) {
-      isSending.value = false
-      generatingConversationId.value = null
-      waitingForAssistantResponse.value = false
-      waitingForAssistantConversationId.value = null
-    }
+    resetGenerationFor(conversationId)
   }
 
   streamSocket.onclose = (event) => {
-    if (!hasOpenedWebSocket) {
-      setupEventSourceFallback(conversationId)
+    if (event.wasClean) {
       return
     }
-    if (!event.wasClean) {
-      streamError.value = `Stream closed (code ${event.code})`
-      if (generatingConversationId.value === conversationId) {
-        isSending.value = false
-        generatingConversationId.value = null
-        waitingForAssistantResponse.value = false
-        waitingForAssistantConversationId.value = null
-      }
-    }
+    streamError.value = `Stream closed (code ${event.code})`
+    resetGenerationFor(conversationId)
   }
+}
+
+function resetGenerationFor(conversationId: string) {
+  if (generatingConversationId.value !== conversationId) {
+    return
+  }
+  isSending.value = false
+  generatingConversationId.value = null
+  waitingForAssistantResponse.value = false
+  waitingForAssistantConversationId.value = null
 }
 
 function applyStreamPayload(conversationId: string, payload: StreamPayload) {
@@ -285,29 +259,11 @@ function applyStreamPayload(conversationId: string, payload: StreamPayload) {
     return
   }
 
-  if (payload.type === 'done') {
+  if (payload.type === 'done' || payload.type === 'stopped') {
     if (payload.messageId && typeof payload.elapsedMs === 'number') {
       setAssistantElapsedMs(conversationId, payload.messageId, payload.elapsedMs)
     }
-    if (generatingConversationId.value === conversationId) {
-      waitingForAssistantResponse.value = false
-      waitingForAssistantConversationId.value = null
-      generatingConversationId.value = null
-      isSending.value = false
-    }
-    return
-  }
-
-  if (payload.type === 'stopped') {
-    if (payload.messageId && typeof payload.elapsedMs === 'number') {
-      setAssistantElapsedMs(conversationId, payload.messageId, payload.elapsedMs)
-    }
-    if (generatingConversationId.value === conversationId) {
-      waitingForAssistantResponse.value = false
-      waitingForAssistantConversationId.value = null
-      generatingConversationId.value = null
-      isSending.value = false
-    }
+    resetGenerationFor(conversationId)
     return
   }
 
@@ -322,50 +278,6 @@ function applyStreamPayload(conversationId: string, payload: StreamPayload) {
       generatingConversationId.value = null
       isSending.value = false
     }
-  }
-}
-
-function setupEventSourceFallback(conversationId: string) {
-  if (eventSourceFallback) {
-    eventSourceFallback.close()
-  }
-  eventSourceFallback = new EventSource(conversationHttpStreamUrl(conversationId))
-  streamError.value = 'WebSocket failed, using fallback stream'
-
-  eventSourceFallback.addEventListener('token', (event) => {
-    const payload = JSON.parse((event as MessageEvent).data) as StreamPayload
-    applyStreamPayload(conversationId, payload)
-  })
-  eventSourceFallback.addEventListener('thinking', (event) => {
-    const payload = JSON.parse((event as MessageEvent).data) as StreamPayload
-    applyStreamPayload(conversationId, payload)
-  })
-  eventSourceFallback.addEventListener('done', (event) => {
-    const payload = JSON.parse((event as MessageEvent).data) as StreamPayload
-    applyStreamPayload(conversationId, payload)
-  })
-  eventSourceFallback.addEventListener('error', (event) => {
-    const messageEvent = event as MessageEvent
-    const payload = safeParseStreamPayload(messageEvent.data)
-    applyStreamPayload(conversationId, payload)
-    streamError.value = payload.error ?? 'Stream disconnected'
-    if (generatingConversationId.value === conversationId) {
-      isSending.value = false
-      generatingConversationId.value = null
-      waitingForAssistantResponse.value = false
-      waitingForAssistantConversationId.value = null
-    }
-  })
-}
-
-function safeParseStreamPayload(raw: unknown): StreamPayload {
-  if (typeof raw !== 'string') {
-    return { type: 'error', error: 'Stream disconnected' }
-  }
-  try {
-    return JSON.parse(raw) as StreamPayload
-  } catch {
-    return { type: 'error', error: 'Stream disconnected' }
   }
 }
 
@@ -465,14 +377,7 @@ async function sendMessage() {
     await loadConversations()
     await scrollMessagesToBottom()
   } catch (error) {
-    if (generatingConversationId.value === conversationId) {
-      isSending.value = false
-      generatingConversationId.value = null
-    }
-    if (waitingForAssistantConversationId.value === conversationId) {
-      waitingForAssistantResponse.value = false
-      waitingForAssistantConversationId.value = null
-    }
+    resetGenerationFor(conversationId)
     const message = error instanceof Error ? error.message : 'Failed to send message'
     streamError.value = message
     const localMessageIndex = messages.value.findIndex((item) => item.id === localMessageId)
@@ -529,14 +434,7 @@ async function handleRequeueMessage(message: DisplayMessage) {
     await loadConversations()
     await scrollMessagesToBottom()
   } catch (error) {
-    if (generatingConversationId.value === conversationId) {
-      isSending.value = false
-      generatingConversationId.value = null
-    }
-    if (waitingForAssistantConversationId.value === conversationId) {
-      waitingForAssistantResponse.value = false
-      waitingForAssistantConversationId.value = null
-    }
+    resetGenerationFor(conversationId)
     streamError.value = error instanceof Error ? error.message : 'Failed to requeue message'
   }
 }

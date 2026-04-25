@@ -16,7 +16,6 @@ type Config struct {
 	LLMModel       string
 	SQLitePath     string
 	WebOrigin      string
-	RelayDir       string
 	MCPServerAddr  string
 	MCPURL         string
 	MaxUploadBytes int64
@@ -41,7 +40,6 @@ func Load() (Config, error) {
 		LLMModel:       envOrDefault("LLM_MODEL", "gpt-4o-mini"),
 		SQLitePath:     envOrDefault("SQLITE_PATH", "relay.db"),
 		WebOrigin:      envOrDefault("WEB_ORIGIN", "http://localhost:5173"),
-		RelayDir:       envOrDefault("RELAY_DIR", filepath.Join("..", ".relay")),
 		MCPServerAddr:  envOrDefault("MCP_SERVER_ADDRESS", ":8090"),
 		MCPURL:         envOrDefault("MCP_URL", "http://localhost:8090/mcp"),
 		MaxUploadBytes: envInt64OrDefault("MAX_UPLOAD_BYTES", 50<<20),

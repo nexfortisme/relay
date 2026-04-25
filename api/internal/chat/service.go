@@ -23,7 +23,6 @@ type Service struct {
 	broker            *Broker
 	tools             tools.Runtime
 	logger            *slog.Logger
-	relayDir          string
 	attachmentOptions attachments.PromptOptions
 	responseTimeout   time.Duration
 	cancelMu          sync.Mutex
@@ -32,13 +31,23 @@ type Service struct {
 
 const maxConversationTitleLength = 40
 
+// citeSourcesDirective is injected as a system message on every assistant
+// generation so that answers drawing on attached documents or on results from
+// the web_search / fetch_url / fetch_urls tools include the source explicitly.
+// It is intentionally scoped to "when your answer draws on" so that plain
+// conversational turns aren't forced to fabricate citations.
+//
+// External sources are required to be markdown links (`[title](URL)`) because
+// the frontend renders assistant messages through marked + DOMPurify, which
+// turns them into safe clickable anchors (see web/src/components/MessageList.vue).
+const citeSourcesDirective = "When your answer draws on attached documents or on results from web_search, fetch_url, or fetch_urls, cite the sources. For external web sources, format each citation as a markdown link — `[page title or short description](https://full.url)` — either inline or in a \"Sources\" list at the end. For attached documents, cite the document name and section marker shown in the prompt (for example `[Document report.pdf part 2]` or `[RAG notes.md#3]`). Only cite sources that appear in the provided context — never invent citations or URLs."
+
 func NewService(
 	st *store.Store,
 	defaultLLMURL string,
 	defaultLLMModel string,
 	toolRuntime tools.Runtime,
 	logger *slog.Logger,
-	relayDir string,
 	attachmentOptions attachments.PromptOptions,
 ) *Service {
 	return &Service{
@@ -48,7 +57,6 @@ func NewService(
 		broker:            NewBroker(),
 		tools:             toolRuntime,
 		logger:            logger,
-		relayDir:          relayDir,
 		attachmentOptions: attachmentOptions,
 		responseTimeout:   5 * time.Minute,
 		cancels:           make(map[string]context.CancelFunc),
@@ -287,7 +295,7 @@ func (s *Service) addUserMessageAndGenerate(
 	}
 
 	settings := s.LoadRuntimeSettings(ctx)
-	go s.generateAssistant(conversationID, assistantMsg.ID, toLLMMessages(history, settings.SystemPrompt), settings)
+	go s.generateAssistant(conversationID, assistantMsg.ID, toLLMMessages(history, settings.SystemPrompt, citeSourcesDirective), settings)
 	return assistantMsg, nil
 }
 
@@ -314,7 +322,7 @@ func (s *Service) SuggestConversationTitle(ctx context.Context, conversationID s
 		Content: "Generate a concise title for this conversation. Return only the title text. " +
 			fmt.Sprintf("Use at most %d characters.", maxConversationTitleLength),
 	}
-	llmMessages := append([]llm.ChatMessage{prompt}, toLLMMessages(history, "")...)
+	llmMessages := append([]llm.ChatMessage{prompt}, toLLMMessages(history)...)
 	stream := provider.GenerateStream(ctx, llmMessages, s.tools)
 	var titleBuilder strings.Builder
 	for event := range stream {
@@ -522,14 +530,16 @@ func errorsIsContextDone(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
-func toLLMMessages(messages []store.Message, systemPrompt string) []llm.ChatMessage {
-	capacity := len(messages)
-	if systemPrompt != "" {
-		capacity++
-	}
-	out := make([]llm.ChatMessage, 0, capacity)
-	if systemPrompt != "" {
-		out = append(out, llm.ChatMessage{Role: "system", Content: systemPrompt})
+// toLLMMessages converts stored history into the wire format expected by the
+// LLM, optionally prepending one or more system prompts. Empty prompts are
+// skipped so callers can safely pass stored settings that may be unset.
+func toLLMMessages(messages []store.Message, systemPrompts ...string) []llm.ChatMessage {
+	out := make([]llm.ChatMessage, 0, len(messages)+len(systemPrompts))
+	for _, prompt := range systemPrompts {
+		if strings.TrimSpace(prompt) == "" {
+			continue
+		}
+		out = append(out, llm.ChatMessage{Role: "system", Content: prompt})
 	}
 	for _, m := range messages {
 		if m.Role == "system" {
