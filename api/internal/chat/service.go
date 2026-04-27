@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nexfortisme/relay/internal/attachments"
 	"github.com/nexfortisme/relay/internal/llm"
+	"github.com/nexfortisme/relay/internal/prompts"
 	"github.com/nexfortisme/relay/internal/store"
 	"github.com/nexfortisme/relay/internal/tools"
 )
@@ -32,15 +33,11 @@ type Service struct {
 const maxConversationTitleLength = 40
 
 // citeSourcesDirective is injected as a system message on every assistant
-// generation so that answers drawing on attached documents or on results from
-// the web_search / fetch_url / fetch_urls tools include the source explicitly.
-// It is intentionally scoped to "when your answer draws on" so that plain
-// conversational turns aren't forced to fabricate citations.
-//
-// External sources are required to be markdown links (`[title](URL)`) because
-// the frontend renders assistant messages through marked + DOMPurify, which
-// turns them into safe clickable anchors (see web/src/components/MessageList.vue).
-const citeSourcesDirective = "When your answer draws on attached documents or on results from web_search, fetch_url, or fetch_urls, cite the sources. For external web sources, format each citation as a markdown link — `[page title or short description](https://full.url)` — either inline or in a \"Sources\" list at the end. For attached documents, cite the document name and section marker shown in the prompt (for example `[Document report.pdf part 2]` or `[RAG notes.md#3]`). Only cite sources that appear in the provided context — never invent citations or URLs."
+// generation. It is intentionally scoped to "when your answer draws on" so
+// that plain conversational turns aren't forced to fabricate citations.
+// External sources are required to be markdown links because the frontend
+// renders them through marked + DOMPurify (see web/src/components/MessageList.vue).
+var citeSourcesDirective = prompts.MustLoad(prompts.CiteSources)
 
 func NewService(
 	st *store.Store,
@@ -325,10 +322,13 @@ func (s *Service) SuggestConversationTitle(ctx context.Context, conversationID s
 	}
 	settings := s.LoadRuntimeSettings(ctx)
 	provider := llm.NewHTTPProvider(settings.LLMURL, settings.LLMModel, s.responseTimeout)
+	titlePrompt, err := prompts.Load(prompts.SuggestTitle)
+	if err != nil {
+		return "", fmt.Errorf("load title prompt: %w", err)
+	}
 	prompt := llm.ChatMessage{
-		Role: "system",
-		Content: "Generate a concise title for this conversation. Return only the title text. " +
-			fmt.Sprintf("Use at most %d characters.", maxConversationTitleLength),
+		Role:    "system",
+		Content: titlePrompt,
 	}
 	llmMessages := append([]llm.ChatMessage{prompt}, toLLMMessages(history)...)
 	stream := provider.GenerateStream(ctx, llmMessages, s.tools)
@@ -538,9 +538,13 @@ func (s *Service) requestFallbackAssistantResponse(
 ) {
 	// Some tool-capable local models finish with only tool/thinking output.
 	// Ask once more, without tools, so the UI gets a visible assistant reply.
+	fallback, _ := prompts.Load(prompts.FallbackResponse)
+	if fallback == "" {
+		fallback = "Please provide a response. If you need more information from the user to answer, ask them directly."
+	}
 	followUp := append(append([]llm.ChatMessage(nil), messages...), llm.ChatMessage{
 		Role:    "user",
-		Content: "Please provide a response. If you need more information from the user to answer, ask them directly.",
+		Content: fallback,
 	})
 	for event := range provider.GenerateStream(ctx, followUp, tools.NoopRuntime{}) {
 		if event.Err != nil {

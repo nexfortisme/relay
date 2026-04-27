@@ -16,6 +16,7 @@ import (
 	"unicode"
 
 	"github.com/ledongthuc/pdf"
+	"github.com/nexfortisme/relay/internal/prompts"
 )
 
 func ParseAttachmentIndex(raw string) (int, error) {
@@ -117,19 +118,23 @@ func BuildPrompt(userPrompt string, files []UploadedFile, opts PromptOptions) (s
 	builder.WriteString("\n\n---\n")
 
 	if len(images) > 0 {
-		builder.WriteString("Attached images are included below as data URLs.\n")
-		builder.WriteString("Use these for visual reasoning when your model supports vision.\n\n")
+		imagesHeader, err := prompts.Load(prompts.AttachmentImagesHeader)
+		if err != nil {
+			return "", err
+		}
+		builder.WriteString(imagesHeader)
+		builder.WriteString("\n\n")
 		for _, block := range images {
 			builder.WriteString(block)
 			builder.WriteString("\n\n")
 		}
 	}
 	if len(skippedImages) > 0 {
-		builder.WriteString(fmt.Sprintf(
-			"Ignored oversized images (max %d KB each): %s\n\n",
-			options.MaxImageBytes/1024,
-			strings.Join(skippedImages, ", "),
-		))
+		skippedTpl, err := prompts.Load(prompts.AttachmentImagesSkipped)
+		if err != nil {
+			return "", err
+		}
+		builder.WriteString(fmt.Sprintf(skippedTpl+"\n\n", options.MaxImageBytes/1024, strings.Join(skippedImages, ", ")))
 	}
 
 	if len(documents) == 0 {
@@ -137,7 +142,12 @@ func BuildPrompt(userPrompt string, files []UploadedFile, opts PromptOptions) (s
 	}
 
 	if totalDocChars <= inlineCharBudget {
-		builder.WriteString("Decision: include documents in full context.\n\n")
+		docsInline, err := prompts.Load(prompts.AttachmentDocsInline)
+		if err != nil {
+			return "", err
+		}
+		builder.WriteString(docsInline)
+		builder.WriteString("\n\n")
 		for _, c := range documents {
 			builder.WriteString(fmt.Sprintf("[Document %s part %d]\n%s\n\n", c.Source, c.Index, c.Text))
 		}
@@ -164,8 +174,12 @@ func BuildPrompt(userPrompt string, files []UploadedFile, opts PromptOptions) (s
 		return scored[i].Source < scored[j].Source
 	})
 
-	builder.WriteString("Decision: documents were chunked for retrieval-style context.\n")
-	builder.WriteString("The following chunks were selected for relevance to the request.\n\n")
+	docsRAG, err := prompts.Load(prompts.AttachmentDocsRAG)
+	if err != nil {
+		return "", err
+	}
+	builder.WriteString(docsRAG)
+	builder.WriteString("\n\n")
 	for _, c := range scored {
 		builder.WriteString(fmt.Sprintf("[RAG %s#%d]\n%s\n\n", c.Source, c.Index, c.Text))
 	}

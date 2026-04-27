@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nexfortisme/relay/internal/prompts"
 	"github.com/nexfortisme/relay/internal/tools"
 )
 
@@ -570,10 +571,14 @@ func toolChoice(requestTools []openAITool) string {
 }
 
 func sendUnableToFind(ctx context.Context, out chan<- TokenEvent) error {
+	msg, _ := prompts.Load(prompts.UnableToFind)
+	if msg == "" {
+		msg = "I can't find that out right now."
+	}
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case out <- TokenEvent{Token: "I can't find that out right now."}:
+	case out <- TokenEvent{Token: msg}:
 		return nil
 	}
 }
