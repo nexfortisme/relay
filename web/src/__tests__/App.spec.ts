@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { flushPromises, shallowMount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import App from '../App.vue'
 import ConversationSidebar from '../components/ConversationSidebar.vue'
 
@@ -27,16 +28,32 @@ describe('App', () => {
     })
 
     const originalFetch = globalThis.fetch
+    const originalWebSocket = globalThis.WebSocket
     ;(globalThis as { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch
+    class MockWebSocket {
+      onmessage: ((event: MessageEvent) => void) | null = null
+      onerror: ((event: Event) => void) | null = null
+      onclose: ((event: CloseEvent) => void) | null = null
+
+      constructor(_url: string) {}
+
+      close = vi.fn()
+    }
+    vi.stubGlobal('WebSocket', MockWebSocket)
 
     try {
-      const wrapper = shallowMount(App)
+      const wrapper = shallowMount(App, {
+        global: {
+          plugins: [createPinia()],
+        },
+      })
       await flushPromises()
       await flushPromises()
 
       expect(wrapper.findComponent(ConversationSidebar).exists()).toBe(true)
     } finally {
       ;(globalThis as { fetch: typeof fetch }).fetch = originalFetch
+      ;(globalThis as { WebSocket: typeof WebSocket }).WebSocket = originalWebSocket
     }
   })
 })
