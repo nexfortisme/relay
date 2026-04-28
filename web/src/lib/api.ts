@@ -21,6 +21,10 @@ export type Message = {
   thinking?: string
   hasError?: boolean
   elapsedMs?: number
+  inputTokens?: number
+  outputTokens?: number
+  reasoningTokens?: number
+  totalTokens?: number
   createdAt: string
 }
 

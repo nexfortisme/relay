@@ -101,4 +101,25 @@ describe('MessageList attachment preview', () => {
 
     wrapper.unmount()
   })
+
+  it('renders conversation token usage with the configured cap', () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [
+          {
+            ...userMessage([]),
+            totalTokens: 42,
+            reasoningTokens: 12,
+          },
+        ],
+        tokenCount: 42,
+        maxTokenCount: 100,
+        pendingAssistant: false,
+      },
+    })
+
+    expect(wrapper.find('.conversation-token-meter').text()).toContain('42 / 100 tokens')
+
+    wrapper.unmount()
+  })
 })

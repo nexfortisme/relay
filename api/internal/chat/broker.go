@@ -3,12 +3,16 @@ package chat
 import "sync"
 
 type Event struct {
-	Type      string `json:"type"`
-	MessageID string `json:"messageId,omitempty"`
-	Token     string `json:"token,omitempty"`
-	Thinking  string `json:"thinking,omitempty"`
-	Error     string `json:"error,omitempty"`
-	ElapsedMs int64  `json:"elapsedMs,omitempty"`
+	Type            string `json:"type"`
+	MessageID       string `json:"messageId,omitempty"`
+	Token           string `json:"token,omitempty"`
+	Thinking        string `json:"thinking,omitempty"`
+	Error           string `json:"error,omitempty"`
+	ElapsedMs       int64  `json:"elapsedMs,omitempty"`
+	InputTokens     int    `json:"inputTokens,omitempty"`
+	OutputTokens    int    `json:"outputTokens,omitempty"`
+	ReasoningTokens int    `json:"reasoningTokens,omitempty"`
+	TotalTokens     int    `json:"totalTokens,omitempty"`
 }
 
 type Broker struct {
