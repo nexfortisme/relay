@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onBeforeUpdate,
+  onUnmounted,
+  ref,
+  watch,
+  type ComponentPublicInstance,
+} from "vue";
 import { messageAttachmentDownloadUrl, type Message } from "../lib/api";
 import {
   attachmentPreviewKind,
@@ -27,6 +35,7 @@ const emit = defineEmits<{
 }>();
 
 const messagesEl = ref<HTMLElement | null>(null);
+const thinkingBodyEls = new Map<string, HTMLElement>();
 const copiedMessageId = ref<string | null>(null);
 let copiedResetTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -102,6 +111,14 @@ function handleMarkdownClick(event: MouseEvent) {
   if (!(target instanceof HTMLImageElement)) return;
   event.preventDefault();
   openImagePreview(target.src, target.alt || "image");
+}
+
+function setThinkingBodyRef(messageId: string, el: Element | ComponentPublicInstance | null) {
+  if (el instanceof HTMLElement) {
+    thinkingBodyEls.set(messageId, el);
+    return;
+  }
+  thinkingBodyEls.delete(messageId);
 }
 
 async function handleAttachmentPreviewClick(event: MouseEvent, message: Message, index: number) {
@@ -199,6 +216,7 @@ watch(
   },
   () => {
     void scrollToBottom();
+    void scrollLatestThinkingToBottom();
   },
   { flush: "post" },
 );
@@ -284,7 +302,7 @@ function handleThinkingPanelClick(event: MouseEvent) {
     return;
   }
   const target = event.target;
-  if (target instanceof Element && target.closest("summary")) {
+  if (target instanceof Element && target.closest("summary, .message-thinking-body")) {
     return;
   }
   details.open = false;
@@ -298,6 +316,33 @@ async function scrollToBottom() {
   }
   el.scrollTop = el.scrollHeight;
 }
+
+async function scrollLatestThinkingToBottom() {
+  await nextTick();
+  let latestThinkingMessage: DisplayMessage | undefined;
+  for (let index = props.messages.length - 1; index >= 0; index -= 1) {
+    const message = props.messages[index];
+    if (!message) {
+      continue;
+    }
+    if (message.role === "assistant" && message.thinking) {
+      latestThinkingMessage = message;
+      break;
+    }
+  }
+  if (!latestThinkingMessage) {
+    return;
+  }
+  const el = thinkingBodyEls.get(latestThinkingMessage.id);
+  if (!el) {
+    return;
+  }
+  el.scrollTop = el.scrollHeight;
+}
+
+onBeforeUpdate(() => {
+  thinkingBodyEls.clear();
+});
 
 onUnmounted(() => {
   if (copiedResetTimer) {
@@ -337,7 +382,9 @@ defineExpose({ scrollToBottom });
         @click="handleThinkingPanelClick"
       >
         <summary>Thinking</summary>
-        <div class="message-markdown" v-html="renderMarkdown(message.thinking)" />
+        <div :ref="(el) => setThinkingBodyRef(message.id, el)" class="message-thinking-body">
+          <div class="message-markdown" v-html="renderMarkdown(message.thinking)" />
+        </div>
       </details>
       <strong class="message-role">{{ message.role }}</strong>
       <template v-if="message.role !== 'assistant'">
@@ -735,8 +782,15 @@ defineExpose({ scrollToBottom });
   font-weight: 650;
 }
 
-.message-thinking p {
+.message-thinking-body {
+  max-height: 12rem;
   margin-top: 0.35rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.35rem;
+}
+
+.message-thinking p {
   white-space: pre-wrap;
 }
 
