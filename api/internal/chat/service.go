@@ -26,11 +26,14 @@ type Service struct {
 	logger            *slog.Logger
 	attachmentOptions attachments.PromptOptions
 	responseTimeout   time.Duration
+	maxTokenCount     int
 	cancelMu          sync.Mutex
 	cancels           map[string]context.CancelFunc
 }
 
 const maxConversationTitleLength = 40
+
+var ErrTokenCapReached = errors.New("conversation token cap reached")
 
 // citeSourcesDirective is injected as a system message on every assistant
 // generation. It is intentionally scoped to "when your answer draws on" so
@@ -46,6 +49,7 @@ func NewService(
 	toolRuntime tools.Runtime,
 	logger *slog.Logger,
 	attachmentOptions attachments.PromptOptions,
+	maxTokenCount int,
 ) *Service {
 	return &Service{
 		store:             st,
@@ -56,6 +60,7 @@ func NewService(
 		logger:            logger,
 		attachmentOptions: attachmentOptions,
 		responseTimeout:   5 * time.Minute,
+		maxTokenCount:     maxTokenCount,
 		cancels:           make(map[string]context.CancelFunc),
 	}
 }
@@ -253,6 +258,10 @@ func (s *Service) addUserMessageAndGenerate(
 	userMsg := preparedOrNewUserMessage(preparedUserMessage, conversationID, displayContent, llmContent, now)
 	userAttachments := firstAttachmentSet(preparedAttachments)
 
+	if err := s.ensureConversationWithinTokenCap(ctx, conversationID); err != nil {
+		return store.Message{}, err
+	}
+
 	if err := s.store.AppendMessageWithAttachments(ctx, *userMsg, userAttachments); err != nil {
 		return store.Message{}, err
 	}
@@ -302,6 +311,20 @@ func firstAttachmentSet(attachmentSets [][]store.MessageAttachment) []store.Mess
 		return nil
 	}
 	return attachmentSets[0]
+}
+
+func (s *Service) ensureConversationWithinTokenCap(ctx context.Context, conversationID string) error {
+	if s.maxTokenCount <= 0 {
+		return nil
+	}
+	total, err := s.store.ConversationTokenTotal(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	if total >= s.maxTokenCount {
+		return fmt.Errorf("%w (%d/%d)", ErrTokenCapReached, total, s.maxTokenCount)
+	}
+	return nil
 }
 
 func (s *Service) RenameConversation(ctx context.Context, conversationID string, title string) error {
@@ -425,6 +448,7 @@ func (s *Service) generateAssistant(conversationID string, assistantMessageID st
 type assistantAccumulator struct {
 	content  strings.Builder
 	thinking strings.Builder
+	usage    llm.TokenUsage
 }
 
 func (a *assistantAccumulator) finalContent() string {
@@ -436,6 +460,9 @@ func (a *assistantAccumulator) finalThinking() string {
 }
 
 func (s *Service) publishGenerationDelta(conversationID string, assistantMessageID string, event llm.TokenEvent, accumulator *assistantAccumulator) {
+	if event.Usage != nil {
+		accumulator.usage.Add(*event.Usage)
+	}
 	if event.Token != "" {
 		accumulator.content.WriteString(event.Token)
 		s.broker.Publish(conversationID, Event{
@@ -465,10 +492,19 @@ func (s *Service) finishStoppedGeneration(conversationID string, assistantMessag
 	if err := s.store.SetMessageElapsedMs(context.Background(), assistantMessageID, elapsedMs); err != nil {
 		s.logger.Error("failed to persist stopped assistant elapsed", "message_id", assistantMessageID, "error", err)
 	}
+	if !accumulator.usage.IsZero() {
+		if err := s.store.SetMessageTokenUsage(context.Background(), assistantMessageID, accumulator.usage.InputTokens, accumulator.usage.OutputTokens, accumulator.usage.ReasoningTokens, accumulator.usage.TotalTokens); err != nil {
+			s.logger.Error("failed to persist stopped assistant token usage", "message_id", assistantMessageID, "error", err)
+		}
+	}
 	s.broker.Publish(conversationID, Event{
-		Type:      "stopped",
-		MessageID: assistantMessageID,
-		ElapsedMs: elapsedMs,
+		Type:            "stopped",
+		MessageID:       assistantMessageID,
+		ElapsedMs:       elapsedMs,
+		InputTokens:     accumulator.usage.InputTokens,
+		OutputTokens:    accumulator.usage.OutputTokens,
+		ReasoningTokens: accumulator.usage.ReasoningTokens,
+		TotalTokens:     accumulator.usage.TotalTokens,
 	})
 }
 
@@ -520,11 +556,20 @@ func (s *Service) finishCompletedGeneration(
 	if err := s.store.SetMessageElapsedMs(ctx, assistantMessageID, elapsedMs); err != nil {
 		s.logger.Error("failed to persist assistant elapsed", "message_id", assistantMessageID, "error", err)
 	}
+	if !accumulator.usage.IsZero() {
+		if err := s.store.SetMessageTokenUsage(ctx, assistantMessageID, accumulator.usage.InputTokens, accumulator.usage.OutputTokens, accumulator.usage.ReasoningTokens, accumulator.usage.TotalTokens); err != nil {
+			s.logger.Error("failed to persist assistant token usage", "message_id", assistantMessageID, "error", err)
+		}
+	}
 	s.broker.Publish(conversationID, Event{
-		Type:      "done",
-		MessageID: assistantMessageID,
-		Thinking:  finalThinking,
-		ElapsedMs: elapsedMs,
+		Type:            "done",
+		MessageID:       assistantMessageID,
+		Thinking:        finalThinking,
+		ElapsedMs:       elapsedMs,
+		InputTokens:     accumulator.usage.InputTokens,
+		OutputTokens:    accumulator.usage.OutputTokens,
+		ReasoningTokens: accumulator.usage.ReasoningTokens,
+		TotalTokens:     accumulator.usage.TotalTokens,
 	})
 }
 

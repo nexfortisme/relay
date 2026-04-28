@@ -20,6 +20,7 @@ type Config struct {
 	MCPURL         string
 	MaxUploadBytes int64
 	MaxImageBytes  int
+	MaxTokenCount  int
 }
 
 func Load() (Config, error) {
@@ -46,6 +47,7 @@ func Load() (Config, error) {
 		MCPURL:         envOrDefault("MCP_URL", "http://localhost:8090/mcp"),
 		MaxUploadBytes: envInt64OrDefault("VITE_MAX_UPLOAD_BYTES", 50<<20),
 		MaxImageBytes:  envIntOrDefault("VITE_MAX_IMAGE_BYTES", 15*1024*1024),
+		MaxTokenCount:  envIntOrDefault("VITE_MAX_TOKEN_COUNT", 0),
 	}
 
 	fmt.Println("cfg", cfg)

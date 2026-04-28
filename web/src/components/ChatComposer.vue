@@ -6,6 +6,7 @@ import AppIcon from './AppIcon.vue'
 const props = defineProps<{
   draft: string
   isSending: boolean
+  tokenLimitReached?: boolean
   selectedFiles: File[]
 }>()
 
@@ -79,10 +80,12 @@ function handleFileSelection(event: Event) {
     />
     <button
       :type="isSending ? 'button' : 'submit'"
-      :disabled="!isSending && !draft.trim()"
+      :disabled="!isSending && (!draft.trim() || tokenLimitReached)"
       class="composer-send-button"
       :class="{ 'stop-button': isSending }"
-      :title="isSending ? 'Stop generation' : 'Send message'"
+      :title="
+        isSending ? 'Stop generation' : tokenLimitReached ? 'Token cap reached' : 'Send message'
+      "
       @click="isSending ? $emit('stop') : undefined"
     >
       <AppIcon :name="isSending ? 'square' : 'send'" :size="17" />

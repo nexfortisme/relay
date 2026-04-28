@@ -48,6 +48,7 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 		toolRuntime,
 		logger,
 		attachments.PromptOptions{MaxImageBytes: cfg.MaxImageBytes},
+		cfg.MaxTokenCount,
 	)
 	handlers := httpapi.NewHandlers(chatService, logger, cfg.MaxUploadBytes)
 

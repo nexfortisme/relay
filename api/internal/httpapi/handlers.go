@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -164,6 +165,10 @@ func (h *Handlers) CreateMessage(c *gin.Context) {
 
 	assistantMessageID, err := h.queueAssistantResponse(c.Request.Context(), conversationID, payload)
 	if err != nil {
+		if errors.Is(err, chat.ErrTokenCapReached) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		if len(payload.Files) > 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return

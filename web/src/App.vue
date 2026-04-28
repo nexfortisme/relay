@@ -11,8 +11,10 @@ import { DEFAULT_CONVERSATION_TITLE, useAppStore } from './stores/appStore'
 const appStore = useAppStore()
 const {
   conversations,
+  conversationTokenCount,
   draft,
   generatingConversationId,
+  isConversationTokenCapReached,
   isEditingTitle,
   isRenaming,
   isSending,
@@ -70,6 +72,8 @@ onUnmounted(appStore.closeStream)
       />
       <MessageList
         :messages="messages"
+        :token-count="conversationTokenCount"
+        :max-token-count="appStore.maxConversationTokenCount"
         :pending-assistant="shouldShowPendingAssistantPlaceholder"
         :requeue-disabled="isSending"
         :theme="theme"
@@ -79,6 +83,7 @@ onUnmounted(appStore.closeStream)
       <ChatComposer
         :draft="draft"
         :is-sending="isSending"
+        :token-limit-reached="isConversationTokenCapReached"
         :selected-files="selectedFiles"
         @remove-file="appStore.removeSelectedFile"
         @send="appStore.sendMessage"

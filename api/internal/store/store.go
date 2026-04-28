@@ -21,17 +21,21 @@ type Conversation struct {
 }
 
 type Message struct {
-	ID             string    `json:"id"`
-	ConversationID string    `json:"conversationId"`
-	Role           string    `json:"role"`
-	Content        string    `json:"content"`
-	UserContent    string    `json:"userContent,omitempty"`
-	LLMContent     string    `json:"llmContent,omitempty"`
-	Attachments    []string  `json:"attachments,omitempty"`
-	Thinking       string    `json:"thinking,omitempty"`
-	HasError       bool      `json:"hasError,omitempty"`
-	ElapsedMs      int64     `json:"elapsedMs,omitempty"`
-	CreatedAt      time.Time `json:"createdAt"`
+	ID              string    `json:"id"`
+	ConversationID  string    `json:"conversationId"`
+	Role            string    `json:"role"`
+	Content         string    `json:"content"`
+	UserContent     string    `json:"userContent,omitempty"`
+	LLMContent      string    `json:"llmContent,omitempty"`
+	Attachments     []string  `json:"attachments,omitempty"`
+	Thinking        string    `json:"thinking,omitempty"`
+	HasError        bool      `json:"hasError,omitempty"`
+	ElapsedMs       int64     `json:"elapsedMs,omitempty"`
+	InputTokens     int       `json:"inputTokens,omitempty"`
+	OutputTokens    int       `json:"outputTokens,omitempty"`
+	ReasoningTokens int       `json:"reasoningTokens,omitempty"`
+	TotalTokens     int       `json:"totalTokens,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
 }
 
 type MessageAttachment struct {
@@ -114,6 +118,10 @@ func (s *Store) migrate(ctx context.Context) error {
 		thinking TEXT NOT NULL DEFAULT '',
 		has_error INTEGER NOT NULL DEFAULT 0,
 		elapsed_ms INTEGER NOT NULL DEFAULT 0,
+		input_tokens INTEGER NOT NULL DEFAULT 0,
+		output_tokens INTEGER NOT NULL DEFAULT 0,
+		reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+		total_tokens INTEGER NOT NULL DEFAULT 0,
 		created_at DATETIME NOT NULL,
 		FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 		);
@@ -151,6 +159,10 @@ func (s *Store) migrate(ctx context.Context) error {
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'`)
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN has_error INTEGER NOT NULL DEFAULT 0`)
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN elapsed_ms INTEGER NOT NULL DEFAULT 0`)
+	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0`)
+	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0`)
+	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0`)
+	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0`)
 
 	_, err = s.db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS message_attachments (
@@ -239,7 +251,7 @@ WHERE id = ?`, conversationID)
 
 func (s *Store) GetMessages(ctx context.Context, conversationID string) ([]Message, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, conversation_id, role, content, user_content, llm_content, attachments_json, thinking, has_error, elapsed_ms, created_at
+SELECT id, conversation_id, role, content, user_content, llm_content, attachments_json, thinking, has_error, elapsed_ms, input_tokens, output_tokens, reasoning_tokens, total_tokens, created_at
 FROM messages
 WHERE conversation_id = ?
 ORDER BY created_at ASC`, conversationID)
@@ -253,7 +265,7 @@ ORDER BY created_at ASC`, conversationID)
 		var m Message
 		var attachmentsRaw string
 		if err := rows.Scan(
-			&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.UserContent, &m.LLMContent, &attachmentsRaw, &m.Thinking, &m.HasError, &m.ElapsedMs, &m.CreatedAt,
+			&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.UserContent, &m.LLMContent, &attachmentsRaw, &m.Thinking, &m.HasError, &m.ElapsedMs, &m.InputTokens, &m.OutputTokens, &m.ReasoningTokens, &m.TotalTokens, &m.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
 		}
@@ -276,7 +288,7 @@ ORDER BY created_at ASC`, conversationID)
 
 func (s *Store) GetMessage(ctx context.Context, conversationID string, messageID string) (Message, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, conversation_id, role, content, user_content, llm_content, attachments_json, thinking, has_error, elapsed_ms, created_at
+SELECT id, conversation_id, role, content, user_content, llm_content, attachments_json, thinking, has_error, elapsed_ms, input_tokens, output_tokens, reasoning_tokens, total_tokens, created_at
 FROM messages
 WHERE conversation_id = ? AND id = ?
 `, conversationID, messageID)
@@ -294,6 +306,10 @@ WHERE conversation_id = ? AND id = ?
 		&message.Thinking,
 		&message.HasError,
 		&message.ElapsedMs,
+		&message.InputTokens,
+		&message.OutputTokens,
+		&message.ReasoningTokens,
+		&message.TotalTokens,
 		&message.CreatedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -343,8 +359,8 @@ func (s *Store) AppendMessageWithAttachments(ctx context.Context, m Message, att
 
 	_, err = tx.ExecContext(
 		ctx,
-		`INSERT INTO messages(id, conversation_id, role, content, user_content, llm_content, attachments_json, thinking, has_error, elapsed_ms, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.ConversationID, m.Role, m.Content, userContent, llmContent, attachmentsJSON, m.Thinking, m.HasError, m.ElapsedMs, m.CreatedAt.UTC(),
+		`INSERT INTO messages(id, conversation_id, role, content, user_content, llm_content, attachments_json, thinking, has_error, elapsed_ms, input_tokens, output_tokens, reasoning_tokens, total_tokens, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.ConversationID, m.Role, m.Content, userContent, llmContent, attachmentsJSON, m.Thinking, m.HasError, m.ElapsedMs, m.InputTokens, m.OutputTokens, m.ReasoningTokens, m.TotalTokens, m.CreatedAt.UTC(),
 	)
 	if err != nil {
 		return fmt.Errorf("insert message: %w", err)
@@ -433,6 +449,31 @@ func (s *Store) SetMessageElapsedMs(ctx context.Context, messageID string, elaps
 		return fmt.Errorf("update message elapsed: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) SetMessageTokenUsage(ctx context.Context, messageID string, inputTokens int, outputTokens int, reasoningTokens int, totalTokens int) error {
+	_, err := s.db.ExecContext(
+		ctx,
+		`UPDATE messages SET input_tokens = ?, output_tokens = ?, reasoning_tokens = ?, total_tokens = ? WHERE id = ?`,
+		inputTokens,
+		outputTokens,
+		reasoningTokens,
+		totalTokens,
+		messageID,
+	)
+	if err != nil {
+		return fmt.Errorf("update message token usage: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ConversationTokenTotal(ctx context.Context, conversationID string) (int, error) {
+	var total int
+	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(total_tokens), 0) FROM messages WHERE conversation_id = ?`, conversationID).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("get conversation token total: %w", err)
+	}
+	return total, nil
 }
 
 func (s *Store) SetMessageThinking(ctx context.Context, messageID string, thinking string) error {

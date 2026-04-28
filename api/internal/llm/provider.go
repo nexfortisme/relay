@@ -74,8 +74,30 @@ func ParseContent(content string) interface{} {
 type TokenEvent struct {
 	Token    string
 	Thinking string
+	Usage    *TokenUsage
 	Done     bool
 	Err      error
+}
+
+type TokenUsage struct {
+	InputTokens     int `json:"inputTokens,omitempty"`
+	OutputTokens    int `json:"outputTokens,omitempty"`
+	ReasoningTokens int `json:"reasoningTokens,omitempty"`
+	TotalTokens     int `json:"totalTokens,omitempty"`
+}
+
+func (u TokenUsage) IsZero() bool {
+	return u.InputTokens == 0 && u.OutputTokens == 0 && u.ReasoningTokens == 0 && u.TotalTokens == 0
+}
+
+func (u *TokenUsage) Add(other TokenUsage) {
+	if other.IsZero() {
+		return
+	}
+	u.InputTokens += other.InputTokens
+	u.OutputTokens += other.OutputTokens
+	u.ReasoningTokens += other.ReasoningTokens
+	u.TotalTokens += other.TotalTokens
 }
 
 type ToolCall struct {
@@ -115,23 +137,29 @@ func (p *HTTPProvider) GenerateStream(ctx context.Context, messages []ChatMessag
 	go func() {
 		defer close(ch)
 
-		if err := p.generateWithTools(ctx, messages, runtime, ch); err != nil {
+		usage, err := p.generateWithTools(ctx, messages, runtime, ch)
+		if err != nil {
 			ch <- TokenEvent{Err: err}
 			return
 		}
 
-		ch <- TokenEvent{Done: true}
+		ch <- TokenEvent{Done: true, Usage: &usage}
 	}()
 
 	return ch
 }
 
 type chatRequest struct {
-	Model      string        `json:"model"`
-	Messages   []ChatMessage `json:"messages"`
-	Stream     bool          `json:"stream"`
-	Tools      []openAITool  `json:"tools,omitempty"`
-	ToolChoice string        `json:"tool_choice,omitempty"`
+	Model         string         `json:"model"`
+	Messages      []ChatMessage  `json:"messages"`
+	Stream        bool           `json:"stream"`
+	StreamOptions *streamOptions `json:"stream_options,omitempty"`
+	Tools         []openAITool   `json:"tools,omitempty"`
+	ToolChoice    string         `json:"tool_choice,omitempty"`
+}
+
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type openAITool struct {
@@ -147,22 +175,24 @@ type openAIToolFunction struct {
 
 const maxSearchFetchFailures = 3
 
-func (p *HTTPProvider) generateWithTools(ctx context.Context, messages []ChatMessage, runtime tools.Runtime, out chan<- TokenEvent) error {
+func (p *HTTPProvider) generateWithTools(ctx context.Context, messages []ChatMessage, runtime tools.Runtime, out chan<- TokenEvent) (TokenUsage, error) {
 	defs, err := runtime.Definitions(ctx)
 	if err != nil {
-		return err
+		return TokenUsage{}, err
 	}
 	requestTools := openAITools(defs)
 	currentMessages := append([]ChatMessage(nil), messages...)
 	searchFetchFailures := 0
+	totalUsage := TokenUsage{}
 
 	for round := 0; round < 8; round++ {
 		respCtx, respCancel := context.WithTimeout(ctx, p.responseTimeout)
 		response, didStream, err := p.generateStream(ctx, respCtx, currentMessages, requestTools, out)
 		respCancel()
 		if err != nil {
-			return err
+			return totalUsage, err
 		}
+		totalUsage.Add(response.Usage)
 
 		if len(response.ToolCalls) == 0 {
 			if !didStream {
@@ -170,20 +200,20 @@ func (p *HTTPProvider) generateWithTools(ctx context.Context, messages []ChatMes
 				if response.Thinking != "" {
 					select {
 					case <-ctx.Done():
-						return ctx.Err()
+						return totalUsage, ctx.Err()
 					case out <- TokenEvent{Thinking: response.Thinking}:
 					}
 				}
 				if response.Content != "" {
 					select {
 					case <-ctx.Done():
-						return ctx.Err()
+						return totalUsage, ctx.Err()
 					case out <- TokenEvent{Token: response.Content}:
 					}
 				}
 			}
 			// When didStream, tokens were already forwarded in consumeSSE.
-			return nil
+			return totalUsage, nil
 		}
 
 		if !didStream {
@@ -192,7 +222,7 @@ func (p *HTTPProvider) generateWithTools(ctx context.Context, messages []ChatMes
 			if strings.TrimSpace(preToolThinking) != "" {
 				select {
 				case <-ctx.Done():
-					return ctx.Err()
+					return totalUsage, ctx.Err()
 				case out <- TokenEvent{Thinking: preToolThinking}:
 				}
 			}
@@ -210,7 +240,7 @@ func (p *HTTPProvider) generateWithTools(ctx context.Context, messages []ChatMes
 				if isSearchOrFetchTool(toolCall.Function.Name) {
 					searchFetchFailures++
 					if searchFetchFailures >= maxSearchFetchFailures {
-						return sendUnableToFind(ctx, out)
+						return totalUsage, sendUnableToFind(ctx, out)
 					}
 					toolResult = tools.Result{
 						Name:    toolCall.Function.Name,
@@ -218,13 +248,13 @@ func (p *HTTPProvider) generateWithTools(ctx context.Context, messages []ChatMes
 						IsError: true,
 					}
 				} else {
-					return err
+					return totalUsage, err
 				}
 			}
 			if isSearchOrFetchTool(toolCall.Function.Name) && toolResultFailed(toolResult) {
 				searchFetchFailures++
 				if searchFetchFailures >= maxSearchFetchFailures {
-					return sendUnableToFind(ctx, out)
+					return totalUsage, sendUnableToFind(ctx, out)
 				}
 			}
 			if isSearchOrFetchTool(toolCall.Function.Name) && !toolResultFailed(toolResult) {
@@ -232,7 +262,7 @@ func (p *HTTPProvider) generateWithTools(ctx context.Context, messages []ChatMes
 			}
 			toolOutput, err := toolResultContent(toolResult)
 			if err != nil {
-				return err
+				return totalUsage, err
 			}
 			currentMessages = append(currentMessages, ChatMessage{
 				Role:       "tool",
@@ -242,22 +272,24 @@ func (p *HTTPProvider) generateWithTools(ctx context.Context, messages []ChatMes
 		}
 	}
 
-	return fmt.Errorf("too many tool call rounds")
+	return totalUsage, fmt.Errorf("too many tool call rounds")
 }
 
 type llmResponse struct {
 	Content   string
 	Thinking  string
 	ToolCalls []ToolCall
+	Usage     TokenUsage
 }
 
 func (p *HTTPProvider) generateStream(parentCtx, respCtx context.Context, messages []ChatMessage, requestTools []openAITool, out chan<- TokenEvent) (llmResponse, bool, error) {
 	payload, err := json.Marshal(chatRequest{
-		Model:      p.model,
-		Messages:   messages,
-		Stream:     true,
-		Tools:      requestTools,
-		ToolChoice: toolChoice(requestTools),
+		Model:         p.model,
+		Messages:      messages,
+		Stream:        true,
+		StreamOptions: &streamOptions{IncludeUsage: true},
+		Tools:         requestTools,
+		ToolChoice:    toolChoice(requestTools),
 	})
 	if err != nil {
 		return llmResponse{}, false, fmt.Errorf("marshal request: %w", err)
@@ -303,6 +335,7 @@ func (p *HTTPProvider) consumeSSE(parentCtx, respCtx context.Context, body io.Re
 	sawStream := false
 	var content strings.Builder
 	var thinkingBuilder strings.Builder
+	totalUsage := TokenUsage{}
 	toolCalls := map[int]*ToolCall{}
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -321,10 +354,13 @@ func (p *HTTPProvider) consumeSSE(parentCtx, respCtx context.Context, body io.Re
 		}
 
 		if raw == "[DONE]" {
-			return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String(), ToolCalls: orderedToolCalls(toolCalls)}, true, nil
+			return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String(), ToolCalls: orderedToolCalls(toolCalls), Usage: totalUsage}, true, nil
 		}
 
-		token, thinking, calls, ok := extractChunk(raw)
+		token, thinking, calls, usage, ok := extractChunk(raw)
+		if usage != nil {
+			totalUsage.Add(*usage)
+		}
 		if ok && token != "" {
 			content.WriteString(token)
 			select {
@@ -335,7 +371,7 @@ func (p *HTTPProvider) consumeSSE(parentCtx, respCtx context.Context, body io.Re
 				case out <- TokenEvent{Token: token}:
 				default:
 				}
-				return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String()}, true, nil
+				return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String(), Usage: totalUsage}, true, nil
 			case out <- TokenEvent{Token: token}:
 			}
 		}
@@ -349,7 +385,7 @@ func (p *HTTPProvider) consumeSSE(parentCtx, respCtx context.Context, body io.Re
 				case out <- TokenEvent{Thinking: thinking}:
 				default:
 				}
-				return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String()}, true, nil
+				return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String(), Usage: totalUsage}, true, nil
 			case out <- TokenEvent{Thinking: thinking}:
 			}
 		}
@@ -360,7 +396,7 @@ func (p *HTTPProvider) consumeSSE(parentCtx, respCtx context.Context, body io.Re
 		case <-parentCtx.Done():
 			return llmResponse{}, true, parentCtx.Err()
 		case <-respCtx.Done():
-			return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String()}, true, nil
+			return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String(), Usage: totalUsage}, true, nil
 		default:
 		}
 	}
@@ -370,11 +406,11 @@ func (p *HTTPProvider) consumeSSE(parentCtx, respCtx context.Context, body io.Re
 			return llmResponse{}, sawStream, parentCtx.Err()
 		}
 		if respCtx.Err() != nil {
-			return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String()}, sawStream, nil
+			return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String(), Usage: totalUsage}, sawStream, nil
 		}
 		return llmResponse{}, sawStream, fmt.Errorf("read llm stream: %w", err)
 	}
-	return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String(), ToolCalls: orderedToolCalls(toolCalls)}, sawStream, nil
+	return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String(), ToolCalls: orderedToolCalls(toolCalls), Usage: totalUsage}, sawStream, nil
 }
 
 func (p *HTTPProvider) consumeSingleJSON(ctx context.Context, messages []ChatMessage, requestTools []openAITool) (llmResponse, error) {
@@ -419,6 +455,7 @@ func (p *HTTPProvider) consumeSingleJSON(ctx context.Context, messages []ChatMes
 				ToolCalls        []ToolCall `json:"tool_calls"`
 			} `json:"message"`
 		} `json:"choices"`
+		Usage apiUsage `json:"usage"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&decoded); err != nil {
 		return llmResponse{}, fmt.Errorf("decode fallback llm response: %w", err)
@@ -432,10 +469,11 @@ func (p *HTTPProvider) consumeSingleJSON(ctx context.Context, messages []ChatMes
 		Content:   message.Content,
 		Thinking:  firstNonEmpty(message.ReasoningContent, message.Reasoning),
 		ToolCalls: message.ToolCalls,
+		Usage:     decoded.Usage.tokenUsage(),
 	}, nil
 }
 
-func extractChunk(raw string) (string, string, []toolCallDelta, bool) {
+func extractChunk(raw string) (string, string, []toolCallDelta, *TokenUsage, bool) {
 	var openAIChunk struct {
 		Choices []struct {
 			Delta struct {
@@ -458,10 +496,12 @@ func extractChunk(raw string) (string, string, []toolCallDelta, bool) {
 				ReasoningContent string `json:"reasoning_content"`
 			} `json:"message"`
 		} `json:"choices"`
+		Usage apiUsage `json:"usage"`
 	}
 	if err := json.Unmarshal([]byte(raw), &openAIChunk); err == nil && len(openAIChunk.Choices) > 0 {
+		usage := openAIChunk.Usage.tokenUsagePtr()
 		if openAIChunk.Choices[0].Delta.Content != "" {
-			return openAIChunk.Choices[0].Delta.Content, "", nil, true
+			return openAIChunk.Choices[0].Delta.Content, "", nil, usage, true
 		}
 		calls := make([]toolCallDelta, 0, len(openAIChunk.Choices[0].Delta.ToolCalls))
 		for _, call := range openAIChunk.Choices[0].Delta.ToolCalls {
@@ -474,7 +514,7 @@ func extractChunk(raw string) (string, string, []toolCallDelta, bool) {
 			})
 		}
 		if len(calls) > 0 {
-			return "", "", calls, true
+			return "", "", calls, usage, true
 		}
 		reasoning := firstNonEmpty(
 			openAIChunk.Choices[0].Delta.ReasoningContent,
@@ -483,10 +523,22 @@ func extractChunk(raw string) (string, string, []toolCallDelta, bool) {
 			openAIChunk.Choices[0].Message.Reasoning,
 		)
 		if reasoning != "" {
-			return "", reasoning, nil, true
+			return "", reasoning, nil, usage, true
 		}
 		if openAIChunk.Choices[0].Message.Content != "" {
-			return openAIChunk.Choices[0].Message.Content, "", nil, true
+			return openAIChunk.Choices[0].Message.Content, "", nil, usage, true
+		}
+		if usage != nil {
+			return "", "", nil, usage, true
+		}
+	}
+
+	var openAIUsageOnlyChunk struct {
+		Usage apiUsage `json:"usage"`
+	}
+	if err := json.Unmarshal([]byte(raw), &openAIUsageOnlyChunk); err == nil {
+		if usage := openAIUsageOnlyChunk.Usage.tokenUsagePtr(); usage != nil {
+			return "", "", nil, usage, true
 		}
 	}
 
@@ -500,20 +552,52 @@ func extractChunk(raw string) (string, string, []toolCallDelta, bool) {
 	}
 	if err := json.Unmarshal([]byte(raw), &ollamaChunk); err == nil {
 		if ollamaChunk.Thinking != "" {
-			return "", ollamaChunk.Thinking, nil, true
+			return "", ollamaChunk.Thinking, nil, nil, true
 		}
 		if ollamaChunk.Message.Thinking != "" {
-			return "", ollamaChunk.Message.Thinking, nil, true
+			return "", ollamaChunk.Message.Thinking, nil, nil, true
 		}
 		if ollamaChunk.Message.Content != "" {
-			return ollamaChunk.Message.Content, "", nil, true
+			return ollamaChunk.Message.Content, "", nil, nil, true
 		}
 		if ollamaChunk.Response != "" {
-			return ollamaChunk.Response, "", nil, true
+			return ollamaChunk.Response, "", nil, nil, true
 		}
 	}
 
-	return "", "", nil, false
+	return "", "", nil, nil, false
+}
+
+type apiUsage struct {
+	PromptTokens            int `json:"prompt_tokens"`
+	CompletionTokens        int `json:"completion_tokens"`
+	TotalTokens             int `json:"total_tokens"`
+	CompletionTokensDetails struct {
+		ReasoningTokens int `json:"reasoning_tokens"`
+	} `json:"completion_tokens_details"`
+}
+
+func (u apiUsage) tokenUsagePtr() *TokenUsage {
+	usage := u.tokenUsage()
+	if usage.IsZero() {
+		return nil
+	}
+	return &usage
+}
+
+func (u apiUsage) tokenUsage() TokenUsage {
+	reasoningTokens := max(0, u.CompletionTokensDetails.ReasoningTokens)
+	outputTokens := max(0, u.CompletionTokens-reasoningTokens)
+	totalTokens := u.PromptTokens + outputTokens
+	if totalTokens == 0 && u.TotalTokens > 0 {
+		totalTokens = max(0, u.TotalTokens-reasoningTokens)
+	}
+	return TokenUsage{
+		InputTokens:     max(0, u.PromptTokens),
+		OutputTokens:    outputTokens,
+		ReasoningTokens: reasoningTokens,
+		TotalTokens:     totalTokens,
+	}
 }
 
 type toolCallDelta struct {

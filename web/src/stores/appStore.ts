@@ -31,6 +31,7 @@ const maxTotalUploadBytes = parsePositiveInt(
   50 * 1024 * 1024,
 )
 const maxImageUploadBytes = parsePositiveInt(import.meta.env.VITE_MAX_IMAGE_BYTES, 15 * 1024 * 1024)
+const maxConversationTokenCount = parsePositiveInt(import.meta.env.VITE_MAX_TOKEN_COUNT, 0)
 const maxSingleFileLabel = formatBytesLabel(maxSingleFileBytes)
 const maxTotalUploadLabel = formatBytesLabel(maxTotalUploadBytes)
 const maxImageUploadLabel = formatBytesLabel(maxImageUploadBytes)
@@ -46,6 +47,10 @@ type StreamPayload = {
   thinking?: string
   error?: string
   elapsedMs?: number
+  inputTokens?: number
+  outputTokens?: number
+  reasoningTokens?: number
+  totalTokens?: number
 }
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
@@ -123,6 +128,11 @@ function mergeMessagesPreservingStreamState(
       ...message,
       content: pickLongestOrPrefix(local.content, message.content),
       thinking: pickLongestOrPrefix(local.thinking ?? '', message.thinking ?? '') || undefined,
+      inputTokens: Math.max(local.inputTokens ?? 0, message.inputTokens ?? 0) || undefined,
+      outputTokens: Math.max(local.outputTokens ?? 0, message.outputTokens ?? 0) || undefined,
+      reasoningTokens:
+        Math.max(local.reasoningTokens ?? 0, message.reasoningTokens ?? 0) || undefined,
+      totalTokens: Math.max(local.totalTokens ?? 0, message.totalTokens ?? 0) || undefined,
     }
   })
 
@@ -156,6 +166,29 @@ function sameAttachments(left: string[] | undefined, right: string[] | undefined
     leftItems.length === rightItems.length &&
     leftItems.every((item, index) => item === rightItems[index])
   )
+}
+
+function sumConversationTokens(items: DisplayMessage[]): number {
+  return items.reduce((sum, message) => sum + positiveNumber(message.totalTokens), 0)
+}
+
+function positiveNumber(value: number | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0
+}
+
+function applyTokenUsage(message: DisplayMessage, payload: StreamPayload) {
+  if (typeof payload.inputTokens === 'number') {
+    message.inputTokens = payload.inputTokens
+  }
+  if (typeof payload.outputTokens === 'number') {
+    message.outputTokens = payload.outputTokens
+  }
+  if (typeof payload.reasoningTokens === 'number') {
+    message.reasoningTokens = payload.reasoningTokens
+  }
+  if (typeof payload.totalTokens === 'number') {
+    message.totalTokens = payload.totalTokens
+  }
 }
 
 function clampTitleForDisplay(title: string): string {
@@ -235,6 +268,11 @@ export const useAppStore = defineStore('app', () => {
   )
   const shouldShowPendingAssistantPlaceholder = computed(
     () => isSelectedConversationWaitingForAssistant.value,
+  )
+  const conversationTokenCount = computed(() => sumConversationTokens(messages.value))
+  const isConversationTokenCapReached = computed(
+    () =>
+      maxConversationTokenCount > 0 && conversationTokenCount.value >= maxConversationTokenCount,
   )
 
   async function initializeApp() {
@@ -385,8 +423,8 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function finishAssistantStream(conversationId: string, payload: StreamPayload) {
-    if (payload.messageId && typeof payload.elapsedMs === 'number') {
-      setAssistantElapsedMs(conversationId, payload.messageId, payload.elapsedMs)
+    if (payload.messageId) {
+      finishAssistantMessage(conversationId, payload.messageId, payload)
     }
     resetGenerationFor(conversationId)
   }
@@ -441,13 +479,20 @@ export const useAppStore = defineStore('app', () => {
     syncVisibleMessagesFromConversation(conversationId)
   }
 
-  function setAssistantElapsedMs(conversationId: string, messageId: string, elapsedMs: number) {
+  function finishAssistantMessage(
+    conversationId: string,
+    messageId: string,
+    payload: StreamPayload,
+  ) {
     const targetMessages = ensureConversationMessages(conversationId)
     const existing = targetMessages.find((message) => message.id === messageId)
     if (!existing) {
       return
     }
-    existing.elapsedMs = elapsedMs
+    if (typeof payload.elapsedMs === 'number') {
+      existing.elapsedMs = payload.elapsedMs
+    }
+    applyTokenUsage(existing, payload)
     syncVisibleMessagesFromConversation(conversationId)
   }
 
@@ -464,6 +509,10 @@ export const useAppStore = defineStore('app', () => {
   async function sendMessage() {
     const content = draft.value.trim()
     if (!content || !selectedConversationId.value || isSending.value) {
+      return
+    }
+    if (isConversationTokenCapReached.value) {
+      streamError.value = `Conversation token cap reached (${conversationTokenCount.value.toLocaleString()}/${maxConversationTokenCount.toLocaleString()}). Start a new chat to continue.`
       return
     }
 
@@ -854,6 +903,9 @@ export const useAppStore = defineStore('app', () => {
     activeConversations,
     isSelectedConversationWaitingForAssistant,
     shouldShowPendingAssistantPlaceholder,
+    conversationTokenCount,
+    isConversationTokenCapReached,
+    maxConversationTokenCount,
     initializeApp,
     closeStream,
     loadConversations,

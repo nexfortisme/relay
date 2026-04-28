@@ -44,6 +44,17 @@ func TestStoreConversationAndMessages(t *testing.T) {
 	if messages[0].Content != "updated" {
 		t.Fatalf("expected updated content, got %q", messages[0].Content)
 	}
+
+	if err := st.SetMessageTokenUsage(ctx, msg.ID, 10, 5, 3, 15); err != nil {
+		t.Fatalf("set message token usage: %v", err)
+	}
+	total, err := st.ConversationTokenTotal(ctx, conversation.ID)
+	if err != nil {
+		t.Fatalf("get token total: %v", err)
+	}
+	if total != 15 {
+		t.Fatalf("expected token total 15, got %d", total)
+	}
 }
 
 func TestStoreMessageAttachmentBlob(t *testing.T) {
