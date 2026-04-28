@@ -46,7 +46,7 @@ cd "$ROOT/api" && air &
 API_PID=$!
 
 echo "[dev] starting web (bun)..."
-cd "$ROOT/web" && bun run dev &
+cd "$ROOT/web" && bun --env-file="$ROOT/.env" run dev &
 WEB_PID=$!
 
 echo "[dev] running — api pid=$API_PID  web pid=$WEB_PID"

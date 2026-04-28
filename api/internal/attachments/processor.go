@@ -19,6 +19,15 @@ import (
 	"github.com/nexfortisme/relay/internal/prompts"
 )
 
+const (
+	defaultMaxFileBytes  = 50 * 1024 * 1024
+	defaultMaxImageBytes = 15 * 1024 * 1024
+	inlineCharBudget     = 12000
+	chunkSizeRunes       = 1200
+	chunkOverlapRunes    = chunkSizeRunes / 10
+	maxReturnedChunks    = 20
+)
+
 func ParseAttachmentIndex(raw string) (int, error) {
 	index, err := strconv.Atoi(raw)
 	if err != nil || index < 0 {
@@ -39,15 +48,6 @@ type chunk struct {
 	Text   string
 	Score  int
 }
-
-const (
-	defaultMaxFileBytes  = 50 * 1024 * 1024
-	defaultMaxImageBytes = 15 * 1024 * 1024
-	inlineCharBudget     = 12000
-	chunkSizeRunes       = 1200
-	chunkOverlapRunes    = 180
-	maxReturnedChunks    = 20
-)
 
 type PromptOptions struct {
 	MaxFileBytes  int

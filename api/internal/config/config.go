@@ -25,7 +25,7 @@ type Config struct {
 func Load() (Config, error) {
 	// load environment variables from .env file
 	_ = godotenv.Overload(filepath.Join("..", ".env"))
-	
+
 	expandEnvKeys(
 		"LLM_BASE_URL",
 		"LLM_URL",
@@ -37,16 +37,18 @@ func Load() (Config, error) {
 	)
 
 	cfg := Config{
-		Port:           envOrDefault("API_PORT", "8080"),
+		Port:           envOrDefault("VITE_API_PORT", "8090"),
 		LLMURL:         firstEnv("LLM_URL", "LLM_BASE_URL"),
 		LLMModel:       envOrDefault("LLM_MODEL", "gpt-4o-mini"),
 		SQLitePath:     envOrDefault("SQLITE_PATH", "relay.db"),
 		WebOrigin:      envOrDefault("WEB_ORIGIN", "http://localhost:5173"),
 		MCPServerAddr:  envOrDefault("MCP_SERVER_ADDRESS", ":8090"),
 		MCPURL:         envOrDefault("MCP_URL", "http://localhost:8090/mcp"),
-		MaxUploadBytes: envInt64OrDefault("MAX_UPLOAD_BYTES", 50<<20),
-		MaxImageBytes:  envIntOrDefault("MAX_IMAGE_BYTES", 15*1024*1024),
+		MaxUploadBytes: envInt64OrDefault("VITE_MAX_UPLOAD_BYTES", 50<<20),
+		MaxImageBytes:  envIntOrDefault("VITE_MAX_IMAGE_BYTES", 15*1024*1024),
 	}
+
+	fmt.Println("cfg", cfg)
 
 	if cfg.LLMURL == "" {
 		return Config{}, errors.New("LLM_BASE_URL or LLM_URL must be set")

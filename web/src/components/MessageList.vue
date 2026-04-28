@@ -12,6 +12,7 @@ import {
 } from "../lib/fileTypes";
 import type { DisplayMessage } from "../types";
 import AppIcon from "./AppIcon.vue";
+import LoaderPrism from "./LoaderPrism.vue";
 
 const props = defineProps<{
   messages: DisplayMessage[];

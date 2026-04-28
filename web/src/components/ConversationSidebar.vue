@@ -1,64 +1,64 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import type { Conversation } from '../lib/api'
-import AppIcon from './AppIcon.vue'
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import type { Conversation } from "../lib/api";
+import AppIcon from "./AppIcon.vue";
 
 const props = defineProps<{
-  conversations: Conversation[]
-  generatingConversationId: string | null
-  selectedConversationId: string | null
-  showArchived: boolean
-  theme: 'dark' | 'light'
-}>()
+  conversations: Conversation[];
+  generatingConversationId: string | null;
+  selectedConversationId: string | null;
+  showArchived: boolean;
+  theme: "dark" | "light";
+}>();
 
 defineEmits<{
-  archive: [conversationId: string, event: MouseEvent]
-  create: []
-  delete: [conversationId: string]
-  openSettings: []
-  restore: [conversationId: string]
-  select: [conversationId: string]
-  toggleArchived: []
-  toggleTheme: []
-}>()
+  archive: [conversationId: string, event: MouseEvent];
+  create: [];
+  delete: [conversationId: string];
+  openSettings: [];
+  restore: [conversationId: string];
+  select: [conversationId: string];
+  toggleArchived: [];
+  toggleTheme: [];
+}>();
 
 const activeConversations = computed(() =>
   props.conversations.filter((conversation) => !conversation.archived),
-)
+);
 const archivedConversations = computed(() =>
   props.conversations.filter((conversation) => conversation.archived),
-)
+);
 
-const isShiftPressed = ref(false)
-const hoveredArchiveConversationId = ref<string | null>(null)
+const isShiftPressed = ref(false);
+const hoveredArchiveConversationId = ref<string | null>(null);
 
 const handleKeydown = (event: KeyboardEvent) => {
-  if (event.key === 'Shift') {
-    isShiftPressed.value = true
+  if (event.key === "Shift") {
+    isShiftPressed.value = true;
   }
-}
+};
 
 const handleKeyup = (event: KeyboardEvent) => {
-  if (event.key === 'Shift') {
-    isShiftPressed.value = false
+  if (event.key === "Shift") {
+    isShiftPressed.value = false;
   }
-}
+};
 
 const handleWindowBlur = () => {
-  isShiftPressed.value = false
-}
+  isShiftPressed.value = false;
+};
 
 onMounted(() => {
-  window.addEventListener('keydown', handleKeydown)
-  window.addEventListener('keyup', handleKeyup)
-  window.addEventListener('blur', handleWindowBlur)
-})
+  window.addEventListener("keydown", handleKeydown);
+  window.addEventListener("keyup", handleKeyup);
+  window.addEventListener("blur", handleWindowBlur);
+});
 
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', handleKeydown)
-  window.removeEventListener('keyup', handleKeyup)
-  window.removeEventListener('blur', handleWindowBlur)
-})
+  window.removeEventListener("keydown", handleKeydown);
+  window.removeEventListener("keyup", handleKeyup);
+  window.removeEventListener("blur", handleWindowBlur);
+});
 </script>
 
 <template>
@@ -127,8 +127,10 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
+      <div class="archived-section">
+        <div class="archived-title">Archived chats ({{ archivedConversations.length }})</div>
+      </div>
       <div v-if="showArchived" class="archived-section">
-        <div class="archived-title">Archived chats</div>
         <div
           v-for="conversation in archivedConversations"
           :key="conversation.id"

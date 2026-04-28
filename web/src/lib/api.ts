@@ -1,4 +1,6 @@
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8091/api'
+const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8090/api'
+
+console.log('API_BASE', API_BASE)
 
 export type Conversation = {
   id: string
