@@ -325,6 +325,19 @@ export const useAppStore = defineStore('app', () => {
     updateConversationInUrl(null)
   }
 
+  async function goHome() {
+    const existingNewChat = activeConversations.value.find(
+      (conversation) => conversation.title === DEFAULT_CONVERSATION_TITLE,
+    )
+    if (existingNewChat) {
+      if (selectedConversationId.value !== existingNewChat.id) {
+        await selectConversation(existingNewChat.id)
+      }
+      return
+    }
+    await handleCreateConversation()
+  }
+
   async function selectConversation(
     conversationId: string,
     options?: ConversationSelectionOptions,
@@ -1009,6 +1022,7 @@ export const useAppStore = defineStore('app', () => {
     closeStream,
     loadConversations,
     handleCreateConversation,
+    goHome,
     selectConversation,
     beginConversationTitleEdit,
     cancelConversationTitleEdit,

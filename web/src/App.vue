@@ -53,6 +53,7 @@ onUnmounted(appStore.closeStream)
       :theme="theme"
       @archive="appStore.archiveChat"
       @create="appStore.handleCreateConversation"
+      @home="appStore.goHome"
       @delete="appStore.deleteChat"
       @open-settings="appStore.openSettings"
       @restore="appStore.restoreChat"

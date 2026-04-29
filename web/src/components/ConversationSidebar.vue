@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import type { Conversation } from "../lib/api";
 import AppIcon from "./AppIcon.vue";
+import PrismLogo from "./PrismLogo.vue";
 
 const props = defineProps<{
   conversations: Conversation[];
@@ -14,6 +15,7 @@ const props = defineProps<{
 defineEmits<{
   archive: [conversationId: string, event: MouseEvent];
   create: [];
+  home: [];
   delete: [conversationId: string];
   openSettings: [];
   restore: [conversationId: string];
@@ -64,10 +66,15 @@ onBeforeUnmount(() => {
 <template>
   <aside class="sidebar">
     <div class="sidebar-actions">
-      <button class="new-chat" @click="$emit('create')">
-        <AppIcon name="plus" :size="17" />
-        New Chat
-      </button>
+      <div class="primary-actions">
+        <button class="home-btn" title="Home" aria-label="Home" @click="$emit('home')">
+          <PrismLogo />
+        </button>
+        <button class="new-chat" @click="$emit('create')">
+          <AppIcon name="plus" :size="17" />
+          New Chat
+        </button>
+      </div>
       <div class="sidebar-controls">
         <button
           class="control-btn"
@@ -173,6 +180,36 @@ onBeforeUnmount(() => {
 .sidebar-actions {
   display: grid;
   gap: 0.7rem;
+}
+
+.primary-actions {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.45rem;
+}
+
+.home-btn {
+  min-width: 2.55rem;
+  min-height: 2.55rem;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 42%, var(--border));
+  background: color-mix(in srgb, var(--surface) 45%, var(--primary) 12%);
+  color: var(--primary);
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+}
+
+.home-btn:hover {
+  background: color-mix(in srgb, var(--surface-hover) 70%, var(--primary) 16%);
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+}
+
+.home-btn :deep(.prism-logo) {
+  --logo-size: 1.32rem;
+  --logo-face-w: 0.31rem;
+  --logo-face-h: 0.62rem;
 }
 
 .new-chat {
