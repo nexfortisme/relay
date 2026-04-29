@@ -37,7 +37,7 @@ describe('App', () => {
 
       constructor(_url: string) {}
 
-      close = vi.fn()
+      close = vi.fn<() => void>()
     }
     vi.stubGlobal('WebSocket', MockWebSocket)
 
