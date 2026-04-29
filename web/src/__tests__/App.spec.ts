@@ -1,11 +1,14 @@
 import { describe, it, expect, vi } from 'vitest'
 import { flushPromises, shallowMount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import App from '../App.vue'
+import ChatView from '../views/ChatView.vue'
+import HomeView from '../views/HomeView.vue'
 import ConversationSidebar from '../components/ConversationSidebar.vue'
 
 describe('App', () => {
-  it('renders the chat shell', async () => {
+  it('renders the chat shell on /chat', async () => {
     const fetchMock = vi.fn<typeof fetch>(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.endsWith('/api/conversations') && init?.method === 'POST') {
@@ -41,10 +44,20 @@ describe('App', () => {
     }
     vi.stubGlobal('WebSocket', MockWebSocket)
 
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: HomeView },
+        { path: '/chat', component: ChatView },
+      ],
+    })
+    await router.push('/chat')
+    await router.isReady()
+
     try {
       const wrapper = shallowMount(App, {
         global: {
-          plugins: [createPinia()],
+          plugins: [createPinia(), router],
         },
       })
       await flushPromises()

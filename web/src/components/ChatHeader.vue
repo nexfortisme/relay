@@ -113,7 +113,7 @@ watch(
 .title-edit-line {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 0.75rem;
   min-height: 2.45rem;
 }

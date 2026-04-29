@@ -1,128 +1,20 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
-import AppIcon from './components/AppIcon.vue'
-import ChatComposer from './components/ChatComposer.vue'
-import ChatHeader from './components/ChatHeader.vue'
-import ConversationSidebar from './components/ConversationSidebar.vue'
-import EmptyChatGreeting from './components/EmptyChatGreeting.vue'
-import MessageList from './components/MessageList.vue'
+import { RouterView } from 'vue-router'
 import SettingsModal from './components/SettingsModal.vue'
-import { DEFAULT_CONVERSATION_TITLE, useAppStore } from './stores/appStore'
+import { useAppStore } from './stores/appStore'
 
 const appStore = useAppStore()
-const {
-  conversations,
-  conversationTokenCount,
-  draft,
-  generatingConversationId,
-  isConversationTokenCapReached,
-  isEditingTitle,
-  isRenaming,
-  isSending,
-  isSuggestingTitle,
-  messages,
-  renameDraft,
-  selectedConversation,
-  selectedConversationId,
-  selectedFiles,
-  settingsError,
-  settingsForm,
-  settingsSaving,
-  shouldShowPendingAssistantPlaceholder,
-  showArchived,
-  showSettings,
-  streamError,
-  theme,
-} = storeToRefs(appStore)
-
-const shouldShowEmptyGreeting = computed(
-  () => messages.value.length === 0 && !shouldShowPendingAssistantPlaceholder.value,
-)
-const isSidebarCollapsed = ref(false)
-const toggleSidebarCollapsed = () => {
-  isSidebarCollapsed.value = !isSidebarCollapsed.value
-}
+const { settingsError, settingsForm, settingsSaving, showSettings, theme } =
+  storeToRefs(appStore)
 
 onMounted(appStore.initializeApp)
-onUnmounted(appStore.closeStream)
 </script>
 
 <template>
-  <main
-    class="layout"
-    :class="{ 'layout--sidebar-collapsed': isSidebarCollapsed }"
-    :data-theme="theme"
-  >
-    <ConversationSidebar
-      v-if="!isSidebarCollapsed"
-      :conversations="conversations"
-      :generating-conversation-id="generatingConversationId"
-      :selected-conversation-id="selectedConversationId"
-      :show-archived="showArchived"
-      :theme="theme"
-      @archive="appStore.archiveChat"
-      @create="appStore.handleCreateConversation"
-      @home="appStore.goHome"
-      @delete="appStore.deleteChat"
-      @open-settings="appStore.openSettings"
-      @restore="appStore.restoreChat"
-      @select="appStore.selectConversation"
-      @toggle-archived="appStore.toggleArchived"
-      @toggle-collapse="toggleSidebarCollapsed"
-      @toggle-theme="appStore.toggleTheme"
-    />
-
-    <section class="chat-panel">
-      <button
-        v-if="isSidebarCollapsed"
-        class="expand-sidebar-btn"
-        title="Expand sidebar"
-        aria-label="Expand sidebar"
-        @click="toggleSidebarCollapsed"
-      >
-        <AppIcon name="chevron-right" />
-      </button>
-      <ChatHeader
-        :class="{ 'chat-header--with-expand': isSidebarCollapsed }"
-        v-model:rename-draft="renameDraft"
-        :is-editing="isEditingTitle"
-        :is-renaming="isRenaming"
-        :is-suggesting-title="isSuggestingTitle"
-        :selected-conversation-id="selectedConversationId"
-        :title="selectedConversation?.title ?? DEFAULT_CONVERSATION_TITLE"
-        @archive="appStore.archiveSelectedConversation"
-        @begin-edit="appStore.beginConversationTitleEdit"
-        @cancel-edit="appStore.cancelConversationTitleEdit"
-        @save-title="appStore.saveConversationTitle"
-        @suggest-title="appStore.suggestConversationTitleWithLLM"
-      />
-      <MessageList
-        :messages="messages"
-        :token-count="conversationTokenCount"
-        :max-token-count="appStore.maxConversationTokenCount"
-        :pending-assistant="shouldShowPendingAssistantPlaceholder"
-        :requeue-disabled="isSending"
-        :theme="theme"
-        @requeue="appStore.handleRequeueMessage"
-      />
-      <p v-if="streamError" class="error">{{ streamError }}</p>
-      <EmptyChatGreeting
-        v-if="shouldShowEmptyGreeting"
-        :class="{ 'empty-chat-greeting--with-files': selectedFiles.length > 0 }"
-      />
-      <ChatComposer
-        :draft="draft"
-        :is-sending="isSending"
-        :token-limit-reached="isConversationTokenCapReached"
-        :selected-files="selectedFiles"
-        @remove-file="appStore.removeSelectedFile"
-        @send="appStore.sendMessage"
-        @stop="appStore.stopGeneration"
-        @update-draft="appStore.setDraft"
-        @update-files="appStore.handleSelectedFiles"
-      />
-    </section>
+  <main class="layout" :data-theme="theme">
+    <RouterView />
     <SettingsModal
       v-if="showSettings"
       v-model:settings="settingsForm"
@@ -142,8 +34,6 @@ onUnmounted(appStore.closeStream)
 }
 
 .layout {
-  display: grid;
-  grid-template-columns: 300px 1fr;
   height: 100dvh;
   overflow: hidden;
   background: var(--bg);
@@ -156,10 +46,6 @@ onUnmounted(appStore.closeStream)
     BlinkMacSystemFont,
     'Segoe UI',
     sans-serif;
-}
-
-.layout.layout--sidebar-collapsed {
-  grid-template-columns: 1fr;
 }
 
 .layout[data-theme='dark'] {
@@ -194,44 +80,5 @@ onUnmounted(appStore.closeStream)
   --danger: #dc2626;
   --danger-strong: #b91c1c;
   --shadow: 0 18px 46px rgba(31, 41, 55, 0.16);
-}
-
-.chat-panel {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  overflow: hidden;
-  background: var(--bg);
-  position: relative;
-}
-
-.expand-sidebar-btn {
-  position: absolute;
-  top: 1.225rem;
-  left: 1.35rem;
-  z-index: 3;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 0.45rem;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--muted);
-  cursor: pointer;
-  display: inline-grid;
-  place-items: center;
-}
-
-.expand-sidebar-btn:hover {
-  border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
-  color: var(--text);
-  background: var(--surface-hover);
-}
-
-.chat-header--with-expand {
-  padding-left: 4rem;
-}
-
-.error {
-  color: #ef4444;
-  padding: 0 1.25rem 0.5rem;
 }
 </style>

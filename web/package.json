@@ -19,7 +19,8 @@
     "dompurify": "^3.4.1",
     "marked": "^18.0.2",
     "pinia": "^3.0.4",
-    "vue": "^3.5.32"
+    "vue": "^3.5.32",
+    "vue-router": "^5.0.6"
   },
   "devDependencies": {
     "@tsconfig/node24": "^24.0.4",

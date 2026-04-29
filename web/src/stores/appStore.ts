@@ -250,6 +250,7 @@ export const useAppStore = defineStore('app', () => {
   const waitingForAssistantConversationId = ref<string | null>(null)
   const streamError = ref('')
   const showArchived = ref(false)
+  const isSidebarCollapsed = ref(false)
   const theme = ref<'dark' | 'light'>(getStoredTheme())
   const showSettings = ref(false)
   const settingsForm = ref<Settings>({ llm_url: '', llm_model: '', system_prompt: '' })
@@ -786,6 +787,10 @@ export const useAppStore = defineStore('app', () => {
     showArchived.value = !showArchived.value
   }
 
+  function toggleSidebarCollapsed() {
+    isSidebarCollapsed.value = !isSidebarCollapsed.value
+  }
+
   async function openSettings() {
     settingsError.value = ''
     try {
@@ -1002,6 +1007,7 @@ export const useAppStore = defineStore('app', () => {
     waitingForAssistantConversationId,
     streamError,
     showArchived,
+    isSidebarCollapsed,
     theme,
     showSettings,
     settingsForm,
@@ -1033,6 +1039,7 @@ export const useAppStore = defineStore('app', () => {
     setDraft,
     toggleTheme,
     toggleArchived,
+    toggleSidebarCollapsed,
     openSettings,
     closeSettings,
     saveSettings,
