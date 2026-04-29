@@ -1,61 +1,59 @@
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8090/api'
-
-console.log('API_BASE', API_BASE)
+const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8090/api";
 
 export type Conversation = {
-  id: string
-  title: string
-  archived: boolean
-  createdAt: string
-  updatedAt: string
-}
+  id: string;
+  title: string;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export type Message = {
-  id: string
-  conversationId: string
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  userContent?: string
-  llmContent?: string
-  attachments?: string[]
-  thinking?: string
-  hasError?: boolean
-  elapsedMs?: number
-  inputTokens?: number
-  outputTokens?: number
-  reasoningTokens?: number
-  totalTokens?: number
-  createdAt: string
-}
+  id: string;
+  conversationId: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  userContent?: string;
+  llmContent?: string;
+  attachments?: string[];
+  thinking?: string;
+  hasError?: boolean;
+  elapsedMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  totalTokens?: number;
+  createdAt: string;
+};
 
 function normalizeCreateMessageError(rawMessage: string, includesFiles: boolean): string {
-  const message = rawMessage.trim()
-  const lower = message.toLowerCase()
+  const message = rawMessage.trim();
+  const lower = message.toLowerCase();
   if (includesFiles) {
     if (
-      lower.includes('request body too large') ||
-      lower.includes('payload too large') ||
-      lower.includes('too large')
+      lower.includes("request body too large") ||
+      lower.includes("payload too large") ||
+      lower.includes("too large")
     ) {
-      return message
+      return message;
     }
-    if (lower.includes('failed to fetch') || lower.includes('networkerror')) {
-      return 'Upload failed. One or more files may be too large for the server upload limit.'
+    if (lower.includes("failed to fetch") || lower.includes("networkerror")) {
+      return "Upload failed. One or more files may be too large for the server upload limit.";
     }
   }
-  return message || 'Failed to send message'
+  return message || "Failed to send message";
 }
 
 function apiPath(path: string): string {
-  return `${API_BASE}${path}`
+  return `${API_BASE}${path}`;
 }
 
 async function responseErrorMessage(response: Response, fallback: string): Promise<string> {
   try {
-    const data = (await response.json()) as { error?: string }
-    return data.error || fallback
+    const data = (await response.json()) as { error?: string };
+    return data.error || fallback;
   } catch {
-    return fallback
+    return fallback;
   }
 }
 
@@ -64,11 +62,11 @@ async function fetchJson<T>(
   init: RequestInit | undefined,
   errorMessage: string,
 ): Promise<T> {
-  const response = await fetch(apiPath(path), init)
+  const response = await fetch(apiPath(path), init);
   if (!response.ok) {
-    throw new Error(await responseErrorMessage(response, errorMessage))
+    throw new Error(await responseErrorMessage(response, errorMessage));
   }
-  return response.json()
+  return response.json();
 }
 
 async function fetchNoContent(
@@ -76,41 +74,41 @@ async function fetchNoContent(
   init: RequestInit | undefined,
   errorMessage: string,
 ): Promise<void> {
-  const response = await fetch(apiPath(path), init)
+  const response = await fetch(apiPath(path), init);
   if (!response.ok) {
-    throw new Error(await responseErrorMessage(response, errorMessage))
+    throw new Error(await responseErrorMessage(response, errorMessage));
   }
 }
 
 export async function createConversation(): Promise<Conversation> {
   return fetchJson<Conversation>(
-    '/conversations',
-    { method: 'POST' },
-    'Failed to create conversation',
-  )
+    "/conversations",
+    { method: "POST" },
+    "Failed to create conversation",
+  );
 }
 
 export async function listConversations(includeArchived = false): Promise<Conversation[]> {
-  const params = new URLSearchParams()
+  const params = new URLSearchParams();
   if (includeArchived) {
-    params.set('includeArchived', '1')
+    params.set("includeArchived", "1");
   }
-  const suffix = params.toString() ? `?${params.toString()}` : ''
+  const suffix = params.toString() ? `?${params.toString()}` : "";
   const data = await fetchJson<{ items: Conversation[] }>(
     `/conversations${suffix}`,
     undefined,
-    'Failed to load conversations',
-  )
-  return data.items
+    "Failed to load conversations",
+  );
+  return data.items;
 }
 
 export async function listMessages(conversationId: string): Promise<Message[]> {
   const data = await fetchJson<{ items: Message[] }>(
     `/conversations/${conversationId}/messages`,
     undefined,
-    'Failed to load messages',
-  )
-  return data.items
+    "Failed to load messages",
+  );
+  return data.items;
 }
 
 export async function createMessage(
@@ -118,34 +116,34 @@ export async function createMessage(
   content: string,
   files: File[] = [],
 ): Promise<void> {
-  let response: Response
+  let response: Response;
   try {
     if (files.length > 0) {
-      const formData = new FormData()
-      formData.set('content', content)
+      const formData = new FormData();
+      formData.set("content", content);
       for (const file of files) {
-        formData.append('files', file)
+        formData.append("files", file);
       }
       response = await fetch(apiPath(`/conversations/${conversationId}/messages`), {
-        method: 'POST',
+        method: "POST",
         body: formData,
-      })
+      });
     } else {
       response = await fetch(apiPath(`/conversations/${conversationId}/messages`), {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({ content }),
-      })
+      });
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to send message'
-    throw new Error(normalizeCreateMessageError(message, files.length > 0))
+    const message = error instanceof Error ? error.message : "Failed to send message";
+    throw new Error(normalizeCreateMessageError(message, files.length > 0));
   }
   if (!response.ok) {
-    const message = await responseErrorMessage(response, 'Failed to send message')
-    throw new Error(normalizeCreateMessageError(message, files.length > 0))
+    const message = await responseErrorMessage(response, "Failed to send message");
+    throw new Error(normalizeCreateMessageError(message, files.length > 0));
   }
 }
 
@@ -157,17 +155,17 @@ export async function createFailedMessage(
   return fetchJson<Message>(
     `/conversations/${conversationId}/messages/failed`,
     {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         content,
         attachments,
       }),
     },
-    'Failed to persist failed message',
-  )
+    "Failed to persist failed message",
+  );
 }
 
 export async function requeueMessage(
@@ -177,20 +175,20 @@ export async function requeueMessage(
   return fetchJson<{ userMessage: Message; assistantMessageId: string }>(
     `/conversations/${conversationId}/messages/${messageId}/requeue`,
     {
-      method: 'POST',
+      method: "POST",
     },
-    'Failed to requeue message',
-  )
+    "Failed to requeue message",
+  );
 }
 
 export function conversationStreamUrl(conversationId: string): string {
-  const httpUrl = `${API_BASE}/conversations/${conversationId}/stream`
+  const httpUrl = `${API_BASE}/conversations/${conversationId}/stream`;
   try {
-    const url = new URL(httpUrl)
-    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-    return url.toString()
+    const url = new URL(httpUrl);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    return url.toString();
   } catch {
-    return httpUrl.replace(/^http/i, 'ws')
+    return httpUrl.replace(/^http/i, "ws");
   }
 }
 
@@ -198,81 +196,81 @@ export async function renameConversation(conversationId: string, title: string):
   await fetchNoContent(
     `/conversations/${conversationId}`,
     {
-      method: 'PATCH',
+      method: "PATCH",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({ title }),
     },
-    'Failed to rename conversation',
-  )
+    "Failed to rename conversation",
+  );
 }
 
 export async function suggestConversationTitle(conversationId: string): Promise<string> {
   const data = await fetchJson<{ title?: string }>(
     `/conversations/${conversationId}/suggest-title`,
-    { method: 'POST' },
-    'Failed to suggest conversation title',
-  )
+    { method: "POST" },
+    "Failed to suggest conversation title",
+  );
   if (!data.title) {
-    throw new Error('Title suggestion was empty')
+    throw new Error("Title suggestion was empty");
   }
-  return data.title
+  return data.title;
 }
 
 export async function archiveConversation(conversationId: string): Promise<void> {
   await fetchNoContent(
     `/conversations/${conversationId}/archive`,
-    { method: 'PATCH' },
-    'Failed to archive conversation',
-  )
+    { method: "PATCH" },
+    "Failed to archive conversation",
+  );
 }
 
 export async function restoreConversation(conversationId: string): Promise<void> {
   await fetchNoContent(
     `/conversations/${conversationId}/restore`,
-    { method: 'PATCH' },
-    'Failed to restore conversation',
-  )
+    { method: "PATCH" },
+    "Failed to restore conversation",
+  );
 }
 
 export async function deleteConversation(conversationId: string): Promise<void> {
   await fetchNoContent(
     `/conversations/${conversationId}`,
-    { method: 'DELETE' },
-    'Failed to delete conversation',
-  )
+    { method: "DELETE" },
+    "Failed to delete conversation",
+  );
 }
 
 export async function stopConversationGeneration(conversationId: string): Promise<void> {
   const response = await fetch(apiPath(`/conversations/${conversationId}/stop`), {
-    method: 'POST',
-  })
+    method: "POST",
+  });
   if (!response.ok && response.status !== 409) {
-    throw new Error(await responseErrorMessage(response, 'Failed to stop generation'))
+    throw new Error(await responseErrorMessage(response, "Failed to stop generation"));
   }
 }
 
 export type Settings = {
-  llm_url: string
-  llm_model: string
-  system_prompt: string
-}
+  llm_url: string;
+  llm_model: string;
+  system_prompt: string;
+};
 
 export async function getSettings(): Promise<Settings> {
-  return fetchJson<Settings>('/settings', undefined, 'Failed to load settings')
+  return fetchJson<Settings>("/settings", undefined, "Failed to load settings");
 }
 
 export async function updateSettings(settings: Partial<Settings>): Promise<Settings> {
   return fetchJson<Settings>(
-    '/settings',
+    "/settings",
     {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(settings),
     },
-    'Failed to save settings',
-  )
+    "Failed to save settings",
+  );
 }
 
 export function messageAttachmentDownloadUrl(
@@ -280,5 +278,5 @@ export function messageAttachmentDownloadUrl(
   messageId: string,
   attachmentIndex: number,
 ): string {
-  return `${API_BASE}/conversations/${conversationId}/messages/${messageId}/attachments/${attachmentIndex}/download`
+  return `${API_BASE}/conversations/${conversationId}/messages/${messageId}/attachments/${attachmentIndex}/download`;
 }

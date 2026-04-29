@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import ChatComposer from './components/ChatComposer.vue'
 import ChatHeader from './components/ChatHeader.vue'
 import ConversationSidebar from './components/ConversationSidebar.vue'
+import EmptyChatGreeting from './components/EmptyChatGreeting.vue'
 import MessageList from './components/MessageList.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import { DEFAULT_CONVERSATION_TITLE, useAppStore } from './stores/appStore'
@@ -33,6 +34,10 @@ const {
   streamError,
   theme,
 } = storeToRefs(appStore)
+
+const shouldShowEmptyGreeting = computed(
+  () => messages.value.length === 0 && !shouldShowPendingAssistantPlaceholder.value,
+)
 
 onMounted(appStore.initializeApp)
 onUnmounted(appStore.closeStream)
@@ -80,6 +85,10 @@ onUnmounted(appStore.closeStream)
         @requeue="appStore.handleRequeueMessage"
       />
       <p v-if="streamError" class="error">{{ streamError }}</p>
+      <EmptyChatGreeting
+        v-if="shouldShowEmptyGreeting"
+        :class="{ 'empty-chat-greeting--with-files': selectedFiles.length > 0 }"
+      />
       <ChatComposer
         :draft="draft"
         :is-sending="isSending"
