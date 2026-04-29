@@ -173,7 +173,12 @@ type openAIToolFunction struct {
 	Parameters  map[string]any `json:"parameters"`
 }
 
-const maxSearchFetchFailures = 3
+const (
+	maxSearchFetchFailures = 3
+	maxRepetitionRetries   = 2
+)
+
+const repetitionRetryPrompt = "Your previous response was stopped because it began repeating itself. Continue from exactly where the assistant message left off, without restating or repeating any text that has already been provided."
 
 func (p *HTTPProvider) generateWithTools(ctx context.Context, messages []ChatMessage, runtime tools.Runtime, out chan<- TokenEvent) (TokenUsage, error) {
 	defs, err := runtime.Definitions(ctx)
@@ -183,6 +188,7 @@ func (p *HTTPProvider) generateWithTools(ctx context.Context, messages []ChatMes
 	requestTools := openAITools(defs)
 	currentMessages := append([]ChatMessage(nil), messages...)
 	searchFetchFailures := 0
+	repetitionRetries := 0
 	totalUsage := TokenUsage{}
 
 	for round := 0; round < 8; round++ {
@@ -193,6 +199,18 @@ func (p *HTTPProvider) generateWithTools(ctx context.Context, messages []ChatMes
 			return totalUsage, err
 		}
 		totalUsage.Add(response.Usage)
+
+		if response.RepetitionDetected {
+			if repetitionRetries >= maxRepetitionRetries {
+				if strings.TrimSpace(response.Content) != "" {
+					return totalUsage, nil
+				}
+				return totalUsage, fmt.Errorf("llm response repeated before producing usable content")
+			}
+			repetitionRetries++
+			currentMessages = retryMessagesAfterRepetition(currentMessages, response.Content)
+			continue
+		}
 
 		if len(response.ToolCalls) == 0 {
 			if !didStream {
@@ -276,10 +294,11 @@ func (p *HTTPProvider) generateWithTools(ctx context.Context, messages []ChatMes
 }
 
 type llmResponse struct {
-	Content   string
-	Thinking  string
-	ToolCalls []ToolCall
-	Usage     TokenUsage
+	Content            string
+	Thinking           string
+	ToolCalls          []ToolCall
+	Usage              TokenUsage
+	RepetitionDetected bool
 }
 
 func (p *HTTPProvider) generateStream(parentCtx, respCtx context.Context, messages []ChatMessage, requestTools []openAITool, out chan<- TokenEvent) (llmResponse, bool, error) {
@@ -335,6 +354,8 @@ func (p *HTTPProvider) consumeSSE(parentCtx, respCtx context.Context, body io.Re
 	sawStream := false
 	var content strings.Builder
 	var thinkingBuilder strings.Builder
+	contentRepetition := repetitionDetector{}
+	thinkingRepetition := repetitionDetector{}
 	totalUsage := TokenUsage{}
 	toolCalls := map[int]*ToolCall{}
 	for scanner.Scan() {
@@ -362,6 +383,9 @@ func (p *HTTPProvider) consumeSSE(parentCtx, respCtx context.Context, body io.Re
 			totalUsage.Add(*usage)
 		}
 		if ok && token != "" {
+			if !contentRepetition.Accept(token) {
+				return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String(), Usage: totalUsage, RepetitionDetected: true}, true, nil
+			}
 			content.WriteString(token)
 			select {
 			case <-parentCtx.Done():
@@ -376,6 +400,9 @@ func (p *HTTPProvider) consumeSSE(parentCtx, respCtx context.Context, body io.Re
 			}
 		}
 		if ok && thinking != "" {
+			if !thinkingRepetition.Accept(thinking) {
+				return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String(), Usage: totalUsage, RepetitionDetected: true}, true, nil
+			}
 			thinkingBuilder.WriteString(thinking)
 			select {
 			case <-parentCtx.Done():
@@ -652,6 +679,116 @@ func toolChoice(requestTools []openAITool) string {
 		return ""
 	}
 	return "auto"
+}
+
+func retryMessagesAfterRepetition(messages []ChatMessage, partialContent string) []ChatMessage {
+	retryMessages := trimTrailingEmptyAssistant(messages)
+	if strings.TrimSpace(partialContent) != "" {
+		retryMessages = append(retryMessages, ChatMessage{
+			Role:    "assistant",
+			Content: partialContent,
+		})
+	}
+	retryMessages = append(retryMessages, ChatMessage{
+		Role:    "user",
+		Content: repetitionRetryPrompt,
+	})
+	return retryMessages
+}
+
+func trimTrailingEmptyAssistant(messages []ChatMessage) []ChatMessage {
+	trimmed := append([]ChatMessage(nil), messages...)
+	for len(trimmed) > 0 {
+		last := trimmed[len(trimmed)-1]
+		if last.Role != "assistant" || strings.TrimSpace(last.ContentString()) != "" || len(last.ToolCalls) > 0 {
+			break
+		}
+		trimmed = trimmed[:len(trimmed)-1]
+	}
+	return trimmed
+}
+
+type repetitionDetector struct {
+	tail string
+}
+
+const (
+	repetitionWindowRunes       = 12000
+	repetitionWindowWords       = 900
+	repetitionShortMinUnitWords = 6
+	repetitionShortMaxUnitWords = 80
+	repetitionShortRepeatCount  = 3
+	repetitionShortMinUnitChars = 30
+	repetitionLongMinUnitWords  = 40
+	repetitionLongMaxUnitWords  = 300
+	repetitionLongRepeatCount   = 2
+	repetitionLongMinUnitChars  = 240
+)
+
+func (d *repetitionDetector) Accept(next string) bool {
+	if next == "" {
+		return true
+	}
+	candidate := d.tail + next
+	if hasRepeatedSuffix(candidate) {
+		return false
+	}
+	d.tail = tailRunes(candidate, repetitionWindowRunes)
+	return true
+}
+
+func hasRepeatedSuffix(text string) bool {
+	words := repetitionWords(text)
+	if len(words) > repetitionWindowWords {
+		words = words[len(words)-repetitionWindowWords:]
+	}
+
+	return hasRepeatedWordSuffix(words, repetitionShortMinUnitWords, repetitionShortMaxUnitWords, repetitionShortRepeatCount, repetitionShortMinUnitChars) ||
+		hasRepeatedWordSuffix(words, repetitionLongMinUnitWords, repetitionLongMaxUnitWords, repetitionLongRepeatCount, repetitionLongMinUnitChars)
+}
+
+func hasRepeatedWordSuffix(words []string, minUnitWords int, maxUnitWords int, repeatCount int, minUnitChars int) bool {
+	if len(words) < minUnitWords*repeatCount {
+		return false
+	}
+
+	maxUnitWords = min(maxUnitWords, len(words)/repeatCount)
+	for unitWords := minUnitWords; unitWords <= maxUnitWords; unitWords++ {
+		if !repeatedWordSuffix(words, unitWords, repeatCount) {
+			continue
+		}
+		unitText := strings.Join(words[len(words)-unitWords:], " ")
+		if len(unitText) >= minUnitChars {
+			return true
+		}
+	}
+	return false
+}
+
+func repetitionWords(text string) []string {
+	return strings.Fields(strings.ToLower(text))
+}
+
+func repeatedWordSuffix(words []string, unitWords int, repeatCount int) bool {
+	end := len(words)
+	baseStart := end - unitWords
+	for repeat := 2; repeat <= repeatCount; repeat++ {
+		start := end - unitWords*repeat
+		for offset := 0; offset < unitWords; offset++ {
+			if words[start+offset] != words[baseStart+offset] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func tailRunes(text string, maxRunes int) string {
+	runes := []rune(text)
+	if len(runes) <= maxRunes {
+		return text
+	}
+	return string(runes[len(runes)-maxRunes:])
 }
 
 func sendUnableToFind(ctx context.Context, out chan<- TokenEvent) error {
