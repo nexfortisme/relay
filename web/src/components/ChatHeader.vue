@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 
 const props = defineProps<{
@@ -9,7 +9,34 @@ const props = defineProps<{
   renameDraft: string
   selectedConversationId: string | null
   title: string
+  tokenCount?: number
+  maxTokenCount?: number
 }>()
+
+const hasTokenCap = computed(
+  () => typeof props.maxTokenCount === 'number' && props.maxTokenCount > 0,
+)
+const displayTokenCount = computed(() => Math.max(0, props.tokenCount ?? 0))
+const tokenMeterLabel = computed(() => {
+  const used = formatTokenCount(displayTokenCount.value)
+  if (!hasTokenCap.value) {
+    return `${used} tokens`
+  }
+  return `${used} / ${formatTokenCount(props.maxTokenCount ?? 0)} tokens`
+})
+const tokenMeterPercent = computed(() => {
+  if (!hasTokenCap.value) {
+    return 0
+  }
+  return Math.min(100, (displayTokenCount.value / (props.maxTokenCount ?? 1)) * 100)
+})
+const isTokenCapReached = computed(
+  () => hasTokenCap.value && displayTokenCount.value >= (props.maxTokenCount ?? 0),
+)
+
+function formatTokenCount(value: number): string {
+  return Math.round(value).toLocaleString()
+}
 
 defineEmits<{
   archive: [event: MouseEvent]
@@ -61,15 +88,32 @@ watch(
           <AppIcon name="sparkles" :size="16" />
         </button>
       </div>
-      <button
-        class="header-action"
-        :disabled="!selectedConversationId"
-        title="Archive chat (Shift+click to delete)"
-        @click="$emit('archive', $event)"
-      >
-        <AppIcon name="archive" :size="16" />
-        Archive
-      </button>
+      <div class="header-trailing">
+        <div
+          v-if="typeof tokenCount === 'number'"
+          class="conversation-token-meter"
+          :class="{ capped: isTokenCapReached }"
+          :title="
+            hasTokenCap
+              ? `${tokenMeterLabel} used, excluding thinking tokens`
+              : `${tokenMeterLabel}, excluding thinking tokens`
+          "
+        >
+          <span>{{ tokenMeterLabel }}</span>
+          <span v-if="hasTokenCap" class="conversation-token-bar" aria-hidden="true">
+            <span :style="{ width: `${tokenMeterPercent}%` }" />
+          </span>
+        </div>
+        <button
+          class="header-action"
+          :disabled="!selectedConversationId"
+          title="Archive chat (Shift+click to delete)"
+          @click="$emit('archive', $event)"
+        >
+          <AppIcon name="archive" :size="16" />
+          Archive
+        </button>
+      </div>
     </div>
 
     <div v-else class="title-edit-line">
@@ -116,6 +160,56 @@ watch(
   justify-content: flex-start;
   gap: 0.75rem;
   min-height: 2.45rem;
+}
+
+.title-line .title-group {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.header-trailing {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex: 0 0 auto;
+}
+
+.conversation-token-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 1.7rem;
+  padding: 0.28rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.conversation-token-meter.capped {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 58%, var(--border));
+}
+
+.conversation-token-bar {
+  width: 5.2rem;
+  height: 0.34rem;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-soft);
+}
+
+.conversation-token-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+}
+
+.conversation-token-meter.capped .conversation-token-bar span {
+  background: var(--danger);
 }
 
 .title-group {

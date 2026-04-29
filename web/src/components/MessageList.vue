@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {
-  computed,
   nextTick,
   onBeforeUpdate,
   onUnmounted,
@@ -23,8 +22,6 @@ import LoaderPrism from "./LoaderPrism.vue";
 
 const props = defineProps<{
   messages: DisplayMessage[];
-  tokenCount?: number;
-  maxTokenCount?: number;
   pendingAssistant: boolean;
   requeueDisabled?: boolean;
   theme?: "dark" | "light";
@@ -41,39 +38,6 @@ let copiedResetTimer: ReturnType<typeof setTimeout> | null = null;
 
 const preview = ref<FilePreviewState | null>(null);
 let previewRequestId = 0;
-
-const displayTokenCount = computed(() => Math.max(0, props.tokenCount ?? sumMessageTokens()));
-const hasTokenCap = computed(
-  () => typeof props.maxTokenCount === "number" && props.maxTokenCount > 0,
-);
-const tokenMeterLabel = computed(() => {
-  const used = formatTokenCount(displayTokenCount.value);
-  if (!hasTokenCap.value) {
-    return `${used} tokens`;
-  }
-  return `${used} / ${formatTokenCount(props.maxTokenCount ?? 0)} tokens`;
-});
-const tokenMeterPercent = computed(() => {
-  if (!hasTokenCap.value) {
-    return 0;
-  }
-  return Math.min(100, (displayTokenCount.value / (props.maxTokenCount ?? 1)) * 100);
-});
-const isTokenCapReached = computed(
-  () => hasTokenCap.value && displayTokenCount.value >= (props.maxTokenCount ?? 0),
-);
-
-function sumMessageTokens(): number {
-  return props.messages.reduce((sum, message) => sum + positiveNumber(message.totalTokens), 0);
-}
-
-function positiveNumber(value: number | undefined): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
-}
-
-function formatTokenCount(value: number): string {
-  return Math.round(value).toLocaleString();
-}
 
 function revokePreviewObjectUrl() {
   const objectUrl = preview.value?.objectUrl;
@@ -356,20 +320,6 @@ defineExpose({ scrollToBottom });
 
 <template>
   <div ref="messagesEl" class="messages">
-    <div
-      class="conversation-token-meter"
-      :class="{ capped: isTokenCapReached }"
-      :title="
-        hasTokenCap
-          ? `${tokenMeterLabel} used, excluding thinking tokens`
-          : `${tokenMeterLabel}, excluding thinking tokens`
-      "
-    >
-      <span>{{ tokenMeterLabel }}</span>
-      <span v-if="hasTokenCap" class="conversation-token-bar" aria-hidden="true">
-        <span :style="{ width: `${tokenMeterPercent}%` }" />
-      </span>
-    </div>
     <article
       v-for="message in messages"
       :key="message.id"
@@ -506,49 +456,6 @@ defineExpose({ scrollToBottom });
   display: grid;
   gap: 0.68rem;
   align-content: start;
-}
-
-.conversation-token-meter {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  justify-self: end;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-height: 1.7rem;
-  padding: 0.28rem 0.55rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  color: var(--muted);
-  font-size: 0.74rem;
-  font-variant-numeric: tabular-nums;
-  box-shadow: 0 0.35rem 1rem rgba(0, 0, 0, 0.12);
-}
-
-.conversation-token-meter.capped {
-  color: var(--danger);
-  border-color: color-mix(in srgb, var(--danger) 58%, var(--border));
-}
-
-.conversation-token-bar {
-  width: 5.2rem;
-  height: 0.34rem;
-  border-radius: 999px;
-  overflow: hidden;
-  background: var(--surface-soft);
-}
-
-.conversation-token-bar span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--primary);
-}
-
-.conversation-token-meter.capped .conversation-token-bar span {
-  background: var(--danger);
 }
 
 .message {

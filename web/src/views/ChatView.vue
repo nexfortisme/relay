@@ -74,6 +74,8 @@ onUnmounted(appStore.closeStream)
         :is-suggesting-title="isSuggestingTitle"
         :selected-conversation-id="selectedConversationId"
         :title="selectedConversation?.title ?? DEFAULT_CONVERSATION_TITLE"
+        :token-count="conversationTokenCount"
+        :max-token-count="appStore.maxConversationTokenCount"
         @archive="appStore.archiveSelectedConversation"
         @begin-edit="appStore.beginConversationTitleEdit"
         @cancel-edit="appStore.cancelConversationTitleEdit"
@@ -82,8 +84,6 @@ onUnmounted(appStore.closeStream)
       />
       <MessageList
         :messages="messages"
-        :token-count="conversationTokenCount"
-        :max-token-count="appStore.maxConversationTokenCount"
         :pending-assistant="shouldShowPendingAssistantPlaceholder"
         :requeue-disabled="isSending"
         :theme="theme"

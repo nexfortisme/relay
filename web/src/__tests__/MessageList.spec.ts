@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import ChatHeader from '../components/ChatHeader.vue'
 import MessageList from '../components/MessageList.vue'
 import type { DisplayMessage } from '../types'
 
@@ -102,19 +103,20 @@ describe('MessageList attachment preview', () => {
     wrapper.unmount()
   })
 
+})
+
+describe('ChatHeader token meter', () => {
   it('renders conversation token usage with the configured cap', () => {
-    const wrapper = mount(MessageList, {
+    const wrapper = mount(ChatHeader, {
       props: {
-        messages: [
-          {
-            ...userMessage([]),
-            totalTokens: 42,
-            reasoningTokens: 12,
-          },
-        ],
+        isEditing: false,
+        isRenaming: false,
+        isSuggestingTitle: false,
+        renameDraft: '',
+        selectedConversationId: 'conv-1',
+        title: 'Conversation',
         tokenCount: 42,
         maxTokenCount: 100,
-        pendingAssistant: false,
       },
     })
 
