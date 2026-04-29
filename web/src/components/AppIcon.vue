@@ -2,6 +2,8 @@
 defineProps<{
   name:
     | 'archive'
+    | 'chevron-left'
+    | 'chevron-right'
     | 'check'
     | 'clock'
     | 'copy'
@@ -41,6 +43,12 @@ defineProps<{
       <path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8" />
       <path d="M10 12h4" />
       <path d="M22 3H2v5h20z" />
+    </template>
+    <template v-else-if="name === 'chevron-left'">
+      <path d="m15 18-6-6 6-6" />
+    </template>
+    <template v-else-if="name === 'chevron-right'">
+      <path d="m9 18 6-6-6-6" />
     </template>
     <template v-else-if="name === 'check'">
       <path d="M20 6 9 17l-5-5" />

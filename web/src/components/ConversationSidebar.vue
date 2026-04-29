@@ -21,6 +21,7 @@ defineEmits<{
   restore: [conversationId: string];
   select: [conversationId: string];
   toggleArchived: [];
+  toggleCollapse: [];
   toggleTheme: [];
 }>();
 
@@ -73,6 +74,14 @@ onBeforeUnmount(() => {
         <button class="new-chat" @click="$emit('create')">
           <AppIcon name="plus" :size="17" />
           New Chat
+        </button>
+        <button
+          class="collapse-btn"
+          title="Collapse sidebar"
+          aria-label="Collapse sidebar"
+          @click="$emit('toggleCollapse')"
+        >
+          <AppIcon name="chevron-left" />
         </button>
       </div>
       <div class="sidebar-controls">
@@ -184,7 +193,7 @@ onBeforeUnmount(() => {
 
 .primary-actions {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 0.45rem;
 }
 
@@ -199,6 +208,25 @@ onBeforeUnmount(() => {
   display: inline-grid;
   place-items: center;
   padding: 0;
+}
+
+.collapse-btn {
+  min-width: 2.55rem;
+  min-height: 2.55rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+}
+
+.collapse-btn:hover {
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
+  color: var(--text);
+  background: var(--surface-hover);
 }
 
 .home-btn:hover {

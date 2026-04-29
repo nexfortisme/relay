@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
+import AppIcon from './components/AppIcon.vue'
 import ChatComposer from './components/ChatComposer.vue'
 import ChatHeader from './components/ChatHeader.vue'
 import ConversationSidebar from './components/ConversationSidebar.vue'
@@ -38,14 +39,23 @@ const {
 const shouldShowEmptyGreeting = computed(
   () => messages.value.length === 0 && !shouldShowPendingAssistantPlaceholder.value,
 )
+const isSidebarCollapsed = ref(false)
+const toggleSidebarCollapsed = () => {
+  isSidebarCollapsed.value = !isSidebarCollapsed.value
+}
 
 onMounted(appStore.initializeApp)
 onUnmounted(appStore.closeStream)
 </script>
 
 <template>
-  <main class="layout" :data-theme="theme">
+  <main
+    class="layout"
+    :class="{ 'layout--sidebar-collapsed': isSidebarCollapsed }"
+    :data-theme="theme"
+  >
     <ConversationSidebar
+      v-if="!isSidebarCollapsed"
       :conversations="conversations"
       :generating-conversation-id="generatingConversationId"
       :selected-conversation-id="selectedConversationId"
@@ -59,11 +69,22 @@ onUnmounted(appStore.closeStream)
       @restore="appStore.restoreChat"
       @select="appStore.selectConversation"
       @toggle-archived="appStore.toggleArchived"
+      @toggle-collapse="toggleSidebarCollapsed"
       @toggle-theme="appStore.toggleTheme"
     />
 
     <section class="chat-panel">
+      <button
+        v-if="isSidebarCollapsed"
+        class="expand-sidebar-btn"
+        title="Expand sidebar"
+        aria-label="Expand sidebar"
+        @click="toggleSidebarCollapsed"
+      >
+        <AppIcon name="chevron-right" />
+      </button>
       <ChatHeader
+        :class="{ 'chat-header--with-expand': isSidebarCollapsed }"
         v-model:rename-draft="renameDraft"
         :is-editing="isEditingTitle"
         :is-renaming="isRenaming"
@@ -137,6 +158,10 @@ onUnmounted(appStore.closeStream)
     sans-serif;
 }
 
+.layout.layout--sidebar-collapsed {
+  grid-template-columns: 1fr;
+}
+
 .layout[data-theme='dark'] {
   --bg: #0f1115;
   --sidebar: #151821;
@@ -177,6 +202,32 @@ onUnmounted(appStore.closeStream)
   overflow: hidden;
   background: var(--bg);
   position: relative;
+}
+
+.expand-sidebar-btn {
+  position: absolute;
+  top: 1.225rem;
+  left: 1.35rem;
+  z-index: 3;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.45rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+}
+
+.expand-sidebar-btn:hover {
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.chat-header--with-expand {
+  padding-left: 4rem;
 }
 
 .error {
