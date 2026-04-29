@@ -53,6 +53,13 @@ type StreamPayload = {
   totalTokens?: number
 }
 
+type QueuedStreamDelta = {
+  conversationId: string
+  messageId: string
+  token: string
+  thinking: string
+}
+
 function parsePositiveInt(value: string | undefined, fallback: number): number {
   if (!value) {
     return fallback
@@ -253,6 +260,8 @@ export const useAppStore = defineStore('app', () => {
   const isSuggestingTitle = ref(false)
   const isEditingTitle = ref(false)
   let streamSocket: WebSocket | null = null
+  const pendingStreamDeltas = new Map<string, QueuedStreamDelta>()
+  let streamFlushHandle: number | null = null
 
   const selectedConversation = computed(() =>
     conversations.value.find((conversation) => conversation.id === selectedConversationId.value),
@@ -299,6 +308,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function closeStream() {
+    flushQueuedStreamDeltas()
     streamSocket?.close()
     streamSocket = null
   }
@@ -358,20 +368,109 @@ export const useAppStore = defineStore('app', () => {
     streamSocket = new WebSocket(conversationStreamUrl(conversationId))
 
     streamSocket.onmessage = (event) => {
-      applyStreamPayload(conversationId, JSON.parse(event.data) as StreamPayload)
+      handleStreamPayload(conversationId, JSON.parse(event.data) as StreamPayload)
     }
 
     streamSocket.onerror = () => {
+      flushQueuedStreamDeltas()
       streamError.value = 'Stream disconnected'
       resetGenerationFor(conversationId)
     }
 
     streamSocket.onclose = (event) => {
+      flushQueuedStreamDeltas()
       if (event.wasClean) {
         return
       }
       streamError.value = `Stream closed (code ${event.code})`
       resetGenerationFor(conversationId)
+    }
+  }
+
+  function handleStreamPayload(conversationId: string, payload: StreamPayload) {
+    switch (payload.type) {
+      case 'token':
+      case 'thinking':
+        queueStreamDelta(conversationId, payload)
+        return
+      case 'done':
+      case 'stopped':
+      case 'error':
+        flushQueuedStreamDeltas()
+        applyStreamPayload(conversationId, payload)
+        return
+      default:
+        applyStreamPayload(conversationId, payload)
+    }
+  }
+
+  function queueStreamDelta(conversationId: string, payload: StreamPayload) {
+    if (!payload.messageId) {
+      return
+    }
+    const token = payload.type === 'token' ? (payload.token ?? '') : ''
+    const thinking = payload.type === 'thinking' ? (payload.thinking ?? '') : ''
+    if (!token && !thinking) {
+      return
+    }
+
+    clearAssistantWaitFor(conversationId)
+
+    const key = `${conversationId}:${payload.messageId}`
+    const existing = pendingStreamDeltas.get(key)
+    if (existing) {
+      existing.token += token
+      existing.thinking += thinking
+    } else {
+      pendingStreamDeltas.set(key, {
+        conversationId,
+        messageId: payload.messageId,
+        token,
+        thinking,
+      })
+    }
+    scheduleStreamDeltaFlush()
+  }
+
+  function scheduleStreamDeltaFlush() {
+    if (streamFlushHandle !== null) {
+      return
+    }
+    if (typeof window.requestAnimationFrame === 'function') {
+      streamFlushHandle = window.requestAnimationFrame(() => {
+        streamFlushHandle = null
+        flushQueuedStreamDeltas()
+      })
+      return
+    }
+    streamFlushHandle = window.setTimeout(() => {
+      streamFlushHandle = null
+      flushQueuedStreamDeltas()
+    }, 16)
+  }
+
+  function flushQueuedStreamDeltas() {
+    if (streamFlushHandle !== null) {
+      if (typeof window.cancelAnimationFrame === 'function') {
+        window.cancelAnimationFrame(streamFlushHandle as number)
+      } else {
+        window.clearTimeout(streamFlushHandle)
+      }
+      streamFlushHandle = null
+    }
+    if (pendingStreamDeltas.size === 0) {
+      return
+    }
+
+    const queuedDeltas = [...pendingStreamDeltas.values()]
+    pendingStreamDeltas.clear()
+    for (const delta of queuedDeltas) {
+      if (delta.token) {
+        upsertAssistantMessage(delta.conversationId, delta.messageId, delta.token)
+      }
+      if (delta.thinking) {
+        upsertAssistantThinking(delta.conversationId, delta.messageId, delta.thinking)
+      }
     }
   }
 
