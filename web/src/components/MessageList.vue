@@ -7,7 +7,7 @@ import {
   watch,
   type ComponentPublicInstance,
 } from "vue";
-import { messageAttachmentDownloadUrl, type Message } from "../lib/api";
+import { fileDownloadUrl, type Message, type MessageFile } from "../lib/api";
 import {
   attachmentPreviewKind,
   formatPreviewText,
@@ -86,10 +86,10 @@ function setThinkingBodyRef(messageId: string, el: Element | ComponentPublicInst
   thinkingBodyEls.delete(messageId);
 }
 
-async function handleAttachmentPreviewClick(event: MouseEvent, message: Message, index: number) {
+async function handleAttachmentPreviewClick(event: MouseEvent, attachment: MessageFile) {
   event.preventDefault();
-  const src = attachmentDownloadUrl(message, index);
-  const filename = message.attachments?.[index] ?? "attachment";
+  const src = fileDownloadUrl(attachment.id);
+  const filename = attachment.name;
   const kind = attachmentPreviewKind(filename);
   if (!kind) {
     return;
@@ -186,8 +186,12 @@ watch(
   { flush: "post" },
 );
 
-function attachmentDownloadUrl(message: Message, attachmentIndex: number): string {
-  return messageAttachmentDownloadUrl(message.conversationId, message.id, attachmentIndex);
+function attachmentDownloadUrl(attachment: MessageFile): string {
+  return fileDownloadUrl(attachment.id);
+}
+
+function isPersistedAttachment(attachment: MessageFile): boolean {
+  return Boolean(attachment.id);
 }
 
 function hasPersistedMessageId(message: Message): boolean {
@@ -317,47 +321,55 @@ defineExpose({ scrollToBottom });
           <template v-if="!message.hasError && hasPersistedMessageId(message)">
             <template
               v-for="(attachment, index) in message.attachments"
-              :key="`${attachment}-${index}`"
+              :key="`${attachment.id || attachment.name}-${index}`"
             >
               <button
-                v-if="isPreviewableAttachment(attachment)"
+                v-if="isPersistedAttachment(attachment) && isPreviewableAttachment(attachment.name)"
                 type="button"
                 class="message-attachment-chip"
-                :class="{ 'message-attachment-chip--image': isImageFile(attachment) }"
-                :title="`Preview ${attachment}`"
-                @click="handleAttachmentPreviewClick($event, message, index)"
+                :class="{ 'message-attachment-chip--image': isImageFile(attachment.name) }"
+                :title="`Preview ${attachment.name}`"
+                @click="handleAttachmentPreviewClick($event, attachment)"
               >
-                <template v-if="isImageFile(attachment)">
+                <template v-if="isImageFile(attachment.name)">
                   <img
                     class="message-attachment-thumb"
-                    :src="attachmentDownloadUrl(message, index)"
-                    :alt="attachment"
+                    :src="attachmentDownloadUrl(attachment)"
+                    :alt="attachment.name"
                   />
                 </template>
                 <AppIcon v-else name="file" :size="14" />
-                <span class="message-attachment-name">{{ attachment }}</span>
+                <span class="message-attachment-name">{{ attachment.name }}</span>
               </button>
               <a
-                v-else
+                v-else-if="isPersistedAttachment(attachment)"
                 class="message-attachment-chip"
-                :href="attachmentDownloadUrl(message, index)"
-                :download="attachment"
-                :title="`Download ${attachment}`"
+                :href="attachmentDownloadUrl(attachment)"
+                :download="attachment.name"
+                :title="`Download ${attachment.name}`"
               >
                 <AppIcon name="file" :size="14" />
-                {{ attachment }}
+                {{ attachment.name }}
               </a>
+              <span
+                v-else
+                class="message-attachment-chip"
+                :title="attachment.name"
+              >
+                <AppIcon name="file" :size="14" />
+                {{ attachment.name }}
+              </span>
             </template>
           </template>
           <template v-else>
             <span
               v-for="(attachment, index) in message.attachments"
-              :key="`${attachment}-${index}`"
+              :key="`${attachment.id || attachment.name}-${index}`"
               class="message-attachment-chip"
-              :title="attachment"
+              :title="attachment.name"
             >
               <AppIcon name="file" :size="14" />
-              {{ attachment }}
+              {{ attachment.name }}
             </span>
           </template>
         </div>

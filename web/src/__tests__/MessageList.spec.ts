@@ -17,7 +17,9 @@ function restoreUrlProperty(name: UrlObjectMethod, descriptor: PropertyDescripto
   delete (URL as unknown as Record<UrlObjectMethod, unknown>)[name]
 }
 
-function userMessage(attachments: string[]): DisplayMessage {
+function userMessage(
+  attachments: { id: string; name: string }[],
+): DisplayMessage {
   return {
     id: 'msg-1',
     conversationId: 'conv-1',
@@ -44,7 +46,7 @@ describe('MessageList attachment preview', () => {
     const wrapper = mount(MessageList, {
       attachTo: document.body,
       props: {
-        messages: [userMessage(['data.json'])],
+        messages: [userMessage([{ id: 'file-json', name: 'data.json' }])],
         pendingAssistant: false,
         theme: 'light',
       },
@@ -53,9 +55,7 @@ describe('MessageList attachment preview', () => {
     await wrapper.find('button[title="Preview data.json"]').trigger('click')
     await flushPromises()
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:8091/api/conversations/conv-1/messages/msg-1/attachments/0/download',
-    )
+    expect(fetchMock).toHaveBeenCalledWith('http://localhost:8091/api/files/file-json/download')
     expect(document.body.textContent).toContain('"b": 2')
     expect(document.body.textContent).toContain('"a": 1')
     expect(document.body.querySelector('.file-preview-overlay')?.getAttribute('data-theme')).toBe(
@@ -84,7 +84,7 @@ describe('MessageList attachment preview', () => {
     const wrapper = mount(MessageList, {
       attachTo: document.body,
       props: {
-        messages: [userMessage(['paper.pdf'])],
+        messages: [userMessage([{ id: 'file-pdf', name: 'paper.pdf' }])],
         pendingAssistant: false,
       },
     })

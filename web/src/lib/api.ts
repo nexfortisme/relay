@@ -10,6 +10,11 @@ export type Conversation = {
   updatedAt: string;
 };
 
+export type MessageFile = {
+  id: string;
+  name: string;
+};
+
 export type Message = {
   id: string;
   conversationId: string;
@@ -17,7 +22,7 @@ export type Message = {
   content: string;
   userContent?: string;
   llmContent?: string;
-  attachments?: string[];
+  attachments?: MessageFile[];
   thinking?: string;
   hasError?: boolean;
   elapsedMs?: number;
@@ -275,10 +280,6 @@ export async function updateSettings(settings: Partial<Settings>): Promise<Setti
   );
 }
 
-export function messageAttachmentDownloadUrl(
-  conversationId: string,
-  messageId: string,
-  attachmentIndex: number,
-): string {
-  return `${API_BASE}/conversations/${conversationId}/messages/${messageId}/attachments/${attachmentIndex}/download`;
+export function fileDownloadUrl(fileId: string): string {
+  return `${API_BASE}/files/${fileId}/download`;
 }
