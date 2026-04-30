@@ -23,10 +23,10 @@ type NavItem = {
 const navItems: NavItem[] = [
   { to: '/', label: 'Home', icon: 'sparkles', enabled: true },
   { to: '/chat', label: 'Chat', icon: 'sparkles', enabled: true },
-  { to: '/notebooks', label: 'Notebooks', icon: 'file', enabled: false },
-  { to: '/scheduled', label: 'Scheduled', icon: 'clock', enabled: false },
-  { to: '/my-data', label: 'My Data', icon: 'archive', enabled: false },
-  { to: '/feeds', label: 'Feeds', icon: 'send', enabled: false },
+  { to: '/notebooks', label: 'Notebooks', icon: 'file', enabled: true },
+  { to: '/scheduled', label: 'Scheduled', icon: 'clock', enabled: true },
+  { to: '/my-data', label: 'My Data', icon: 'archive', enabled: true },
+  { to: '/feeds', label: 'Feeds', icon: 'send', enabled: true },
 ]
 
 async function startNewChat() {
