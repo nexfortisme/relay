@@ -39,7 +39,7 @@ func Load() (Config, error) {
 	)
 
 	cfg := Config{
-		Port:           envOrDefault("VITE_API_PORT", "8090"),
+		Port:           firstEnvWithDefault("8091", "API_PORT", "VITE_API_PORT"),
 		LLMURL:         firstEnv("LLM_URL", "LLM_BASE_URL"),
 		LLMModel:       envOrDefault("LLM_MODEL", "gpt-4o-mini"),
 		SQLitePath:     envOrDefault("SQLITE_PATH", "relay.db"),
@@ -79,6 +79,13 @@ func firstEnv(keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func firstEnvWithDefault(fallback string, keys ...string) string {
+	if value := firstEnv(keys...); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func expandEnvKeys(keys ...string) {

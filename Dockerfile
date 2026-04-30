@@ -27,7 +27,6 @@ COPY --from=api-builder /out/relay /app/relay
 COPY --from=web-builder /build/web/dist /app/web/dist
 COPY resources /app/resources
 
-ENV VITE_API_PORT=8091
 ENV API_PORT=8091
 ENV SQLITE_PATH=/data/relay.db
 ENV WEB_ORIGIN=*

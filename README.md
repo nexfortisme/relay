@@ -96,6 +96,8 @@ Key environment variables:
 - `MCP_SERVER_ADDRESS`: internal MCP bind address (default `:8090`)
 - `MCP_URL`: MCP endpoint used by runtime (default `http://localhost:8090/mcp`)
 - `WEB_ORIGIN`: allowed web origin for CORS (default `http://localhost:5173`)
+- `VITE_API_BASE_DEV`: frontend API base used by Vite dev server (default `http://localhost:8091/api`)
+- `VITE_API_BASE`: frontend API base used by built UI (default `/api` for same-origin backend calls)
 - `SQLITE_PATH`: SQLite file path
 - `MAX_UPLOAD_BYTES`, `MAX_IMAGE_BYTES`: backend upload limits
 - `VITE_MAX_UPLOAD_BYTES`, `VITE_MAX_IMAGE_BYTES`, `VITE_MAX_TOKEN_COUNT`: frontend limits

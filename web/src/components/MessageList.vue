@@ -220,6 +220,10 @@ function attachmentDownloadUrl(message: Message, attachmentIndex: number): strin
   return messageAttachmentDownloadUrl(message.conversationId, message.id, attachmentIndex);
 }
 
+function hasPersistedMessageId(message: Message): boolean {
+  return !message.id.startsWith("local-");
+}
+
 function copyTextForMessage(message: DisplayMessage): string {
   if (message.role === "assistant") {
     return message.content;
@@ -340,7 +344,7 @@ defineExpose({ scrollToBottom });
       <template v-if="message.role !== 'assistant'">
         <p>{{ displayUserMessage(message) }}</p>
         <div v-if="message.attachments?.length" class="message-attachments">
-          <template v-if="!message.hasError">
+          <template v-if="!message.hasError && hasPersistedMessageId(message)">
             <template
               v-for="(attachment, index) in message.attachments"
               :key="`${attachment}-${index}`"

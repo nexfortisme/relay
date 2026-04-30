@@ -1,4 +1,6 @@
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8090/api";
+const API_BASE = import.meta.env.DEV
+  ? (import.meta.env.VITE_API_BASE_DEV ?? "http://localhost:8091/api")
+  : (import.meta.env.VITE_API_BASE ?? "/api");
 
 export type Conversation = {
   id: string;
