@@ -451,12 +451,28 @@ type assistantAccumulator struct {
 	usage    llm.TokenUsage
 }
 
+type assistantFinalState struct {
+	content   string
+	thinking  string
+	elapsedMs int64
+	usage     llm.TokenUsage
+}
+
 func (a *assistantAccumulator) finalContent() string {
 	return strings.TrimSpace(a.content.String())
 }
 
 func (a *assistantAccumulator) finalThinking() string {
 	return strings.TrimSpace(a.thinking.String())
+}
+
+func finalAssistantState(startTime time.Time, accumulator *assistantAccumulator) assistantFinalState {
+	return assistantFinalState{
+		content:   accumulator.finalContent(),
+		thinking:  accumulator.finalThinking(),
+		elapsedMs: time.Since(startTime).Milliseconds(),
+		usage:     accumulator.usage,
+	}
 }
 
 func (s *Service) publishGenerationDelta(conversationID string, assistantMessageID string, event llm.TokenEvent, accumulator *assistantAccumulator) {
@@ -482,30 +498,9 @@ func (s *Service) publishGenerationDelta(conversationID string, assistantMessage
 }
 
 func (s *Service) finishStoppedGeneration(conversationID string, assistantMessageID string, startTime time.Time, accumulator *assistantAccumulator) {
-	elapsedMs := time.Since(startTime).Milliseconds()
-	if err := s.store.SetMessageContent(context.Background(), assistantMessageID, accumulator.finalContent()); err != nil {
-		s.logger.Error("failed to persist stopped assistant message", "message_id", assistantMessageID, "error", err)
-	}
-	if err := s.store.SetMessageThinking(context.Background(), assistantMessageID, accumulator.finalThinking()); err != nil {
-		s.logger.Error("failed to persist stopped assistant thinking", "message_id", assistantMessageID, "error", err)
-	}
-	if err := s.store.SetMessageElapsedMs(context.Background(), assistantMessageID, elapsedMs); err != nil {
-		s.logger.Error("failed to persist stopped assistant elapsed", "message_id", assistantMessageID, "error", err)
-	}
-	if !accumulator.usage.IsZero() {
-		if err := s.store.SetMessageTokenUsage(context.Background(), assistantMessageID, accumulator.usage.InputTokens, accumulator.usage.OutputTokens, accumulator.usage.ReasoningTokens, accumulator.usage.TotalTokens); err != nil {
-			s.logger.Error("failed to persist stopped assistant token usage", "message_id", assistantMessageID, "error", err)
-		}
-	}
-	s.broker.Publish(conversationID, Event{
-		Type:            "stopped",
-		MessageID:       assistantMessageID,
-		ElapsedMs:       elapsedMs,
-		InputTokens:     accumulator.usage.InputTokens,
-		OutputTokens:    accumulator.usage.OutputTokens,
-		ReasoningTokens: accumulator.usage.ReasoningTokens,
-		TotalTokens:     accumulator.usage.TotalTokens,
-	})
+	state := finalAssistantState(startTime, accumulator)
+	_ = s.persistAssistantFinalState(context.Background(), assistantMessageID, state)
+	s.publishAssistantFinalEvent(conversationID, assistantMessageID, "stopped", state)
 }
 
 func (s *Service) finishFailedGeneration(conversationID string, assistantMessageID string, startTime time.Time, err error) {
@@ -538,10 +533,8 @@ func (s *Service) finishCompletedGeneration(
 		s.requestFallbackAssistantResponse(ctx, conversationID, assistantMessageID, provider, messages, accumulator)
 	}
 
-	finalContent := accumulator.finalContent()
-	finalThinking := accumulator.finalThinking()
-	if err := s.store.SetMessageContent(ctx, assistantMessageID, finalContent); err != nil {
-		s.logger.Error("failed to persist final assistant message", "message_id", assistantMessageID, "error", err)
+	state := finalAssistantState(startTime, accumulator)
+	if err := s.persistAssistantFinalState(ctx, assistantMessageID, state); err != nil {
 		s.broker.Publish(conversationID, Event{
 			Type:      "error",
 			MessageID: assistantMessageID,
@@ -549,27 +542,39 @@ func (s *Service) finishCompletedGeneration(
 		})
 		return
 	}
-	if err := s.store.SetMessageThinking(ctx, assistantMessageID, finalThinking); err != nil {
+	s.publishAssistantFinalEvent(conversationID, assistantMessageID, "done", state)
+}
+
+func (s *Service) persistAssistantFinalState(ctx context.Context, assistantMessageID string, state assistantFinalState) error {
+	contentErr := s.store.SetMessageContent(ctx, assistantMessageID, state.content)
+	if contentErr != nil {
+		s.logger.Error("failed to persist assistant message", "message_id", assistantMessageID, "error", contentErr)
+	}
+	if err := s.store.SetMessageThinking(ctx, assistantMessageID, state.thinking); err != nil {
 		s.logger.Error("failed to persist assistant thinking", "message_id", assistantMessageID, "error", err)
 	}
-	elapsedMs := time.Since(startTime).Milliseconds()
-	if err := s.store.SetMessageElapsedMs(ctx, assistantMessageID, elapsedMs); err != nil {
+	if err := s.store.SetMessageElapsedMs(ctx, assistantMessageID, state.elapsedMs); err != nil {
 		s.logger.Error("failed to persist assistant elapsed", "message_id", assistantMessageID, "error", err)
 	}
-	if !accumulator.usage.IsZero() {
-		if err := s.store.SetMessageTokenUsage(ctx, assistantMessageID, accumulator.usage.InputTokens, accumulator.usage.OutputTokens, accumulator.usage.ReasoningTokens, accumulator.usage.TotalTokens); err != nil {
+	if !state.usage.IsZero() {
+		if err := s.store.SetMessageTokenUsage(ctx, assistantMessageID, state.usage.InputTokens, state.usage.OutputTokens, state.usage.ReasoningTokens, state.usage.TotalTokens); err != nil {
 			s.logger.Error("failed to persist assistant token usage", "message_id", assistantMessageID, "error", err)
 		}
 	}
+	return contentErr
+}
+
+func (s *Service) publishAssistantFinalEvent(conversationID string, assistantMessageID string, eventType string, state assistantFinalState) {
 	s.broker.Publish(conversationID, Event{
-		Type:            "done",
+		Type:            eventType,
 		MessageID:       assistantMessageID,
-		Thinking:        finalThinking,
-		ElapsedMs:       elapsedMs,
-		InputTokens:     accumulator.usage.InputTokens,
-		OutputTokens:    accumulator.usage.OutputTokens,
-		ReasoningTokens: accumulator.usage.ReasoningTokens,
-		TotalTokens:     accumulator.usage.TotalTokens,
+		Content:         state.content,
+		Thinking:        state.thinking,
+		ElapsedMs:       state.elapsedMs,
+		InputTokens:     state.usage.InputTokens,
+		OutputTokens:    state.usage.OutputTokens,
+		ReasoningTokens: state.usage.ReasoningTokens,
+		TotalTokens:     state.usage.TotalTokens,
 	})
 }
 

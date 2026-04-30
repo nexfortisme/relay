@@ -2,10 +2,8 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -144,24 +142,7 @@ func callRemoteMCPTool(ctx context.Context, clientName string, endpoint string, 
 		return "", fmt.Errorf("%s returned error", toolName)
 	}
 
-	var sb strings.Builder
-	for _, c := range result.Content {
-		if tc, ok := c.(*mcp.TextContent); ok {
-			sb.WriteString(tc.Text)
-		}
-	}
-	if sb.Len() > 0 {
-		return sb.String(), nil
-	}
-	if result.StructuredContent != nil {
-		encoded, err := json.Marshal(result.StructuredContent)
-		if err != nil {
-			return "", fmt.Errorf("failed to marshal %s structured content: %w", toolName, err)
-		}
-		return string(encoded), nil
-	}
-
-	return "", nil
+	return mcpResultOutput(result, toolName)
 }
 
 func fetchArgsFromOptions(opts FetchOptions) map[string]any {

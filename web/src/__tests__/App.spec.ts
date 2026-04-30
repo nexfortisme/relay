@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { flushPromises, shallowMount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import App from '../App.vue'
@@ -55,7 +55,7 @@ describe('App', () => {
     await router.isReady()
 
     try {
-      const wrapper = shallowMount(App, {
+      const wrapper = mount(App, {
         global: {
           plugins: [createPinia(), router],
         },

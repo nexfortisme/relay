@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -55,7 +54,7 @@ func (r *MCPRuntime) Execute(ctx context.Context, call Call) (Result, error) {
 		return Result{}, fmt.Errorf("call mcp tool %q: %w", call.Name, err)
 	}
 
-	output, err := mcpToolOutput(result)
+	output, err := mcpResultOutput(result, "mcp")
 	if err != nil {
 		return Result{}, err
 	}
@@ -95,24 +94,4 @@ func schemaMap(schema any) map[string]any {
 		return map[string]any{"type": "object"}
 	}
 	return out
-}
-
-func mcpToolOutput(result *mcp.CallToolResult) (string, error) {
-	var sb strings.Builder
-	for _, content := range result.Content {
-		if text, ok := content.(*mcp.TextContent); ok {
-			sb.WriteString(text.Text)
-		}
-	}
-	if sb.Len() > 0 {
-		return sb.String(), nil
-	}
-	if result.StructuredContent != nil {
-		encoded, err := json.Marshal(result.StructuredContent)
-		if err != nil {
-			return "", fmt.Errorf("marshal mcp structured content: %w", err)
-		}
-		return string(encoded), nil
-	}
-	return "", nil
 }

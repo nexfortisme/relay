@@ -51,8 +51,6 @@ func Load() (Config, error) {
 		MaxTokenCount:  envIntOrDefault("VITE_MAX_TOKEN_COUNT", 0),
 	}
 
-	fmt.Println("cfg", cfg)
-
 	if cfg.LLMURL == "" {
 		return Config{}, errors.New("LLM_BASE_URL or LLM_URL must be set")
 	}

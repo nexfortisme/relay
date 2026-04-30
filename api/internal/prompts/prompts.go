@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -67,13 +68,26 @@ func resourcesDir() string {
 	if dir := os.Getenv("RESOURCES_PATH"); dir != "" {
 		return dir
 	}
-	for _, candidate := range []string{
+
+	candidates := []string{
 		filepath.Join("resources", "api"),
 		filepath.Join("..", "resources", "api"),
-	} {
-		if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
+	}
+	if _, sourcePath, _, ok := runtime.Caller(0); ok {
+		repoRoot := filepath.Clean(filepath.Join(filepath.Dir(sourcePath), "..", "..", ".."))
+		candidates = append(candidates, filepath.Join(repoRoot, "resources", "api"))
+	}
+
+	for _, candidate := range candidates {
+		if isDir(candidate) {
 			return candidate
 		}
 	}
+
 	return filepath.Join("..", "resources", "api")
+}
+
+func isDir(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.IsDir()
 }
