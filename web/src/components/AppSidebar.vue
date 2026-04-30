@@ -85,7 +85,7 @@ function selectConversation(conversationId: string) {
     <div class="recent-section">
       <div class="recent-title">Recent chats</div>
       <button
-        v-for="conversation in activeConversations.slice(0, 6)"
+        v-for="conversation in activeConversations.slice(0, 5)"
         :key="conversation.id"
         class="recent-item"
         @click="selectConversation(conversation.id)"
@@ -110,7 +110,7 @@ function selectConversation(conversationId: string) {
   background: var(--sidebar);
   padding: 1rem;
   display: grid;
-  grid-template-rows: auto auto 1fr auto;
+  grid-template-rows: auto 1fr auto auto;
   gap: 1rem;
   overflow: hidden;
 }
@@ -235,8 +235,7 @@ function selectConversation(conversationId: string) {
 .recent-section {
   display: grid;
   gap: 0.2rem;
-  align-content: start;
-  overflow: auto;
+  align-content: end;
 }
 
 .recent-title {
