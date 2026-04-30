@@ -19,6 +19,12 @@ import {
   type Conversation,
   type Settings,
 } from '../lib/api'
+import {
+  parsePositiveInt,
+  shouldAlertUploadFailure,
+  validateSelectedFiles,
+  type UploadLimits,
+} from '../lib/uploadValidation'
 import type { DisplayMessage } from '../types'
 
 export const DEFAULT_CONVERSATION_TITLE = 'New chat'
@@ -32,9 +38,11 @@ const maxTotalUploadBytes = parsePositiveInt(
 )
 const maxImageUploadBytes = parsePositiveInt(import.meta.env.VITE_MAX_IMAGE_BYTES, 15 * 1024 * 1024)
 const maxConversationTokenCount = parsePositiveInt(import.meta.env.VITE_MAX_TOKEN_COUNT, 0)
-const maxSingleFileLabel = formatBytesLabel(maxSingleFileBytes)
-const maxTotalUploadLabel = formatBytesLabel(maxTotalUploadBytes)
-const maxImageUploadLabel = formatBytesLabel(maxImageUploadBytes)
+const uploadLimits: UploadLimits = {
+  maxSingleFileBytes,
+  maxTotalUploadBytes,
+  maxImageUploadBytes,
+}
 
 type ConversationSelectionOptions = {
   updateUrl?: boolean
@@ -44,6 +52,7 @@ type StreamPayload = {
   type: string
   messageId?: string
   token?: string
+  content?: string
   thinking?: string
   error?: string
   elapsedMs?: number
@@ -58,29 +67,6 @@ type QueuedStreamDelta = {
   messageId: string
   token: string
   thinking: string
-}
-
-function parsePositiveInt(value: string | undefined, fallback: number): number {
-  if (!value) {
-    return fallback
-  }
-  const parsed = Number.parseInt(value, 10)
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return fallback
-  }
-  return parsed
-}
-
-function formatBytesLabel(bytes: number): string {
-  if (bytes >= 1024 * 1024) {
-    const mb = bytes / (1024 * 1024)
-    return Number.isInteger(mb) ? `${mb}MB` : `${mb.toFixed(1)}MB`
-  }
-  if (bytes >= 1024) {
-    const kb = bytes / 1024
-    return Number.isInteger(kb) ? `${kb}KB` : `${kb.toFixed(1)}KB`
-  }
-  return `${bytes}B`
 }
 
 function getStoredTheme(): 'dark' | 'light' {
@@ -204,36 +190,6 @@ function clampTitleForDisplay(title: string): string {
     return normalized
   }
   return normalized.slice(0, MAX_CONVERSATION_TITLE_LENGTH).trim()
-}
-
-function shouldAlertUploadFailure(message: string, files: File[]): boolean {
-  if (files.length === 0) {
-    return false
-  }
-  const lower = message.toLowerCase()
-  return (
-    lower.includes('too large') ||
-    lower.includes('upload limit') ||
-    lower.includes('exceeds max size')
-  )
-}
-
-function validateSelectedFiles(files: File[]): string | null {
-  const oversizedFiles = files.filter((file) => file.size > maxSingleFileBytes)
-  if (oversizedFiles.length > 0) {
-    return `Files must be ${maxSingleFileLabel} or smaller: ${oversizedFiles.map((file) => file.name).join(', ')}`
-  }
-  const totalBytes = files.reduce((sum, file) => sum + file.size, 0)
-  if (totalBytes > maxTotalUploadBytes) {
-    return `Selected files exceed the ${maxTotalUploadLabel} total upload limit. Remove some files and try again.`
-  }
-  const oversizedImages = files.filter(
-    (file) => file.type.startsWith('image/') && file.size > maxImageUploadBytes,
-  )
-  if (oversizedImages.length > 0) {
-    return `Image files must be ${maxImageUploadLabel} or smaller: ${oversizedImages.map((file) => file.name).join(', ')}`
-  }
-  return null
 }
 
 export const useAppStore = defineStore('app', () => {
@@ -600,13 +556,37 @@ export const useAppStore = defineStore('app', () => {
     const targetMessages = ensureConversationMessages(conversationId)
     const existing = targetMessages.find((message) => message.id === messageId)
     if (!existing) {
+      targetMessages.push({
+        id: messageId,
+        conversationId,
+        role: 'assistant',
+        content: payload.content ?? payload.token ?? '',
+        thinking: payload.thinking || undefined,
+        createdAt: new Date().toISOString(),
+      })
+      const created = targetMessages[targetMessages.length - 1]
+      if (created) {
+        applyTerminalAssistantMetadata(created, payload)
+      }
+      syncVisibleMessagesFromConversation(conversationId)
       return
     }
-    if (typeof payload.elapsedMs === 'number') {
-      existing.elapsedMs = payload.elapsedMs
+    if (typeof payload.content === 'string') {
+      existing.content = pickLongestOrPrefix(existing.content, payload.content)
     }
-    applyTokenUsage(existing, payload)
+    if (typeof payload.thinking === 'string') {
+      existing.thinking =
+        pickLongestOrPrefix(existing.thinking ?? '', payload.thinking) || undefined
+    }
+    applyTerminalAssistantMetadata(existing, payload)
     syncVisibleMessagesFromConversation(conversationId)
+  }
+
+  function applyTerminalAssistantMetadata(message: DisplayMessage, payload: StreamPayload) {
+    if (typeof payload.elapsedMs === 'number') {
+      message.elapsedMs = payload.elapsedMs
+    }
+    applyTokenUsage(message, payload)
   }
 
   function beginConversationTitleEdit() {
@@ -746,7 +726,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function handleSelectedFiles(files: File[]) {
-    const error = validateSelectedFiles(files)
+    const error = validateSelectedFiles(files, uploadLimits)
     if (error) {
       selectedFiles.value = []
       notifyUploadError(error)

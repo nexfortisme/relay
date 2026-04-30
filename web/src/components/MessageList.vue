@@ -14,6 +14,7 @@ import {
   isImageFile,
   isPreviewableAttachment,
 } from "../lib/fileTypes";
+import { displayUserMessage, formatElapsed } from "../lib/messageFormatting";
 import { renderMarkdown } from "../lib/markdown";
 import type { DisplayMessage, FilePreviewState } from "../types";
 import AppIcon from "./AppIcon.vue";
@@ -184,37 +185,6 @@ watch(
   },
   { flush: "post" },
 );
-
-function displayUserMessage(message: DisplayMessage): string {
-  const fromUserContent = message.userContent?.trim();
-  if (fromUserContent) {
-    return fromUserContent;
-  }
-  const legacy = message.content;
-  const divider = "\n\n---\n";
-  const dividerIndex = legacy.indexOf(divider);
-  if (dividerIndex >= 0) {
-    return legacy.slice(0, dividerIndex).trim();
-  }
-  return legacy;
-}
-
-function formatElapsed(ms: number | undefined): string {
-  if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) {
-    return "";
-  }
-  if (ms < 1000) {
-    return `${ms} ms`;
-  }
-  const seconds = ms / 1000;
-  if (seconds < 60) {
-    return `${seconds.toFixed(seconds < 10 ? 2 : 1)} s`;
-  }
-  const totalSeconds = Math.round(seconds);
-  const minutes = Math.floor(totalSeconds / 60);
-  const remSeconds = totalSeconds % 60;
-  return `${minutes}m ${remSeconds}s`;
-}
 
 function attachmentDownloadUrl(message: Message, attachmentIndex: number): string {
   return messageAttachmentDownloadUrl(message.conversationId, message.id, attachmentIndex);
@@ -437,11 +407,6 @@ defineExpose({ scrollToBottom });
     <article v-if="pendingAssistant" class="message assistant pending-response">
       <strong class="message-role">assistant</strong>
       <LoaderPrism :size="120" :spin-duration="2.4" color="#0e7490" />
-      <!-- <div class="loading-dots" aria-live="polite" aria-label="Assistant is generating a response">
-        <span />
-        <span />
-        <span />
-      </div> -->
     </article>
   </div>
 
@@ -705,39 +670,4 @@ defineExpose({ scrollToBottom });
   white-space: pre-wrap;
 }
 
-.loading-dots {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  min-height: 1rem;
-}
-
-.loading-dots span {
-  width: 0.42rem;
-  height: 0.42rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--text) 72%, transparent);
-  animation: loading-dot-bounce 1s ease-in-out infinite;
-}
-
-.loading-dots span:nth-child(2) {
-  animation-delay: 0.12s;
-}
-
-.loading-dots span:nth-child(3) {
-  animation-delay: 0.24s;
-}
-
-@keyframes loading-dot-bounce {
-  0%,
-  80%,
-  100% {
-    transform: translateY(0);
-    opacity: 0.35;
-  }
-  40% {
-    transform: translateY(-0.2rem);
-    opacity: 1;
-  }
-}
 </style>

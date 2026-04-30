@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink, useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
@@ -8,6 +9,9 @@ import { useAppStore } from '../stores/appStore'
 const appStore = useAppStore()
 const router = useRouter()
 const { conversations } = storeToRefs(appStore)
+const activeConversations = computed(() =>
+  conversations.value.filter((conversation) => !conversation.archived),
+)
 
 type NavItem = {
   to: string
@@ -81,14 +85,14 @@ function selectConversation(conversationId: string) {
     <div class="recent-section">
       <div class="recent-title">Recent chats</div>
       <button
-        v-for="conversation in conversations.filter((c) => !c.archived).slice(0, 6)"
+        v-for="conversation in activeConversations.slice(0, 6)"
         :key="conversation.id"
         class="recent-item"
         @click="selectConversation(conversation.id)"
       >
         {{ conversation.title }}
       </button>
-      <p v-if="conversations.filter((c) => !c.archived).length === 0" class="recent-empty">
+      <p v-if="activeConversations.length === 0" class="recent-empty">
         No chats yet — start one with the launcher.
       </p>
     </div>

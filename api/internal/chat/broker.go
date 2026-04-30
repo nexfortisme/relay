@@ -6,6 +6,7 @@ type Event struct {
 	Type            string `json:"type"`
 	MessageID       string `json:"messageId,omitempty"`
 	Token           string `json:"token,omitempty"`
+	Content         string `json:"content,omitempty"`
 	Thinking        string `json:"thinking,omitempty"`
 	Error           string `json:"error,omitempty"`
 	ElapsedMs       int64  `json:"elapsedMs,omitempty"`

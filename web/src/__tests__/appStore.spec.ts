@@ -126,4 +126,58 @@ describe('appStore streaming', () => {
       },
     ])
   })
+
+  it('uses terminal payload content and thinking when live deltas were missed', async () => {
+    const store = useAppStore()
+    await store.selectConversation('conv-1')
+    const socket = MockWebSocket.instances[0]
+    if (!socket) {
+      throw new Error('expected stream websocket to be created')
+    }
+
+    emit(socket, {
+      type: 'done',
+      messageId: 'msg-1',
+      content: 'Final answer',
+      thinking: 'Final reasoning',
+      elapsedMs: 84,
+    })
+
+    expect(store.messages).toMatchObject([
+      {
+        id: 'msg-1',
+        conversationId: 'conv-1',
+        role: 'assistant',
+        content: 'Final answer',
+        thinking: 'Final reasoning',
+        elapsedMs: 84,
+      },
+    ])
+  })
+
+  it('reconciles terminal payloads with already streamed partial content', async () => {
+    const store = useAppStore()
+    await store.selectConversation('conv-1')
+    const socket = MockWebSocket.instances[0]
+    if (!socket) {
+      throw new Error('expected stream websocket to be created')
+    }
+
+    emit(socket, { type: 'token', messageId: 'msg-1', token: 'Final' })
+    emit(socket, { type: 'thinking', messageId: 'msg-1', thinking: 'Plan' })
+    emit(socket, {
+      type: 'done',
+      messageId: 'msg-1',
+      content: 'Final answer',
+      thinking: 'Planning complete',
+    })
+
+    expect(store.messages).toMatchObject([
+      {
+        id: 'msg-1',
+        content: 'Final answer',
+        thinking: 'Planning complete',
+      },
+    ])
+  })
 })
