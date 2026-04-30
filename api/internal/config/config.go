@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -68,13 +69,13 @@ func envOrDefault(key string, fallback string) string {
 	if val == "" {
 		return fallback
 	}
-	return val
+	return sanitizeEnvValue(val)
 }
 
 func firstEnv(keys ...string) string {
 	for _, key := range keys {
 		if val := os.Getenv(key); val != "" {
-			return val
+			return sanitizeEnvValue(val)
 		}
 	}
 	return ""
@@ -91,7 +92,7 @@ func expandEnvKeys(keys ...string) {
 }
 
 func envIntOrDefault(key string, fallback int) int {
-	val := os.Getenv(key)
+	val := sanitizeEnvValue(os.Getenv(key))
 	if val == "" {
 		return fallback
 	}
@@ -103,7 +104,7 @@ func envIntOrDefault(key string, fallback int) int {
 }
 
 func envInt64OrDefault(key string, fallback int64) int64 {
-	val := os.Getenv(key)
+	val := sanitizeEnvValue(os.Getenv(key))
 	if val == "" {
 		return fallback
 	}
@@ -112,4 +113,12 @@ func envInt64OrDefault(key string, fallback int64) int64 {
 		return fallback
 	}
 	return parsed
+}
+
+func sanitizeEnvValue(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if idx := strings.Index(trimmed, " #"); idx >= 0 {
+		trimmed = strings.TrimSpace(trimmed[:idx])
+	}
+	return trimmed
 }

@@ -102,6 +102,42 @@ Key environment variables:
 
 See `example.env` for the full list.
 
+## Docker Deployment
+
+Build an image that includes the compiled frontend and backend:
+
+```bash
+docker build -t relay:latest .
+```
+
+Run with SQLite persisted on a host volume:
+
+```bash
+docker run --rm -p 8091:8091 -v relay-data:/data \
+  -e LLM_URL=http://host.docker.internal:1234/v1 \
+  -e LLM_MODEL=your-model-name \
+  relay:latest
+```
+
+Run in the background (detached) with `.env` and persistent SQLite:
+
+```bash
+docker run -d \
+  --name relay \
+  -p 8091:8091 \
+  -v relay-data:/data \
+  --env-file .env \
+  -e SQLITE_PATH=/data/relay.db \
+  --restart unless-stopped \
+  relay:latest
+```
+
+Notes:
+
+- The container defaults `SQLITE_PATH` to `/data/relay.db`.
+- Mount `/data` (named volume or host path) to keep the database across rebuilds/redeploys.
+- The UI is served by the same backend process, so you only need to publish port `8091`.
+
 ## API Surface
 
 All routes are prefixed with `/api`.

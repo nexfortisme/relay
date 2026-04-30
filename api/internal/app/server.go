@@ -3,6 +3,10 @@ package app
 import (
 	"fmt"
 	"log/slog"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -88,6 +92,8 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 		api.GET("/conversations/:id/stream", handlers.StreamConversation)
 	}
 
+	registerStaticWebUI(engine, logger)
+
 	cleanup := func() {
 		_ = st.Close()
 	}
@@ -97,4 +103,31 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 		engine: engine,
 		addr:   cfg.ListenAddr(),
 	}, cleanup, nil
+}
+
+func registerStaticWebUI(engine *gin.Engine, logger *slog.Logger) {
+	// Prefer a colocated frontend build output and quietly skip if absent (dev mode).
+	distDir := filepath.Join("web", "dist")
+	indexPath := filepath.Join(distDir, "index.html")
+	if _, err := os.Stat(indexPath); err != nil {
+		if !os.IsNotExist(err) {
+			logger.Warn("unable to stat web dist index", "path", indexPath, "error", err)
+		}
+		return
+	}
+
+	engine.Static("/assets", filepath.Join(distDir, "assets"))
+	engine.StaticFile("/favicon.ico", filepath.Join(distDir, "favicon.ico"))
+	engine.StaticFile("/apple-touch-icon.png", filepath.Join(distDir, "apple-touch-icon.png"))
+	engine.StaticFile("/favicon-96x96.png", filepath.Join(distDir, "favicon-96x96.png"))
+	engine.StaticFile("/site.webmanifest", filepath.Join(distDir, "site.webmanifest"))
+
+	engine.NoRoute(func(c *gin.Context) {
+		path := c.Request.URL.Path
+		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/health") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		c.File(indexPath)
+	})
 }
