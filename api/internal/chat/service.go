@@ -134,7 +134,7 @@ func (s *Service) Subscribe(conversationID string) (<-chan Event, func()) {
 }
 
 func (s *Service) AddUserMessageAndGenerate(ctx context.Context, conversationID string, content string) (store.Message, error) {
-	return s.addUserMessageAndGenerate(ctx, conversationID, content, content, nil)
+	return s.addUserMessageAndGenerate(ctx, conversationID, content, content, nil, nil, nil)
 }
 
 func (s *Service) AddUserMessageAndGenerateWithFiles(ctx context.Context, conversationID string, content string, files []attachments.UploadedFile) (store.Message, error) {
@@ -144,18 +144,19 @@ func (s *Service) AddUserMessageAndGenerateWithFiles(ctx context.Context, conver
 	if err != nil {
 		return store.Message{}, err
 	}
-	attachmentNames := make([]string, 0, len(files))
-	attachmentBlobs := make([]store.MessageAttachment, 0, len(files))
-	for idx, file := range files {
-		attachmentNames = append(attachmentNames, file.Name)
-		attachmentBlobs = append(attachmentBlobs, store.MessageAttachment{
-			MessageID:   userMessageID,
-			Index:       idx,
+	storedFiles := make([]store.File, 0, len(files))
+	links := make([]store.MessageFile, 0, len(files))
+	for _, file := range files {
+		fileID := uuid.NewString()
+		storedFiles = append(storedFiles, store.File{
+			ID:          fileID,
 			Name:        file.Name,
 			ContentType: file.ContentType,
+			SizeBytes:   int64(len(file.Data)),
 			Data:        file.Data,
 			CreatedAt:   now,
 		})
+		links = append(links, store.MessageFile{ID: fileID, Name: file.Name})
 	}
 	return s.addUserMessageAndGenerate(ctx, conversationID, content, prompt, &store.Message{
 		ID:             userMessageID,
@@ -164,18 +165,22 @@ func (s *Service) AddUserMessageAndGenerateWithFiles(ctx context.Context, conver
 		Content:        content,
 		UserContent:    content,
 		LLMContent:     prompt,
-		Attachments:    attachmentNames,
+		Attachments:    links,
 		CreatedAt:      now,
-	}, attachmentBlobs)
+	}, storedFiles, links)
 }
 
 func (s *Service) AddFailedUserMessage(
 	ctx context.Context,
 	conversationID string,
 	content string,
-	attachments []string,
+	attachmentNames []string,
 ) (store.Message, error) {
 	now := time.Now().UTC()
+	links := make([]store.MessageFile, 0, len(attachmentNames))
+	for _, name := range attachmentNames {
+		links = append(links, store.MessageFile{Name: name})
+	}
 	userMsg := store.Message{
 		ID:             uuid.NewString(),
 		ConversationID: conversationID,
@@ -183,7 +188,7 @@ func (s *Service) AddFailedUserMessage(
 		Content:        content,
 		UserContent:    content,
 		LLMContent:     content,
-		Attachments:    attachments,
+		Attachments:    links,
 		HasError:       true,
 		CreatedAt:      now,
 	}
@@ -216,17 +221,17 @@ func (s *Service) RequeueUserMessage(ctx context.Context, conversationID string,
 
 	now := time.Now().UTC()
 	userMessageID := uuid.NewString()
-	attachmentNames := append([]string(nil), original.Attachments...)
-	attachmentBlobs := make([]store.MessageAttachment, 0, len(attachmentNames))
-	for idx := range attachmentNames {
-		attachment, err := s.store.GetMessageAttachment(ctx, conversationID, messageID, idx)
-		if err != nil {
-			return store.Message{}, store.Message{}, fmt.Errorf("requeue attachment %d: %w", idx, err)
+
+	// Re-link the existing file rows to the new message rather than copying
+	// blobs. The original user message keeps its links too, so the file row
+	// has multiple referencing items — exactly the model the My Data view
+	// will surface.
+	links := make([]store.MessageFile, 0, len(original.Attachments))
+	for _, attachment := range original.Attachments {
+		if attachment.ID == "" {
+			continue
 		}
-		attachment.MessageID = userMessageID
-		attachment.Index = idx
-		attachment.CreatedAt = now
-		attachmentBlobs = append(attachmentBlobs, attachment)
+		links = append(links, attachment)
 	}
 
 	userMsg := store.Message{
@@ -236,10 +241,10 @@ func (s *Service) RequeueUserMessage(ctx context.Context, conversationID string,
 		Content:        displayContent,
 		UserContent:    displayContent,
 		LLMContent:     llmContent,
-		Attachments:    attachmentNames,
+		Attachments:    links,
 		CreatedAt:      now,
 	}
-	assistantMsg, err := s.addUserMessageAndGenerate(ctx, conversationID, displayContent, llmContent, &userMsg, attachmentBlobs)
+	assistantMsg, err := s.addUserMessageAndGenerate(ctx, conversationID, displayContent, llmContent, &userMsg, nil, links)
 	if err != nil {
 		return store.Message{}, store.Message{}, err
 	}
@@ -252,17 +257,17 @@ func (s *Service) addUserMessageAndGenerate(
 	displayContent string,
 	llmContent string,
 	preparedUserMessage *store.Message,
-	preparedAttachments ...[]store.MessageAttachment,
+	preparedFiles []store.File,
+	preparedLinks []store.MessageFile,
 ) (store.Message, error) {
 	now := time.Now().UTC()
 	userMsg := preparedOrNewUserMessage(preparedUserMessage, conversationID, displayContent, llmContent, now)
-	userAttachments := firstAttachmentSet(preparedAttachments)
 
 	if err := s.ensureConversationWithinTokenCap(ctx, conversationID); err != nil {
 		return store.Message{}, err
 	}
 
-	if err := s.store.AppendMessageWithAttachments(ctx, *userMsg, userAttachments); err != nil {
+	if err := s.store.AppendMessageWithFiles(ctx, *userMsg, preparedFiles, preparedLinks); err != nil {
 		return store.Message{}, err
 	}
 	if err := s.ensureConversationTitle(ctx, conversationID, displayContent); err != nil {
@@ -304,13 +309,6 @@ func preparedOrNewUserMessage(prepared *store.Message, conversationID string, di
 		LLMContent:     llmContent,
 		CreatedAt:      now,
 	}
-}
-
-func firstAttachmentSet(attachmentSets [][]store.MessageAttachment) []store.MessageAttachment {
-	if len(attachmentSets) == 0 {
-		return nil
-	}
-	return attachmentSets[0]
 }
 
 func (s *Service) ensureConversationWithinTokenCap(ctx context.Context, conversationID string) error {
@@ -403,16 +401,8 @@ func (s *Service) StopGeneration(conversationID string) bool {
 	return true
 }
 
-func (s *Service) GetMessageAttachment(ctx context.Context, conversationID string, messageID string, attachmentIndex int) (store.MessageAttachment, error) {
-	message, err := s.store.GetMessage(ctx, conversationID, messageID)
-	if err != nil {
-		return store.MessageAttachment{}, err
-	}
-	if attachmentIndex < 0 || attachmentIndex >= len(message.Attachments) {
-		return store.MessageAttachment{}, fmt.Errorf("attachment not found")
-	}
-
-	return s.store.GetMessageAttachment(ctx, conversationID, messageID, attachmentIndex)
+func (s *Service) GetFile(ctx context.Context, fileID string) (store.File, error) {
+	return s.store.GetFile(ctx, fileID)
 }
 
 func (s *Service) generateAssistant(conversationID string, assistantMessageID string, messages []llm.ChatMessage, settings RuntimeSettings) {

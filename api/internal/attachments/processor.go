@@ -11,7 +11,6 @@ import (
 	"mime"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"unicode"
 
@@ -27,14 +26,6 @@ const (
 	chunkOverlapRunes    = chunkSizeRunes / 10
 	maxReturnedChunks    = 20
 )
-
-func ParseAttachmentIndex(raw string) (int, error) {
-	index, err := strconv.Atoi(raw)
-	if err != nil || index < 0 {
-		return 0, fmt.Errorf("invalid attachment index")
-	}
-	return index, nil
-}
 
 type UploadedFile struct {
 	Name        string

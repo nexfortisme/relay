@@ -148,16 +148,19 @@ function isPersistedVersionOfLocalUserMessage(
     message.role === 'user' &&
     !message.id.startsWith('local-') &&
     message.content === localMessage.content &&
-    sameAttachments(message.attachments, localMessage.attachments)
+    sameAttachmentNames(message.attachments, localMessage.attachments)
   )
 }
 
-function sameAttachments(left: string[] | undefined, right: string[] | undefined): boolean {
+function sameAttachmentNames(
+  left: { name: string }[] | undefined,
+  right: { name: string }[] | undefined,
+): boolean {
   const leftItems = left ?? []
   const rightItems = right ?? []
   return (
     leftItems.length === rightItems.length &&
-    leftItems.every((item, index) => item === rightItems[index])
+    leftItems.every((item, index) => item.name === rightItems[index]?.name)
   )
 }
 
@@ -646,7 +649,7 @@ export const useAppStore = defineStore('app', () => {
       content,
       userContent: content,
       llmContent: content,
-      attachments: files.map((file) => file.name),
+      attachments: files.map((file) => ({ id: '', name: file.name })),
       createdAt: new Date().toISOString(),
     })
     conversationMessageCache.value.set(conversationId, cloneMessages(messages.value))

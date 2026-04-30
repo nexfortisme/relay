@@ -21,6 +21,8 @@ import (
 	"github.com/nexfortisme/relay/internal/store"
 )
 
+
+
 const maxSingleFileBytes = 50 << 20
 
 type Handlers struct {
@@ -381,27 +383,25 @@ func (h *Handlers) StopConversationGeneration(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-func (h *Handlers) DownloadMessageAttachment(c *gin.Context) {
-	conversationID := c.Param("id")
-	messageID := c.Param("messageId")
-	attachmentIndex, err := attachments.ParseAttachmentIndex(c.Param("attachmentIndex"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+func (h *Handlers) DownloadFile(c *gin.Context) {
+	fileID := c.Param("id")
+	if strings.TrimSpace(fileID) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file id is required"})
 		return
 	}
 
-	attachment, err := h.chat.GetMessageAttachment(c.Request.Context(), conversationID, messageID, attachmentIndex)
+	file, err := h.chat.GetFile(c.Request.Context(), fileID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
-	contentType := attachment.ContentType
+	contentType := file.ContentType
 	if strings.TrimSpace(contentType) == "" {
-		contentType = http.DetectContentType(attachment.Data)
+		contentType = http.DetectContentType(file.Data)
 	}
-	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": attachment.Name})
+	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": file.Name})
 	c.Header("Content-Disposition", disposition)
-	c.DataFromReader(http.StatusOK, attachment.SizeBytes, contentType, bytes.NewReader(attachment.Data), nil)
+	c.DataFromReader(http.StatusOK, file.SizeBytes, contentType, bytes.NewReader(file.Data), nil)
 }
 
 func (h *Handlers) StreamConversation(c *gin.Context) {
