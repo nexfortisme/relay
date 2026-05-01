@@ -1,6 +1,6 @@
 # Relay
 
-Relay is a full-stack AI chat application with a Go backend and Vue 3 frontend. It supports streaming responses over WebSocket, tool calling through MCP, file attachments (including images), and local persistence with SQLite.
+Relay is a full-stack AI chat application with a Go backend and Vue 3 frontend. It supports streaming responses over WebSocket, tool calling through MCP, file attachments (including images), JWT auth, and local persistence with SQLite.
 
 ## Features
 
@@ -9,6 +9,7 @@ Relay is a full-stack AI chat application with a Go backend and Vue 3 frontend. 
 - Conversation management: create, rename, archive, restore, delete
 - Retry and stop controls for in-progress or failed assistant generations
 - File attachments with vision-ready image handling
+- Cookie-based JWT auth with refresh tokens and a seeded root account
 - OpenAI-compatible provider support (LM Studio, Ollama-compatible gateways, and others)
 - MCP-based tool execution with built-in weather/search/time/fetch tools
 - Optimistic frontend updates with reconciliation to server-persisted messages
@@ -31,7 +32,7 @@ web (Vue 3 + Pinia + Vite)  <->  api (Gin + SQLite + WebSocket)
 - Go (current stable)
 - Bun
 - Air (`go install github.com/air-verse/air@latest`)
-- Node.js (used by frontend tooling; project targets modern Node versions)
+- Node.js `^20.19.0 || >=22.12.0` (run `nvm use 24` before Bun commands)
 
 ## Quick Start
 
@@ -78,12 +79,15 @@ go build ./...
 ### Frontend (`web/`)
 
 ```bash
+nvm use 24
 bun install
 bun dev
-bun test:unit
+bun test:unit --run
 bun run lint
 bun run type-check
 bun run build
+# optional when type-check already ran:
+bun run build-only
 ```
 
 ## Configuration
@@ -99,7 +103,10 @@ Key environment variables:
 - `VITE_API_BASE_DEV`: frontend API base used by Vite dev server (default `http://localhost:8091/api`)
 - `VITE_API_BASE`: frontend API base used by built UI (default `/api` for same-origin backend calls)
 - `SQLITE_PATH`: SQLite file path
-- `MAX_UPLOAD_BYTES`, `MAX_IMAGE_BYTES`: backend upload limits
+- `JWT_TOKEN`, `JWT_REFRESH_TOKEN`: auth signing secrets
+- `DISABLE_AUTH`: disable auth in local single-user mode
+- `ROOT_USERNAME`, `ROOT_PASSWORD`: default seeded admin credentials
+- `COOKIE_SECURE`: require secure cookies over HTTPS
 - `VITE_MAX_UPLOAD_BYTES`, `VITE_MAX_IMAGE_BYTES`, `VITE_MAX_TOKEN_COUNT`: frontend limits
 
 See `example.env` for the full list.
@@ -144,6 +151,11 @@ Notes:
 
 All routes are prefixed with `/api`.
 
+- `POST /auth/register`
+- `POST /auth/login`
+- `POST /auth/logout`
+- `POST /auth/refresh`
+- `GET /auth/me` (auth required)
 - `GET/PUT /settings`
 - `POST /conversations`
 - `GET /conversations?includeArchived=1`
@@ -155,9 +167,12 @@ All routes are prefixed with `/api`.
 - `GET /conversations/:id/messages`
 - `POST /conversations/:id/messages`
 - `POST /conversations/:id/messages/failed`
-- `POST /conversations/:id/messages/:id/requeue`
+- `POST /conversations/:id/messages/:messageId/requeue`
+- `GET /files/:id/download`
 - `GET /conversations/:id/stream` (WebSocket)
 - `POST /conversations/:id/stop`
+
+Except for the auth bootstrap routes (`/auth/register`, `/auth/login`, `/auth/refresh`), API routes require authentication by default.
 
 WebSocket event types:
 
