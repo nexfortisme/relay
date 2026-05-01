@@ -6,6 +6,9 @@
 # Claude Files
 .claude/*
 
+# Cursor FIles
+.cursor/*
+
 # TMP Directory from Air
 api/tmp
 
