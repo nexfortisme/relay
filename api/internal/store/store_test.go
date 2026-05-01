@@ -14,7 +14,7 @@ func TestStoreConversationAndMessages(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	conversation, err := st.CreateConversation(ctx, "conv-1", "Test", time.Now())
+	conversation, err := st.CreateConversation(ctx, "conv-1", "user-1", "Test", time.Now())
 	if err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestStoreFilesAndMessageLinks(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if _, err := st.CreateConversation(ctx, "conv-1", "Test", time.Now()); err != nil {
+	if _, err := st.CreateConversation(ctx, "conv-1", "user-1", "Test", time.Now()); err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
 
@@ -103,7 +103,7 @@ func TestStoreFilesAndMessageLinks(t *testing.T) {
 		t.Fatalf("unexpected attachments: %#v", messages[0].Attachments)
 	}
 
-	got, err := st.GetFile(ctx, fileID)
+	got, err := st.GetFile(ctx, "user-1", fileID)
 	if err != nil {
 		t.Fatalf("get file: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestStoreFailedMessageRetainsAttachmentNames(t *testing.T) {
 	defer st.Close()
 
 	ctx := context.Background()
-	if _, err := st.CreateConversation(ctx, "conv-1", "Test", time.Now()); err != nil {
+	if _, err := st.CreateConversation(ctx, "conv-1", "user-1", "Test", time.Now()); err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
 

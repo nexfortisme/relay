@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/nexfortisme/relay/internal/attachments"
+	"github.com/nexfortisme/relay/internal/auth"
 	"github.com/nexfortisme/relay/internal/chat"
 	"github.com/nexfortisme/relay/internal/config"
 	"github.com/nexfortisme/relay/internal/httpapi"
@@ -56,6 +58,14 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 	)
 	handlers := httpapi.NewHandlers(chatService, logger, cfg.MaxUploadBytes)
 
+	authSvc := auth.NewService(cfg.JWTSecret, cfg.JWTRefreshSecret)
+	rootUserID, err := httpapi.EnsureRootUser(context.Background(), st, authSvc, chatService, cfg.RootUsername, cfg.RootPassword, logger)
+	if err != nil {
+		_ = st.Close()
+		return nil, nil, fmt.Errorf("seed root user: %w", err)
+	}
+	authHandlers := httpapi.NewAuthHandlers(st, authSvc, chatService, logger, cfg.CookieSecure, cfg.DisableAuth, rootUserID)
+
 	engine := gin.New()
 	engine.Use(gin.Recovery())
 	engine.Use(httpapi.RequestID())
@@ -74,22 +84,32 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 
 	api := engine.Group("/api")
 	{
-		api.GET("/settings", handlers.GetSettings)
-		api.PUT("/settings", handlers.UpdateSettings)
-		api.POST("/conversations", handlers.CreateConversation)
-		api.GET("/conversations", handlers.ListConversations)
-		api.PATCH("/conversations/:id", handlers.RenameConversation)
-		api.POST("/conversations/:id/suggest-title", handlers.SuggestConversationTitle)
-		api.PATCH("/conversations/:id/archive", handlers.ArchiveConversation)
-		api.PATCH("/conversations/:id/restore", handlers.RestoreConversation)
-		api.DELETE("/conversations/:id", handlers.DeleteConversation)
-		api.POST("/conversations/:id/stop", handlers.StopConversationGeneration)
-		api.GET("/conversations/:id/messages", handlers.ListMessages)
-		api.POST("/conversations/:id/messages", handlers.CreateMessage)
-		api.POST("/conversations/:id/messages/failed", handlers.CreateFailedMessage)
-		api.POST("/conversations/:id/messages/:messageId/requeue", handlers.RequeueMessage)
-		api.GET("/files/:id/download", handlers.DownloadFile)
-		api.GET("/conversations/:id/stream", handlers.StreamConversation)
+		api.POST("/auth/register", authHandlers.Register)
+		api.POST("/auth/login", authHandlers.Login)
+		api.POST("/auth/logout", authHandlers.Logout)
+		api.POST("/auth/refresh", authHandlers.Refresh)
+	}
+
+	authed := api.Group("")
+	authed.Use(authHandlers.Middleware())
+	{
+		authed.GET("/auth/me", authHandlers.Me)
+		authed.GET("/settings", handlers.GetSettings)
+		authed.PUT("/settings", handlers.UpdateSettings)
+		authed.POST("/conversations", handlers.CreateConversation)
+		authed.GET("/conversations", handlers.ListConversations)
+		authed.PATCH("/conversations/:id", handlers.RenameConversation)
+		authed.POST("/conversations/:id/suggest-title", handlers.SuggestConversationTitle)
+		authed.PATCH("/conversations/:id/archive", handlers.ArchiveConversation)
+		authed.PATCH("/conversations/:id/restore", handlers.RestoreConversation)
+		authed.DELETE("/conversations/:id", handlers.DeleteConversation)
+		authed.POST("/conversations/:id/stop", handlers.StopConversationGeneration)
+		authed.GET("/conversations/:id/messages", handlers.ListMessages)
+		authed.POST("/conversations/:id/messages", handlers.CreateMessage)
+		authed.POST("/conversations/:id/messages/failed", handlers.CreateFailedMessage)
+		authed.POST("/conversations/:id/messages/:messageId/requeue", handlers.RequeueMessage)
+		authed.GET("/files/:id/download", handlers.DownloadFile)
+		authed.GET("/conversations/:id/stream", handlers.StreamConversation)
 	}
 
 	registerStaticWebUI(engine, logger)

@@ -53,7 +53,12 @@ func NewHandlers(chatService *chat.Service, logger *slog.Logger, maxMultipartPay
 }
 
 func (h *Handlers) CreateConversation(c *gin.Context) {
-	conversation, err := h.chat.CreateConversation(c.Request.Context())
+	userID, ok := userIDFromGin(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	conversation, err := h.chat.CreateConversation(c.Request.Context(), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -62,7 +67,12 @@ func (h *Handlers) CreateConversation(c *gin.Context) {
 }
 
 func (h *Handlers) GetSettings(c *gin.Context) {
-	settings, err := h.chat.GetSettings(c.Request.Context())
+	userID, ok := userIDFromGin(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	settings, err := h.chat.GetSettings(c.Request.Context(), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -92,11 +102,16 @@ func (h *Handlers) UpdateSettings(c *gin.Context) {
 	if req.SystemPrompt != nil {
 		updates["system_prompt"] = *req.SystemPrompt
 	}
-	if err := h.chat.UpdateSettings(c.Request.Context(), updates); err != nil {
+	userID, ok := userIDFromGin(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	if err := h.chat.UpdateSettings(c.Request.Context(), userID, updates); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	settings, err := h.chat.GetSettings(c.Request.Context())
+	settings, err := h.chat.GetSettings(c.Request.Context(), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -105,8 +120,13 @@ func (h *Handlers) UpdateSettings(c *gin.Context) {
 }
 
 func (h *Handlers) ListConversations(c *gin.Context) {
+	userID, ok := userIDFromGin(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
 	includeArchived := c.Query("includeArchived") == "1" || c.Query("includeArchived") == "true"
-	conversations, err := h.chat.ListConversations(c.Request.Context(), includeArchived)
+	conversations, err := h.chat.ListConversations(c.Request.Context(), userID, includeArchived)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -115,10 +135,15 @@ func (h *Handlers) ListConversations(c *gin.Context) {
 }
 
 func (h *Handlers) ListMessages(c *gin.Context) {
+	userID, ok := userIDFromGin(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
 	conversationID := c.Param("id")
-	messages, err := h.chat.GetMessages(c.Request.Context(), conversationID)
+	messages, err := h.chat.GetMessages(c.Request.Context(), userID, conversationID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writeChatError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"items": messages})
@@ -153,6 +178,11 @@ type requestError struct {
 }
 
 func (h *Handlers) CreateMessage(c *gin.Context) {
+	userID, ok := userIDFromGin(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
 	conversationID := c.Param("id")
 
 	payload, reqErr := h.parseCreateMessagePayload(c)
@@ -165,7 +195,7 @@ func (h *Handlers) CreateMessage(c *gin.Context) {
 		return
 	}
 
-	assistantMessageID, err := h.queueAssistantResponse(c.Request.Context(), conversationID, payload)
+	assistantMessageID, err := h.queueAssistantResponse(c.Request.Context(), userID, conversationID, payload)
 	if err != nil {
 		if errors.Is(err, chat.ErrTokenCapReached) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -217,16 +247,21 @@ func (h *Handlers) parseMultipartMessagePayload(c *gin.Context) (messagePayload,
 	}, nil
 }
 
-func (h *Handlers) queueAssistantResponse(ctx context.Context, conversationID string, payload messagePayload) (string, error) {
+func (h *Handlers) queueAssistantResponse(ctx context.Context, userID, conversationID string, payload messagePayload) (string, error) {
 	if len(payload.Files) > 0 {
-		msg, err := h.chat.AddUserMessageAndGenerateWithFiles(ctx, conversationID, payload.Content, payload.Files)
+		msg, err := h.chat.AddUserMessageAndGenerateWithFiles(ctx, userID, conversationID, payload.Content, payload.Files)
 		return msg.ID, err
 	}
-	msg, err := h.chat.AddUserMessageAndGenerate(ctx, conversationID, payload.Content)
+	msg, err := h.chat.AddUserMessageAndGenerate(ctx, userID, conversationID, payload.Content)
 	return msg.ID, err
 }
 
 func (h *Handlers) CreateFailedMessage(c *gin.Context) {
+	userID, ok := userIDFromGin(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
 	conversationID := c.Param("id")
 	var req createFailedMessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -239,7 +274,7 @@ func (h *Handlers) CreateFailedMessage(c *gin.Context) {
 		return
 	}
 
-	msg, err := h.chat.AddFailedUserMessage(c.Request.Context(), conversationID, content, req.Attachments)
+	msg, err := h.chat.AddFailedUserMessage(c.Request.Context(), userID, conversationID, content, req.Attachments)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -248,8 +283,14 @@ func (h *Handlers) CreateFailedMessage(c *gin.Context) {
 }
 
 func (h *Handlers) RequeueMessage(c *gin.Context) {
+	userID, ok := userIDFromGin(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
 	userMessage, assistantMessage, err := h.chat.RequeueUserMessage(
 		c.Request.Context(),
+		userID,
 		c.Param("id"),
 		c.Param("messageId"),
 	)
@@ -322,6 +363,11 @@ func (h *Handlers) parseUploadedFiles(formFiles []*multipart.FileHeader) ([]atta
 }
 
 func (h *Handlers) RenameConversation(c *gin.Context) {
+	userID, ok := userIDFromGin(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
 	conversationID := c.Param("id")
 	var req renameConversationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -333,8 +379,8 @@ func (h *Handlers) RenameConversation(c *gin.Context) {
 		return
 	}
 
-	if err := h.chat.RenameConversation(c.Request.Context(), conversationID, req.Title); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := h.chat.RenameConversation(c.Request.Context(), userID, conversationID, req.Title); err != nil {
+		writeChatError(c, err)
 		return
 	}
 
@@ -342,8 +388,13 @@ func (h *Handlers) RenameConversation(c *gin.Context) {
 }
 
 func (h *Handlers) SuggestConversationTitle(c *gin.Context) {
+	userID, ok := userIDFromGin(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
 	conversationID := c.Param("id")
-	title, err := h.chat.SuggestConversationTitle(c.Request.Context(), conversationID)
+	title, err := h.chat.SuggestConversationTitle(c.Request.Context(), userID, conversationID)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
@@ -352,30 +403,54 @@ func (h *Handlers) SuggestConversationTitle(c *gin.Context) {
 }
 
 func (h *Handlers) ArchiveConversation(c *gin.Context) {
-	if err := h.chat.ArchiveConversation(c.Request.Context(), c.Param("id")); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	userID, ok := userIDFromGin(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	if err := h.chat.ArchiveConversation(c.Request.Context(), userID, c.Param("id")); err != nil {
+		writeChatError(c, err)
 		return
 	}
 	c.Status(http.StatusNoContent)
 }
 
 func (h *Handlers) RestoreConversation(c *gin.Context) {
-	if err := h.chat.RestoreConversation(c.Request.Context(), c.Param("id")); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	userID, ok := userIDFromGin(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	if err := h.chat.RestoreConversation(c.Request.Context(), userID, c.Param("id")); err != nil {
+		writeChatError(c, err)
 		return
 	}
 	c.Status(http.StatusNoContent)
 }
 
 func (h *Handlers) DeleteConversation(c *gin.Context) {
-	if err := h.chat.DeleteConversation(c.Request.Context(), c.Param("id")); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	userID, ok := userIDFromGin(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	if err := h.chat.DeleteConversation(c.Request.Context(), userID, c.Param("id")); err != nil {
+		writeChatError(c, err)
 		return
 	}
 	c.Status(http.StatusNoContent)
 }
 
 func (h *Handlers) StopConversationGeneration(c *gin.Context) {
+	userID, ok := userIDFromGin(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	if err := h.chat.AuthorizeConversation(c.Request.Context(), userID, c.Param("id")); err != nil {
+		writeChatError(c, err)
+		return
+	}
 	if stopped := h.chat.StopGeneration(c.Param("id")); !stopped {
 		c.JSON(http.StatusConflict, gin.H{"error": "no generation in progress"})
 		return
@@ -384,13 +459,18 @@ func (h *Handlers) StopConversationGeneration(c *gin.Context) {
 }
 
 func (h *Handlers) DownloadFile(c *gin.Context) {
+	userID, ok := userIDFromGin(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
 	fileID := c.Param("id")
 	if strings.TrimSpace(fileID) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "file id is required"})
 		return
 	}
 
-	file, err := h.chat.GetFile(c.Request.Context(), fileID)
+	file, err := h.chat.GetFile(c.Request.Context(), userID, fileID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
@@ -405,7 +485,16 @@ func (h *Handlers) DownloadFile(c *gin.Context) {
 }
 
 func (h *Handlers) StreamConversation(c *gin.Context) {
+	userID, ok := userIDFromGin(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
 	conversationID := c.Param("id")
+	if err := h.chat.AuthorizeConversation(c.Request.Context(), userID, conversationID); err != nil {
+		writeChatError(c, err)
+		return
+	}
 	sub, unsubscribe := h.chat.Subscribe(conversationID)
 	defer unsubscribe()
 
@@ -435,6 +524,17 @@ func (h *Handlers) StreamConversation(c *gin.Context) {
 			}
 		}
 	}
+}
+
+// writeChatError maps service-layer errors to HTTP status codes. Forbidden and
+// not-found are folded into 404 so we don't leak existence of conversations
+// owned by other users.
+func writeChatError(c *gin.Context, err error) {
+	if errors.Is(err, chat.ErrForbidden) || errors.Is(err, store.ErrNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 }
 
 func RequestLogger(logger *slog.Logger) gin.HandlerFunc {

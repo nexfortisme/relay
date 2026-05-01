@@ -12,16 +12,22 @@ import (
 )
 
 type Config struct {
-	Port           string
-	LLMURL         string
-	LLMModel       string
-	SQLitePath     string
-	WebOrigin      string
-	MCPServerAddr  string
-	MCPURL         string
-	MaxUploadBytes int64
-	MaxImageBytes  int
-	MaxTokenCount  int
+	Port              string
+	LLMURL            string
+	LLMModel          string
+	SQLitePath        string
+	WebOrigin         string
+	MCPServerAddr     string
+	MCPURL            string
+	MaxUploadBytes    int64
+	MaxImageBytes     int
+	MaxTokenCount     int
+	JWTSecret         string
+	JWTRefreshSecret  string
+	DisableAuth       bool
+	RootUsername      string
+	RootPassword      string
+	CookieSecure      bool
 }
 
 func Load() (Config, error) {
@@ -48,7 +54,13 @@ func Load() (Config, error) {
 		MCPURL:         envOrDefault("MCP_URL", "http://localhost:8090/mcp"),
 		MaxUploadBytes: envInt64OrDefault("VITE_MAX_UPLOAD_BYTES", 50<<20),
 		MaxImageBytes:  envIntOrDefault("VITE_MAX_IMAGE_BYTES", 15*1024*1024),
-		MaxTokenCount:  envIntOrDefault("VITE_MAX_TOKEN_COUNT", 0),
+		MaxTokenCount:    envIntOrDefault("VITE_MAX_TOKEN_COUNT", 0),
+		JWTSecret:        envOrDefault("JWT_TOKEN", "dev-insecure-jwt-secret-change-me"),
+		JWTRefreshSecret: envOrDefault("JWT_REFRESH_TOKEN", "dev-insecure-refresh-secret-change-me"),
+		DisableAuth:      envBoolOrDefault("DISABLE_AUTH", false),
+		RootUsername:     envOrDefault("ROOT_USERNAME", "root"),
+		RootPassword:     envOrDefault("ROOT_PASSWORD", "abc123"),
+		CookieSecure:     envBoolOrDefault("COOKIE_SECURE", false),
 	}
 
 	if cfg.LLMURL == "" {
@@ -56,6 +68,19 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func envBoolOrDefault(key string, fallback bool) bool {
+	val := strings.ToLower(sanitizeEnvValue(os.Getenv(key)))
+	switch val {
+	case "":
+		return fallback
+	case "1", "true", "yes", "y", "on":
+		return true
+	case "0", "false", "no", "n", "off":
+		return false
+	}
+	return fallback
 }
 
 func (c Config) ListenAddr() string {

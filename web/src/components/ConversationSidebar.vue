@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import type { Conversation } from "../lib/api";
 import AppIcon from "./AppIcon.vue";
 import PrismLogo from "./PrismLogo.vue";
+import UserMenu from "./UserMenu.vue";
 
 const props = defineProps<{
   conversations: Conversation[];
@@ -169,6 +170,8 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+
+    <UserMenu />
   </aside>
 </template>
 
@@ -178,7 +181,7 @@ onBeforeUnmount(() => {
   padding: 1rem;
   background: var(--sidebar);
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto 1fr auto;
   gap: 1rem;
   overflow: hidden;
 }
