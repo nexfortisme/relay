@@ -1,4 +1,5 @@
 import { mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import { describe, expect, it } from 'vitest'
 import ConversationSidebar from '../components/ConversationSidebar.vue'
 import type { Conversation } from '../lib/api'
@@ -16,6 +17,10 @@ function conversation(id: string, title: string, archived = false): Conversation
 describe('ConversationSidebar', () => {
   it('renders the generating indicator inside the conversation text button', () => {
     const wrapper = mount(ConversationSidebar, {
+      global: {
+        plugins: [createPinia()],
+        stubs: { UserMenu: true, RouterLink: true },
+      },
       props: {
         conversations: [conversation('conv-1', 'Summarize this')],
         generatingConversationId: 'conv-1',

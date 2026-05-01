@@ -58,6 +58,25 @@ type Store struct {
 	db *sql.DB
 }
 
+type User struct {
+	ID           string    `json:"id"`
+	Username     string    `json:"username"`
+	PasswordHash string    `json:"-"`
+	CreatedAt    time.Time `json:"createdAt"`
+}
+
+type Session struct {
+	ID                string    `json:"id"`
+	UserID            string    `json:"userId"`
+	RefreshTokenHash  string    `json:"-"`
+	ExpiresAt         time.Time `json:"expiresAt"`
+	RememberMe        bool      `json:"rememberMe"`
+	CreatedAt         time.Time `json:"createdAt"`
+	RevokedAt         *time.Time `json:"revokedAt,omitempty"`
+}
+
+var ErrNotFound = errors.New("not found")
+
 func New(path string) (*Store, error) {
 	db, err := sql.Open("sqlite", sqliteDSNWithPragmas(path))
 	if err != nil {
@@ -104,8 +123,30 @@ func (s *Store) Close() error {
 
 func (s *Store) migrate(ctx context.Context) error {
 	const schema = `
+		CREATE TABLE IF NOT EXISTS users (
+		id TEXT PRIMARY KEY,
+		username TEXT NOT NULL UNIQUE,
+		password_hash TEXT NOT NULL,
+		created_at DATETIME NOT NULL
+		);
+
+		CREATE TABLE IF NOT EXISTS sessions (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		refresh_token_hash TEXT NOT NULL UNIQUE,
+		expires_at DATETIME NOT NULL,
+		remember_me INTEGER NOT NULL DEFAULT 0,
+		created_at DATETIME NOT NULL,
+		revoked_at DATETIME,
+		FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+		CREATE INDEX IF NOT EXISTS idx_sessions_refresh ON sessions(refresh_token_hash);
+
 		CREATE TABLE IF NOT EXISTS conversations (
 		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL DEFAULT '',
 		title TEXT NOT NULL DEFAULT 'New chat',
 		archived_at DATETIME,
 		created_at DATETIME NOT NULL,
@@ -136,6 +177,7 @@ func (s *Store) migrate(ctx context.Context) error {
 
 		CREATE TABLE IF NOT EXISTS files (
 		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL DEFAULT '',
 		name TEXT NOT NULL,
 		content_type TEXT NOT NULL DEFAULT '',
 		size_bytes INTEGER NOT NULL,
@@ -159,9 +201,11 @@ func (s *Store) migrate(ctx context.Context) error {
 		ON message_files(file_id);
 
 		CREATE TABLE IF NOT EXISTS settings (
-		key TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL DEFAULT '',
+		key TEXT NOT NULL,
 		value TEXT NOT NULL,
-		updated_at DATETIME NOT NULL
+		updated_at DATETIME NOT NULL,
+		PRIMARY KEY(user_id, key)
 		);
 	`
 
@@ -172,6 +216,8 @@ func (s *Store) migrate(ctx context.Context) error {
 	// Older databases may carry these columns/tables; the ALTERs below are
 	// best-effort and idempotent so a fresh start always succeeds.
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE conversations ADD COLUMN archived_at DATETIME`)
+	_, _ = s.db.ExecContext(ctx, `ALTER TABLE conversations ADD COLUMN user_id TEXT NOT NULL DEFAULT ''`)
+	_, _ = s.db.ExecContext(ctx, `ALTER TABLE files ADD COLUMN user_id TEXT NOT NULL DEFAULT ''`)
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN thinking TEXT NOT NULL DEFAULT ''`)
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN user_content TEXT NOT NULL DEFAULT ''`)
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN llm_content TEXT NOT NULL DEFAULT ''`)
@@ -195,15 +241,15 @@ func (s *Store) migrate(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) CreateConversation(ctx context.Context, id string, title string, now time.Time) (Conversation, error) {
+func (s *Store) CreateConversation(ctx context.Context, id string, userID string, title string, now time.Time) (Conversation, error) {
 	if title == "" {
 		title = "New chat"
 	}
 
 	_, err := s.db.ExecContext(
 		ctx,
-		`INSERT INTO conversations(id, title, created_at, updated_at) VALUES(?, ?, ?, ?)`,
-		id, title, now.UTC(), now.UTC(),
+		`INSERT INTO conversations(id, user_id, title, created_at, updated_at) VALUES(?, ?, ?, ?, ?)`,
+		id, userID, title, now.UTC(), now.UTC(),
 	)
 	if err != nil {
 		return Conversation{}, fmt.Errorf("insert conversation: %w", err)
@@ -212,17 +258,18 @@ func (s *Store) CreateConversation(ctx context.Context, id string, title string,
 	return Conversation{ID: id, Title: title, CreatedAt: now.UTC(), UpdatedAt: now.UTC()}, nil
 }
 
-func (s *Store) ListConversations(ctx context.Context, includeArchived bool) ([]Conversation, error) {
+func (s *Store) ListConversations(ctx context.Context, userID string, includeArchived bool) ([]Conversation, error) {
 	query := `
 		SELECT id, title, archived_at, created_at, updated_at
 		FROM conversations
+		WHERE user_id = ?
 	`
 	if !includeArchived {
-		query += "\nWHERE archived_at IS NULL"
+		query += "\nAND archived_at IS NULL"
 	}
 	query += "\nORDER BY updated_at DESC"
 
-	rows, err := s.db.QueryContext(ctx, query)
+	rows, err := s.db.QueryContext(ctx, query, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list conversations: %w", err)
 	}
@@ -239,6 +286,21 @@ func (s *Store) ListConversations(ctx context.Context, includeArchived bool) ([]
 		conversations = append(conversations, c)
 	}
 	return conversations, rows.Err()
+}
+
+// GetConversationOwner returns the user that owns the conversation. Used by
+// service-layer ownership checks before performing any conversation-scoped
+// action so that one user cannot read another's data via a guessed ID.
+func (s *Store) GetConversationOwner(ctx context.Context, conversationID string) (string, error) {
+	var userID string
+	err := s.db.QueryRowContext(ctx, `SELECT user_id FROM conversations WHERE id = ?`, conversationID).Scan(&userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("get conversation owner: %w", err)
+	}
+	return userID, nil
 }
 
 func (s *Store) GetConversation(ctx context.Context, conversationID string) (Conversation, error) {
@@ -375,6 +437,15 @@ func (s *Store) AppendMessageWithFiles(ctx context.Context, m Message, files []F
 		_ = tx.Rollback()
 	}()
 
+	// Files inherit the conversation's owner so per-user file listings and
+	// authorization stay in sync without callers needing to thread user IDs.
+	var conversationUserID string
+	if err := tx.QueryRowContext(ctx, `SELECT user_id FROM conversations WHERE id = ?`, m.ConversationID).Scan(&conversationUserID); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("lookup conversation owner: %w", err)
+		}
+	}
+
 	userContent := m.UserContent
 	llmContent := m.LLMContent
 	if userContent == "" && m.Role == "user" {
@@ -419,8 +490,8 @@ func (s *Store) AppendMessageWithFiles(ctx context.Context, m Message, files []F
 		}
 		_, err = tx.ExecContext(
 			ctx,
-			`INSERT INTO files(id, name, content_type, size_bytes, data, created_at) VALUES(?, ?, ?, ?, ?, ?)`,
-			f.ID, f.Name, f.ContentType, size, f.Data, createdAt.UTC(),
+			`INSERT INTO files(id, user_id, name, content_type, size_bytes, data, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)`,
+			f.ID, conversationUserID, f.Name, f.ContentType, size, f.Data, createdAt.UTC(),
 		)
 		if err != nil {
 			return fmt.Errorf("insert file: %w", err)
@@ -482,12 +553,12 @@ func (s *Store) LinkExistingFilesToMessage(ctx context.Context, messageID string
 	return nil
 }
 
-func (s *Store) GetFile(ctx context.Context, fileID string) (File, error) {
+func (s *Store) GetFile(ctx context.Context, userID string, fileID string) (File, error) {
 	row := s.db.QueryRowContext(ctx, `
 SELECT id, name, content_type, size_bytes, data, created_at
 FROM files
-WHERE id = ?
-`, fileID)
+WHERE id = ? AND user_id = ?
+`, fileID, userID)
 
 	var f File
 	if err := row.Scan(&f.ID, &f.Name, &f.ContentType, &f.SizeBytes, &f.Data, &f.CreatedAt); err != nil {
@@ -686,9 +757,9 @@ func (s *Store) DeleteConversation(ctx context.Context, conversationID string) e
 	return nil
 }
 
-func (s *Store) GetSetting(ctx context.Context, key string) (string, bool, error) {
+func (s *Store) GetSetting(ctx context.Context, userID, key string) (string, bool, error) {
 	var value string
-	err := s.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, key).Scan(&value)
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE user_id = ? AND key = ?`, userID, key).Scan(&value)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
 	}
@@ -698,12 +769,12 @@ func (s *Store) GetSetting(ctx context.Context, key string) (string, bool, error
 	return value, true, nil
 }
 
-func (s *Store) UpsertSetting(ctx context.Context, key, value string) error {
+func (s *Store) UpsertSetting(ctx context.Context, userID, key, value string) error {
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO settings(key, value, updated_at) VALUES(?, ?, ?)
-		 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-		key, value, now,
+		`INSERT INTO settings(user_id, key, value, updated_at) VALUES(?, ?, ?, ?)
+		 ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+		userID, key, value, now,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert setting %s: %w", key, err)
@@ -711,8 +782,8 @@ func (s *Store) UpsertSetting(ctx context.Context, key, value string) error {
 	return nil
 }
 
-func (s *Store) GetAllSettings(ctx context.Context) (map[string]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT key, value FROM settings`)
+func (s *Store) GetAllSettings(ctx context.Context, userID string) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT key, value FROM settings WHERE user_id = ?`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("get all settings: %w", err)
 	}
@@ -726,4 +797,127 @@ func (s *Store) GetAllSettings(ctx context.Context) (map[string]string, error) {
 		result[key] = value
 	}
 	return result, rows.Err()
+}
+
+// User and session helpers.
+
+func (s *Store) CreateUser(ctx context.Context, id, username, passwordHash string, now time.Time) (User, error) {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO users(id, username, password_hash, created_at) VALUES(?, ?, ?, ?)`,
+		id, username, passwordHash, now.UTC(),
+	)
+	if err != nil {
+		return User{}, fmt.Errorf("insert user: %w", err)
+	}
+	return User{ID: id, Username: username, PasswordHash: passwordHash, CreatedAt: now.UTC()}, nil
+}
+
+func (s *Store) GetUserByUsername(ctx context.Context, username string) (User, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, username, password_hash, created_at FROM users WHERE username = ?`, username)
+	var u User
+	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return User{}, ErrNotFound
+		}
+		return User{}, fmt.Errorf("get user: %w", err)
+	}
+	return u, nil
+}
+
+func (s *Store) GetUser(ctx context.Context, id string) (User, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, username, password_hash, created_at FROM users WHERE id = ?`, id)
+	var u User
+	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return User{}, ErrNotFound
+		}
+		return User{}, fmt.Errorf("get user: %w", err)
+	}
+	return u, nil
+}
+
+func (s *Store) UpdateUserPassword(ctx context.Context, id, passwordHash string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, id)
+	if err != nil {
+		return fmt.Errorf("update user password: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) CreateSession(ctx context.Context, id, userID, refreshHash string, expiresAt time.Time, rememberMe bool, now time.Time) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at, remember_me, created_at) VALUES(?, ?, ?, ?, ?, ?)`,
+		id, userID, refreshHash, expiresAt.UTC(), rememberMe, now.UTC(),
+	)
+	if err != nil {
+		return fmt.Errorf("insert session: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) GetSessionByRefreshHash(ctx context.Context, refreshHash string) (Session, error) {
+	row := s.db.QueryRowContext(ctx, `
+SELECT id, user_id, refresh_token_hash, expires_at, remember_me, created_at, revoked_at
+FROM sessions WHERE refresh_token_hash = ?`, refreshHash)
+	var sess Session
+	var revoked sql.NullTime
+	if err := row.Scan(&sess.ID, &sess.UserID, &sess.RefreshTokenHash, &sess.ExpiresAt, &sess.RememberMe, &sess.CreatedAt, &revoked); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Session{}, ErrNotFound
+		}
+		return Session{}, fmt.Errorf("get session: %w", err)
+	}
+	if revoked.Valid {
+		sess.RevokedAt = &revoked.Time
+	}
+	return sess, nil
+}
+
+func (s *Store) RotateSession(ctx context.Context, id, newRefreshHash string, expiresAt time.Time) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE sessions SET refresh_token_hash = ?, expires_at = ? WHERE id = ?`,
+		newRefreshHash, expiresAt.UTC(), id,
+	)
+	if err != nil {
+		return fmt.Errorf("rotate session: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) RevokeSession(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET revoked_at = ? WHERE id = ?`, time.Now().UTC(), id)
+	if err != nil {
+		return fmt.Errorf("revoke session: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) RevokeUserSessions(ctx context.Context, userID string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`, time.Now().UTC(), userID)
+	if err != nil {
+		return fmt.Errorf("revoke user sessions: %w", err)
+	}
+	return nil
+}
+
+// CopyDefaultSettings seeds a per-user copy of the default global settings on
+// registration, so each new user starts with a private settings row they can
+// edit independently.
+func (s *Store) CopyDefaultSettings(ctx context.Context, userID string, defaults map[string]string) error {
+	now := time.Now().UTC()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin seed settings: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	for k, v := range defaults {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO settings(user_id, key, value, updated_at) VALUES(?, ?, ?, ?)
+			 ON CONFLICT(user_id, key) DO NOTHING`,
+			userID, k, v, now,
+		); err != nil {
+			return fmt.Errorf("seed setting %s: %w", k, err)
+		}
+	}
+	return tx.Commit()
 }

@@ -64,12 +64,37 @@ async function responseErrorMessage(response: Response, fallback: string): Promi
   }
 }
 
+// Single source of truth for "we just got 401"; the auth store subscribes to
+// this so navigation back to /login happens once even if many requests fail.
+type UnauthorizedHandler = () => void;
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
+  unauthorizedHandler = handler;
+}
+
+// Paths that should not trigger the unauthorized handler — they ARE the
+// auth flow, and a 401 there is expected (bad password, expired refresh on
+// page load, etc.).
+const authPathPrefix = "/auth/";
+
+function withCredentials(init: RequestInit | undefined): RequestInit {
+  return { credentials: "include", ...init };
+}
+
+async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  const response = await fetch(apiPath(path), withCredentials(init));
+  if (response.status === 401 && !path.startsWith(authPathPrefix) && unauthorizedHandler) {
+    unauthorizedHandler();
+  }
+  return response;
+}
+
 async function fetchJson<T>(
   path: string,
   init: RequestInit | undefined,
   errorMessage: string,
 ): Promise<T> {
-  const response = await fetch(apiPath(path), init);
+  const response = await apiFetch(path, init);
   if (!response.ok) {
     throw new Error(await responseErrorMessage(response, errorMessage));
   }
@@ -81,10 +106,66 @@ async function fetchNoContent(
   init: RequestInit | undefined,
   errorMessage: string,
 ): Promise<void> {
-  const response = await fetch(apiPath(path), init);
+  const response = await apiFetch(path, init);
   if (!response.ok) {
     throw new Error(await responseErrorMessage(response, errorMessage));
   }
+}
+
+export type AuthUser = {
+  id: string;
+  username: string;
+};
+
+export async function authMe(): Promise<AuthUser> {
+  return fetchJson<AuthUser>("/auth/me", undefined, "Not authenticated");
+}
+
+export async function authLogin(
+  username: string,
+  password: string,
+  rememberMe: boolean,
+): Promise<AuthUser> {
+  return fetchJson<AuthUser>(
+    "/auth/login",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password, rememberMe }),
+    },
+    "Login failed",
+  );
+}
+
+export async function authRegister(
+  username: string,
+  password: string,
+  rememberMe: boolean,
+): Promise<AuthUser> {
+  return fetchJson<AuthUser>(
+    "/auth/register",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password, rememberMe }),
+    },
+    "Registration failed",
+  );
+}
+
+export async function authLogout(): Promise<void> {
+  await fetchNoContent("/auth/logout", { method: "POST" }, "Logout failed");
+}
+
+export async function authRefresh(): Promise<AuthUser | null> {
+  const response = await fetch(apiPath("/auth/refresh"), withCredentials({ method: "POST" }));
+  if (response.status === 401) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, "Refresh failed"));
+  }
+  return response.json();
 }
 
 export async function createConversation(): Promise<Conversation> {
@@ -131,12 +212,12 @@ export async function createMessage(
       for (const file of files) {
         formData.append("files", file);
       }
-      response = await fetch(apiPath(`/conversations/${conversationId}/messages`), {
+      response = await apiFetch(`/conversations/${conversationId}/messages`, {
         method: "POST",
         body: formData,
       });
     } else {
-      response = await fetch(apiPath(`/conversations/${conversationId}/messages`), {
+      response = await apiFetch(`/conversations/${conversationId}/messages`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -250,7 +331,7 @@ export async function deleteConversation(conversationId: string): Promise<void> 
 }
 
 export async function stopConversationGeneration(conversationId: string): Promise<void> {
-  const response = await fetch(apiPath(`/conversations/${conversationId}/stop`), {
+  const response = await apiFetch(`/conversations/${conversationId}/stop`, {
     method: "POST",
   });
   if (!response.ok && response.status !== 409) {

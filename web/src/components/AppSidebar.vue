@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia'
 import { RouterLink, useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import PrismLogo from './PrismLogo.vue'
+import UserMenu from './UserMenu.vue'
 import { useAppStore } from '../stores/appStore'
 
 const appStore = useAppStore()
@@ -97,10 +98,7 @@ function selectConversation(conversationId: string) {
       </p>
     </div>
 
-    <button class="settings-row" @click="appStore.openSettings">
-      <AppIcon name="settings" :size="16" />
-      <span>Settings</span>
-    </button>
+    <UserMenu />
   </aside>
 </template>
 
@@ -272,20 +270,4 @@ function selectConversation(conversationId: string) {
   margin: 0;
 }
 
-.settings-row {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-  padding: 0.55rem 0.7rem;
-  border-radius: 0.45rem;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.settings-row:hover {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
-}
 </style>

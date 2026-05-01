@@ -1,15 +1,45 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { RouterView } from 'vue-router'
+import { RouterView, useRouter, useRoute } from 'vue-router'
 import SettingsModal from './components/SettingsModal.vue'
 import { useAppStore } from './stores/appStore'
+import { useAuthStore } from './stores/authStore'
 
 const appStore = useAppStore()
+const authStore = useAuthStore()
+const router = useRouter()
+const route = useRoute()
 const { settingsError, settingsForm, settingsSaving, showSettings, theme } =
   storeToRefs(appStore)
+const { isAuthenticated, unauthorizedAt } = storeToRefs(authStore)
 
-onMounted(appStore.initializeApp)
+onMounted(async () => {
+  // The router's global guard already runs auth.initialize() before the
+  // first navigation, but we also want to load the chat data once we know
+  // a user is signed in. Doing it here keeps the appStore agnostic of the
+  // auth store and avoids a double-load when login redirects in.
+  if (isAuthenticated.value && !appStore.conversations.length) {
+    await appStore.initializeApp()
+  }
+})
+
+watch(isAuthenticated, async (authed) => {
+  if (authed) {
+    await appStore.initializeApp()
+  } else {
+    appStore.closeStream()
+  }
+})
+
+// When the api layer reports a 401 we kick the user back to /login. We use
+// a simple monotonic counter (unauthorizedAt) so multiple in-flight requests
+// returning 401 trigger the redirect just once.
+watch(unauthorizedAt, (value) => {
+  if (value === 0) return
+  if (route.meta?.public) return
+  router.replace({ name: 'login', query: { redirect: route.fullPath } })
+})
 </script>
 
 <template>

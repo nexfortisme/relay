@@ -34,6 +34,7 @@ type Service struct {
 const maxConversationTitleLength = 40
 
 var ErrTokenCapReached = errors.New("conversation token cap reached")
+var ErrForbidden = errors.New("forbidden")
 
 // citeSourcesDirective is injected as a system message on every assistant
 // generation. It is intentionally scoped to "when your answer draws on" so
@@ -65,8 +66,8 @@ func NewService(
 	}
 }
 
-func (s *Service) settingOrDefault(ctx context.Context, key, defaultVal string) string {
-	val, ok, err := s.store.GetSetting(ctx, key)
+func (s *Service) settingOrDefault(ctx context.Context, userID, key, defaultVal string) string {
+	val, ok, err := s.store.GetSetting(ctx, userID, key)
 	if err != nil || !ok || val == "" {
 		return defaultVal
 	}
@@ -79,53 +80,76 @@ type RuntimeSettings struct {
 	SystemPrompt string
 }
 
-func (s *Service) LoadRuntimeSettings(ctx context.Context) RuntimeSettings {
+func (s *Service) LoadRuntimeSettings(ctx context.Context, userID string) RuntimeSettings {
 	return RuntimeSettings{
-		LLMURL:       s.settingOrDefault(ctx, "llm_url", s.defaultLLMURL),
-		LLMModel:     s.settingOrDefault(ctx, "llm_model", s.defaultLLMModel),
-		SystemPrompt: s.settingOrDefault(ctx, "system_prompt", ""),
+		LLMURL:       s.settingOrDefault(ctx, userID, "llm_url", s.defaultLLMURL),
+		LLMModel:     s.settingOrDefault(ctx, userID, "llm_model", s.defaultLLMModel),
+		SystemPrompt: s.settingOrDefault(ctx, userID, "system_prompt", ""),
 	}
 }
 
-func (s *Service) GetSettings(ctx context.Context) (map[string]string, error) {
-	dbSettings, err := s.store.GetAllSettings(ctx)
-	if err != nil {
-		return nil, err
-	}
-	result := map[string]string{
+// DefaultSettings returns the values a freshly-registered user gets seeded
+// with, so their settings are independent of the deployment defaults from
+// that point on.
+func (s *Service) DefaultSettings() map[string]string {
+	return map[string]string{
 		"llm_url":       s.defaultLLMURL,
 		"llm_model":     s.defaultLLMModel,
 		"system_prompt": "",
 	}
+}
+
+func (s *Service) GetSettings(ctx context.Context, userID string) (map[string]string, error) {
+	dbSettings, err := s.store.GetAllSettings(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	result := s.DefaultSettings()
 	for k, v := range dbSettings {
 		result[k] = v
 	}
 	return result, nil
 }
 
-func (s *Service) UpdateSettings(ctx context.Context, settings map[string]string) error {
+func (s *Service) UpdateSettings(ctx context.Context, userID string, settings map[string]string) error {
 	allowed := map[string]bool{"llm_url": true, "llm_model": true, "system_prompt": true}
 	for k, v := range settings {
 		if !allowed[k] {
 			continue
 		}
-		if err := s.store.UpsertSetting(ctx, k, v); err != nil {
+		if err := s.store.UpsertSetting(ctx, userID, k, v); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Service) CreateConversation(ctx context.Context) (store.Conversation, error) {
+func (s *Service) CreateConversation(ctx context.Context, userID string) (store.Conversation, error) {
 	now := time.Now().UTC()
-	return s.store.CreateConversation(ctx, uuid.NewString(), "New chat", now)
+	return s.store.CreateConversation(ctx, uuid.NewString(), userID, "New chat", now)
 }
 
-func (s *Service) ListConversations(ctx context.Context, includeArchived bool) ([]store.Conversation, error) {
-	return s.store.ListConversations(ctx, includeArchived)
+func (s *Service) ListConversations(ctx context.Context, userID string, includeArchived bool) ([]store.Conversation, error) {
+	return s.store.ListConversations(ctx, userID, includeArchived)
 }
 
-func (s *Service) GetMessages(ctx context.Context, conversationID string) ([]store.Message, error) {
+// authorizeConversation returns nil when the conversation exists and is owned
+// by userID. Returns ErrForbidden otherwise so callers can render a 404/403.
+func (s *Service) authorizeConversation(ctx context.Context, userID, conversationID string) error {
+	owner, err := s.store.GetConversationOwner(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	if owner != userID {
+		return ErrForbidden
+	}
+	return nil
+}
+
+func (s *Service) GetMessages(ctx context.Context, userID, conversationID string) ([]store.Message, error) {
+	if err := s.authorizeConversation(ctx, userID, conversationID); err != nil {
+		return nil, err
+	}
 	return s.store.GetMessages(ctx, conversationID)
 }
 
@@ -133,11 +157,17 @@ func (s *Service) Subscribe(conversationID string) (<-chan Event, func()) {
 	return s.broker.Subscribe(conversationID)
 }
 
-func (s *Service) AddUserMessageAndGenerate(ctx context.Context, conversationID string, content string) (store.Message, error) {
-	return s.addUserMessageAndGenerate(ctx, conversationID, content, content, nil, nil, nil)
+func (s *Service) AddUserMessageAndGenerate(ctx context.Context, userID, conversationID string, content string) (store.Message, error) {
+	if err := s.authorizeConversation(ctx, userID, conversationID); err != nil {
+		return store.Message{}, err
+	}
+	return s.addUserMessageAndGenerate(ctx, userID, conversationID, content, content, nil, nil, nil)
 }
 
-func (s *Service) AddUserMessageAndGenerateWithFiles(ctx context.Context, conversationID string, content string, files []attachments.UploadedFile) (store.Message, error) {
+func (s *Service) AddUserMessageAndGenerateWithFiles(ctx context.Context, userID, conversationID string, content string, files []attachments.UploadedFile) (store.Message, error) {
+	if err := s.authorizeConversation(ctx, userID, conversationID); err != nil {
+		return store.Message{}, err
+	}
 	now := time.Now().UTC()
 	userMessageID := uuid.NewString()
 	prompt, err := attachments.BuildPrompt(content, files, s.attachmentOptions)
@@ -158,7 +188,7 @@ func (s *Service) AddUserMessageAndGenerateWithFiles(ctx context.Context, conver
 		})
 		links = append(links, store.MessageFile{ID: fileID, Name: file.Name})
 	}
-	return s.addUserMessageAndGenerate(ctx, conversationID, content, prompt, &store.Message{
+	return s.addUserMessageAndGenerate(ctx, userID, conversationID, content, prompt, &store.Message{
 		ID:             userMessageID,
 		ConversationID: conversationID,
 		Role:           "user",
@@ -172,10 +202,14 @@ func (s *Service) AddUserMessageAndGenerateWithFiles(ctx context.Context, conver
 
 func (s *Service) AddFailedUserMessage(
 	ctx context.Context,
+	userID string,
 	conversationID string,
 	content string,
 	attachmentNames []string,
 ) (store.Message, error) {
+	if err := s.authorizeConversation(ctx, userID, conversationID); err != nil {
+		return store.Message{}, err
+	}
 	now := time.Now().UTC()
 	links := make([]store.MessageFile, 0, len(attachmentNames))
 	for _, name := range attachmentNames {
@@ -198,7 +232,10 @@ func (s *Service) AddFailedUserMessage(
 	return userMsg, nil
 }
 
-func (s *Service) RequeueUserMessage(ctx context.Context, conversationID string, messageID string) (store.Message, store.Message, error) {
+func (s *Service) RequeueUserMessage(ctx context.Context, userID, conversationID string, messageID string) (store.Message, store.Message, error) {
+	if err := s.authorizeConversation(ctx, userID, conversationID); err != nil {
+		return store.Message{}, store.Message{}, err
+	}
 	original, err := s.store.GetMessage(ctx, conversationID, messageID)
 	if err != nil {
 		return store.Message{}, store.Message{}, err
@@ -244,7 +281,7 @@ func (s *Service) RequeueUserMessage(ctx context.Context, conversationID string,
 		Attachments:    links,
 		CreatedAt:      now,
 	}
-	assistantMsg, err := s.addUserMessageAndGenerate(ctx, conversationID, displayContent, llmContent, &userMsg, nil, links)
+	assistantMsg, err := s.addUserMessageAndGenerate(ctx, userID, conversationID, displayContent, llmContent, &userMsg, nil, links)
 	if err != nil {
 		return store.Message{}, store.Message{}, err
 	}
@@ -253,6 +290,7 @@ func (s *Service) RequeueUserMessage(ctx context.Context, conversationID string,
 
 func (s *Service) addUserMessageAndGenerate(
 	ctx context.Context,
+	userID string,
 	conversationID string,
 	displayContent string,
 	llmContent string,
@@ -291,7 +329,7 @@ func (s *Service) addUserMessageAndGenerate(
 		return store.Message{}, err
 	}
 
-	settings := s.LoadRuntimeSettings(ctx)
+	settings := s.LoadRuntimeSettings(ctx, userID)
 	go s.generateAssistant(conversationID, assistantMsg.ID, toLLMMessages(history, settings.SystemPrompt, citeSourcesDirective), settings)
 	return assistantMsg, nil
 }
@@ -325,7 +363,10 @@ func (s *Service) ensureConversationWithinTokenCap(ctx context.Context, conversa
 	return nil
 }
 
-func (s *Service) RenameConversation(ctx context.Context, conversationID string, title string) error {
+func (s *Service) RenameConversation(ctx context.Context, userID, conversationID string, title string) error {
+	if err := s.authorizeConversation(ctx, userID, conversationID); err != nil {
+		return err
+	}
 	trimmed := clampConversationTitle(title)
 	if trimmed == "" {
 		return fmt.Errorf("title cannot be empty")
@@ -333,7 +374,10 @@ func (s *Service) RenameConversation(ctx context.Context, conversationID string,
 	return s.store.UpdateConversationTitle(ctx, conversationID, trimmed)
 }
 
-func (s *Service) SuggestConversationTitle(ctx context.Context, conversationID string) (string, error) {
+func (s *Service) SuggestConversationTitle(ctx context.Context, userID, conversationID string) (string, error) {
+	if err := s.authorizeConversation(ctx, userID, conversationID); err != nil {
+		return "", err
+	}
 	history, err := s.store.GetMessages(ctx, conversationID)
 	if err != nil {
 		return "", err
@@ -341,7 +385,7 @@ func (s *Service) SuggestConversationTitle(ctx context.Context, conversationID s
 	if len(history) == 0 {
 		return "New chat", nil
 	}
-	settings := s.LoadRuntimeSettings(ctx)
+	settings := s.LoadRuntimeSettings(ctx, userID)
 	provider := llm.NewHTTPProvider(settings.LLMURL, settings.LLMModel, s.responseTimeout)
 	titlePrompt, err := prompts.Load(prompts.SuggestTitle)
 	if err != nil {
@@ -378,16 +422,32 @@ func (s *Service) SuggestConversationTitle(ctx context.Context, conversationID s
 	return title, nil
 }
 
-func (s *Service) ArchiveConversation(ctx context.Context, conversationID string) error {
+func (s *Service) ArchiveConversation(ctx context.Context, userID, conversationID string) error {
+	if err := s.authorizeConversation(ctx, userID, conversationID); err != nil {
+		return err
+	}
 	return s.store.ArchiveConversation(ctx, conversationID)
 }
 
-func (s *Service) RestoreConversation(ctx context.Context, conversationID string) error {
+func (s *Service) RestoreConversation(ctx context.Context, userID, conversationID string) error {
+	if err := s.authorizeConversation(ctx, userID, conversationID); err != nil {
+		return err
+	}
 	return s.store.RestoreConversation(ctx, conversationID)
 }
 
-func (s *Service) DeleteConversation(ctx context.Context, conversationID string) error {
+func (s *Service) DeleteConversation(ctx context.Context, userID, conversationID string) error {
+	if err := s.authorizeConversation(ctx, userID, conversationID); err != nil {
+		return err
+	}
 	return s.store.DeleteConversation(ctx, conversationID)
+}
+
+// AuthorizeConversation exposes the same ownership check used by the chat
+// service to HTTP handlers so they can guard the WebSocket stream and other
+// non-DB-touching paths (stop generation) without bypassing auth.
+func (s *Service) AuthorizeConversation(ctx context.Context, userID, conversationID string) error {
+	return s.authorizeConversation(ctx, userID, conversationID)
 }
 
 func (s *Service) StopGeneration(conversationID string) bool {
@@ -401,8 +461,8 @@ func (s *Service) StopGeneration(conversationID string) bool {
 	return true
 }
 
-func (s *Service) GetFile(ctx context.Context, fileID string) (store.File, error) {
-	return s.store.GetFile(ctx, fileID)
+func (s *Service) GetFile(ctx context.Context, userID, fileID string) (store.File, error) {
+	return s.store.GetFile(ctx, userID, fileID)
 }
 
 func (s *Service) generateAssistant(conversationID string, assistantMessageID string, messages []llm.ChatMessage, settings RuntimeSettings) {
