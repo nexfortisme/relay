@@ -208,4 +208,28 @@ function updateSetting<K extends keyof Settings>(key: K, value: Settings[K]) {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+@media (max-width: 520px) {
+  .settings-overlay {
+    align-items: stretch;
+    padding: 0.6rem;
+  }
+
+  .settings-panel {
+    width: 100%;
+    max-height: 100%;
+    border-radius: 0.65rem;
+  }
+
+  .settings-header,
+  .settings-body,
+  .settings-footer {
+    padding-inline: 0.9rem;
+  }
+
+  .settings-footer {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+}
 </style>

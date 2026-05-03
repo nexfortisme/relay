@@ -111,7 +111,7 @@ watch(
           @click="$emit('archive', $event)"
         >
           <AppIcon name="archive" :size="16" />
-          Archive
+          <span class="header-action-label">Archive</span>
         </button>
       </div>
     </div>
@@ -225,6 +225,7 @@ watch(
   font-weight: 720;
   line-height: 1.2;
   max-width: min(58vw, 760px);
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -314,5 +315,80 @@ watch(
 .chat-title-input:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+@media (max-width: 760px) {
+  .chat-header {
+    padding: 0.78rem 0.9rem;
+  }
+
+  .title-line {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 0.55rem;
+  }
+
+  .title-line .title-group {
+    flex-basis: 100%;
+  }
+
+  .title-group {
+    width: 100%;
+  }
+
+  .chat-title {
+    max-width: none;
+    font-size: 1.06rem;
+  }
+
+  .header-trailing {
+    width: 100%;
+    min-width: 0;
+    justify-content: space-between;
+  }
+
+  .conversation-token-meter {
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: space-between;
+  }
+
+  .conversation-token-meter > span:first-child {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .conversation-token-bar {
+    width: 3.8rem;
+    flex: 0 0 auto;
+  }
+
+  .header-action {
+    flex: 0 0 auto;
+    padding-inline: 0.62rem;
+  }
+
+  .title-edit-line {
+    gap: 0.45rem;
+  }
+
+  .chat-title-input {
+    min-width: 0;
+    font-size: 1.02rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .conversation-token-bar,
+  .header-action-label {
+    display: none;
+  }
+
+  .header-action {
+    width: 2.2rem;
+    padding: 0;
+  }
 }
 </style>

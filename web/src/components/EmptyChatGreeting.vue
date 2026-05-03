@@ -62,6 +62,8 @@ onUnmounted(() => {
 
 @media (max-width: 760px) {
   .empty-chat-greeting {
+    left: 0.78rem;
+    right: 0.78rem;
     bottom: 7.4rem;
     gap: 0.55rem;
   }

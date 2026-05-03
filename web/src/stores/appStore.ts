@@ -30,6 +30,7 @@ import type { DisplayMessage } from '../types'
 export const DEFAULT_CONVERSATION_TITLE = 'New chat'
 
 const MAX_CONVERSATION_TITLE_LENGTH = 40
+const compactSidebarQuery = '(max-width: 760px)'
 const themeStorageKey = 'relay.theme'
 const maxSingleFileBytes = 50 * 1024 * 1024
 const maxTotalUploadBytes = parsePositiveInt(
@@ -83,6 +84,14 @@ function storeTheme(value: 'dark' | 'light') {
     window.localStorage.setItem(themeStorageKey, value)
   } catch {
     // Ignore storage write failures (private mode, blocked storage, etc).
+  }
+}
+
+function shouldCollapseSidebarInitially(): boolean {
+  try {
+    return window.matchMedia(compactSidebarQuery).matches
+  } catch {
+    return false
   }
 }
 
@@ -209,7 +218,7 @@ export const useAppStore = defineStore('app', () => {
   const waitingForAssistantConversationId = ref<string | null>(null)
   const streamError = ref('')
   const showArchived = ref(false)
-  const isSidebarCollapsed = ref(false)
+  const isSidebarCollapsed = ref(shouldCollapseSidebarInitially())
   const theme = ref<'dark' | 'light'>(getStoredTheme())
   const showSettings = ref(false)
   const settingsForm = ref<Settings>({ llm_url: '', llm_model: '', system_prompt: '' })
@@ -774,6 +783,10 @@ export const useAppStore = defineStore('app', () => {
     isSidebarCollapsed.value = !isSidebarCollapsed.value
   }
 
+  function setSidebarCollapsed(collapsed: boolean) {
+    isSidebarCollapsed.value = collapsed
+  }
+
   async function openSettings() {
     settingsError.value = ''
     try {
@@ -1023,6 +1036,7 @@ export const useAppStore = defineStore('app', () => {
     toggleTheme,
     toggleArchived,
     toggleSidebarCollapsed,
+    setSidebarCollapsed,
     openSettings,
     closeSettings,
     saveSettings,

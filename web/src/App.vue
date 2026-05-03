@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, watch } from 'vue'
+import { onMounted, onUnmounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterView, useRouter, useRoute } from 'vue-router'
 import SettingsModal from './components/SettingsModal.vue'
@@ -13,8 +13,22 @@ const route = useRoute()
 const { settingsError, settingsForm, settingsSaving, showSettings, theme } =
   storeToRefs(appStore)
 const { isAuthenticated, unauthorizedAt } = storeToRefs(authStore)
+const compactSidebarQuery = '(max-width: 760px)'
+let compactSidebarMedia: MediaQueryList | null = null
+
+function collapseSidebarForCompactLayout(event: MediaQueryList | MediaQueryListEvent) {
+  if (event.matches) {
+    appStore.setSidebarCollapsed(true)
+  }
+}
 
 onMounted(async () => {
+  if (typeof window.matchMedia === 'function') {
+    compactSidebarMedia = window.matchMedia(compactSidebarQuery)
+    collapseSidebarForCompactLayout(compactSidebarMedia)
+    compactSidebarMedia.addEventListener('change', collapseSidebarForCompactLayout)
+  }
+
   // The router's global guard already runs auth.initialize() before the
   // first navigation, but we also want to load the chat data once we know
   // a user is signed in. Doing it here keeps the appStore agnostic of the
@@ -22,6 +36,10 @@ onMounted(async () => {
   if (isAuthenticated.value && !appStore.conversations.length) {
     await appStore.initializeApp()
   }
+})
+
+onUnmounted(() => {
+  compactSidebarMedia?.removeEventListener('change', collapseSidebarForCompactLayout)
 })
 
 watch(isAuthenticated, async (authed) => {
@@ -61,6 +79,12 @@ watch(unauthorizedAt, (value) => {
   margin: 0;
   height: 100%;
   overflow: hidden;
+}
+
+:global(*),
+:global(*::before),
+:global(*::after) {
+  box-sizing: border-box;
 }
 
 .layout {

@@ -99,7 +99,7 @@ function handleFileSelection(event: Event) {
   position: absolute;
   left: 1.35rem;
   right: 1.35rem;
-  bottom: 1rem;
+  bottom: calc(1rem + env(safe-area-inset-bottom));
   padding: 0.62rem;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -224,5 +224,45 @@ function handleFileSelection(event: Event) {
   opacity: 0.55;
   cursor: not-allowed;
   background: var(--primary-strong);
+}
+
+@media (max-width: 760px) {
+  .composer {
+    left: 0.72rem;
+    right: 0.72rem;
+    bottom: calc(0.72rem + env(safe-area-inset-bottom));
+    padding: 0.5rem;
+    gap: 0.48rem;
+    border-radius: 0.65rem;
+  }
+
+  .file-picker-button {
+    width: 2.45rem;
+    min-width: 2.45rem;
+  }
+
+  .composer-input {
+    padding: 0.68rem 0.72rem;
+  }
+
+  .composer-send-button {
+    min-width: 4.6rem;
+    padding-inline: 0.74rem;
+  }
+
+  .file-chip {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .composer-send-button {
+    min-width: 2.45rem;
+    padding: 0;
+  }
+
+  .composer-send-button span {
+    display: none;
+  }
 }
 </style>

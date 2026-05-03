@@ -445,6 +445,8 @@ defineExpose({ scrollToBottom });
   max-width: min(68%, 660px);
   line-height: 1.5;
   width: fit-content;
+  min-width: 0;
+  overflow-wrap: anywhere;
   transition:
     background-color 180ms ease,
     color 180ms ease,
@@ -567,6 +569,7 @@ defineExpose({ scrollToBottom });
   font-size: 0.75rem;
   text-decoration: none;
   max-width: 18rem;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -585,6 +588,7 @@ defineExpose({ scrollToBottom });
   border-radius: 999px;
   font-size: 0.75rem;
   max-width: 18rem;
+  min-width: 0;
 }
 
 .message-attachment-chip:is(a, button) {
@@ -680,6 +684,40 @@ defineExpose({ scrollToBottom });
 
 .message-thinking p {
   white-space: pre-wrap;
+}
+
+@media (max-width: 760px) {
+  .messages {
+    padding: 0.9rem 0.78rem calc(6.65rem + env(safe-area-inset-bottom));
+    gap: 0.58rem;
+  }
+
+  .message {
+    max-width: min(92%, 660px);
+    padding: 0.55rem 0.66rem;
+  }
+
+  .message-role {
+    font-size: 0.63rem;
+  }
+
+  .message p,
+  .message-markdown {
+    font-size: 0.9rem;
+  }
+
+  .message-attachment-chip,
+  .message-attachment-chip--image {
+    max-width: 100%;
+  }
+
+  .message-markdown :deep(pre) {
+    max-width: 100%;
+  }
+
+  .message-thinking-body {
+    max-height: 9rem;
+  }
 }
 
 </style>
