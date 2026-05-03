@@ -109,11 +109,14 @@ async function submit() {
 
 <style scoped>
 .auth-layout {
+  height: 100%;
   min-height: 100dvh;
   display: grid;
   place-items: center;
   background: var(--bg);
   padding: 2rem;
+  overflow: auto;
+  box-sizing: border-box;
 }
 
 .auth-card {
@@ -339,12 +342,33 @@ async function submit() {
 }
 
 @media (max-width: 720px) {
+  .auth-layout {
+    place-items: start center;
+    padding: 1rem;
+  }
+
   .auth-card {
     grid-template-columns: 1fr;
+    border-radius: 0.8rem;
   }
+
   .auth-pitch {
     border-right: none;
     border-bottom: 1px solid var(--border);
+    padding: 1.25rem;
+    gap: 1.5rem;
+  }
+
+  .auth-pitch-body {
+    align-self: start;
+  }
+
+  .auth-pitch-body h1 {
+    font-size: 1.42rem;
+  }
+
+  .auth-form {
+    padding: 1.5rem 1.25rem;
   }
 }
 </style>

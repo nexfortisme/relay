@@ -32,6 +32,13 @@ async function startNewChat() {
     :data-theme="theme"
   >
     <AppSidebar v-if="!isSidebarCollapsed" />
+    <button
+      v-if="!isSidebarCollapsed"
+      class="mobile-sidebar-backdrop"
+      type="button"
+      aria-label="Close sidebar"
+      @click="appStore.toggleSidebarCollapsed"
+    />
 
     <main class="home-main">
       <div v-if="isSidebarCollapsed" class="home-collapsed-controls">
@@ -130,6 +137,7 @@ async function startNewChat() {
   height: 100%;
   overflow: hidden;
   background: var(--bg);
+  position: relative;
 }
 
 .home-view.home-view--sidebar-collapsed {
@@ -293,7 +301,7 @@ async function startNewChat() {
 
 .home-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   gap: 1rem;
 }
 
@@ -356,5 +364,73 @@ async function startNewChat() {
 
 .placeholder-list li:last-child {
   border-bottom: none;
+}
+
+.mobile-sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .home-view {
+    grid-template-columns: 1fr;
+  }
+
+  .home-view:not(.home-view--sidebar-collapsed) :deep(.home-sidebar) {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: min(20rem, 86vw);
+    z-index: 40;
+    box-sizing: border-box;
+    box-shadow: var(--shadow);
+  }
+
+  .mobile-sidebar-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 30;
+    display: block;
+    border: 0;
+    background: rgba(4, 9, 20, 0.52);
+    cursor: pointer;
+  }
+
+  .home-main {
+    min-width: 0;
+    padding: 1rem clamp(0.85rem, 4vw, 1.25rem);
+    gap: 1rem;
+  }
+
+  .home-header {
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .launcher {
+    padding: 1rem;
+    border-radius: 0.7rem;
+  }
+
+  .launcher-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .launcher-tile {
+    min-width: 0;
+    padding: 0.85rem 0.55rem;
+  }
+
+  .placeholder-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 420px) {
+  .home-header {
+    display: grid;
+  }
+
+  .launcher-actions {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

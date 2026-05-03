@@ -58,9 +58,18 @@ const { isSidebarCollapsed } = storeToRefs(appStore)
   padding: 0.6rem 1rem;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.page-nav-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .page-nav-tab {
+  flex: 0 0 auto;
   padding: 0.4rem 0.85rem;
   border-radius: 999px;
   border: 1px solid transparent;
@@ -93,6 +102,7 @@ const { isSidebarCollapsed } = storeToRefs(appStore)
   cursor: pointer;
   display: inline-grid;
   place-items: center;
+  flex: 0 0 auto;
 }
 
 .expand-sidebar-btn:hover,
@@ -114,5 +124,17 @@ const { isSidebarCollapsed } = storeToRefs(appStore)
   --logo-size: 1.1rem;
   --logo-face-w: 0.26rem;
   --logo-face-h: 0.52rem;
+}
+
+@media (max-width: 760px) {
+  .page-nav-tabs {
+    gap: 0.32rem;
+    padding: 0.5rem 0.72rem;
+  }
+
+  .page-nav-tab {
+    padding: 0.38rem 0.7rem;
+    font-size: 0.8rem;
+  }
 }
 </style>

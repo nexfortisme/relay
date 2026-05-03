@@ -64,6 +64,13 @@ onUnmounted(appStore.closeStream)
       @toggle-collapse="appStore.toggleSidebarCollapsed"
       @toggle-theme="appStore.toggleTheme"
     />
+    <button
+      v-if="!isSidebarCollapsed"
+      class="mobile-sidebar-backdrop"
+      type="button"
+      aria-label="Close sidebar"
+      @click="appStore.toggleSidebarCollapsed"
+    />
 
     <section class="chat-panel">
       <PageNavTabs />
@@ -115,6 +122,7 @@ onUnmounted(appStore.closeStream)
   grid-template-columns: 280px 1fr;
   height: 100%;
   overflow: hidden;
+  position: relative;
 }
 
 .chat-view.chat-view--sidebar-collapsed {
@@ -132,5 +140,42 @@ onUnmounted(appStore.closeStream)
 .error {
   color: #ef4444;
   padding: 0 1.25rem 0.5rem;
+}
+
+.mobile-sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .chat-view {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-view:not(.chat-view--sidebar-collapsed) :deep(.sidebar) {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: min(20rem, 86vw);
+    z-index: 40;
+    box-sizing: border-box;
+    box-shadow: var(--shadow);
+  }
+
+  .mobile-sidebar-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 30;
+    display: block;
+    border: 0;
+    background: rgba(4, 9, 20, 0.52);
+    cursor: pointer;
+  }
+
+  .chat-panel {
+    min-width: 0;
+  }
+
+  .error {
+    padding-inline: 0.9rem;
+  }
 }
 </style>

@@ -284,4 +284,40 @@ onUnmounted(() => {
   padding: 2rem;
   color: var(--muted);
 }
+
+@media (max-width: 640px) {
+  .file-preview-overlay {
+    padding: 0.5rem;
+  }
+
+  .file-preview-dialog {
+    max-width: 100%;
+    max-height: calc(100dvh - 1rem);
+    border-radius: 0.65rem;
+  }
+
+  .file-preview-dialog--pdf,
+  .file-preview-dialog--text,
+  .file-preview-dialog--markdown {
+    width: 100%;
+  }
+
+  .file-preview-body {
+    padding: 0.6rem;
+  }
+
+  .file-preview-body--pdf,
+  .file-preview-body--text {
+    padding: 0;
+  }
+
+  .file-preview-body--pdf {
+    height: calc(100dvh - 5rem);
+  }
+
+  .file-preview-text {
+    max-height: calc(100dvh - 5rem);
+    padding: 0.8rem;
+  }
+}
 </style>
