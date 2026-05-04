@@ -48,6 +48,16 @@ function updateSetting<K extends keyof Settings>(key: K, value: Settings[K]) {
           placeholder="gpt-4o-mini"
           @input="updateSetting('llm_model', ($event.target as HTMLInputElement).value)"
         />
+        <label class="settings-label" for="llm-api-key">LLM API Key</label>
+        <input
+          id="llm-api-key"
+          class="settings-input"
+          type="password"
+          :value="settings.llm_api_key"
+          placeholder="sk-..."
+          autocomplete="off"
+          @input="updateSetting('llm_api_key', ($event.target as HTMLInputElement).value)"
+        />
         <label class="settings-label" for="system-prompt">System Prompt</label>
         <textarea
           id="system-prompt"

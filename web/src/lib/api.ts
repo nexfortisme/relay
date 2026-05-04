@@ -342,6 +342,7 @@ export async function stopConversationGeneration(conversationId: string): Promis
 export type Settings = {
   llm_url: string;
   llm_model: string;
+  llm_api_key: string;
   system_prompt: string;
 };
 

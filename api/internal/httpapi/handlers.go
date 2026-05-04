@@ -21,8 +21,6 @@ import (
 	"github.com/nexfortisme/relay/internal/store"
 )
 
-
-
 const maxSingleFileBytes = 50 << 20
 
 type Handlers struct {
@@ -83,6 +81,7 @@ func (h *Handlers) GetSettings(c *gin.Context) {
 type updateSettingsRequest struct {
 	LLMUrl       *string `json:"llm_url"`
 	LLMModel     *string `json:"llm_model"`
+	LLMAPIKey    *string `json:"llm_api_key"`
 	SystemPrompt *string `json:"system_prompt"`
 }
 
@@ -98,6 +97,9 @@ func (h *Handlers) UpdateSettings(c *gin.Context) {
 	}
 	if req.LLMModel != nil {
 		updates["llm_model"] = *req.LLMModel
+	}
+	if req.LLMAPIKey != nil {
+		updates["llm_api_key"] = *req.LLMAPIKey
 	}
 	if req.SystemPrompt != nil {
 		updates["system_prompt"] = *req.SystemPrompt

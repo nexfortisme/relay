@@ -118,14 +118,16 @@ type Provider interface {
 type HTTPProvider struct {
 	baseURL         string
 	model           string
+	apiKey          string
 	client          *http.Client
 	responseTimeout time.Duration
 }
 
-func NewHTTPProvider(baseURL string, model string, responseTimeout time.Duration) *HTTPProvider {
+func NewHTTPProvider(baseURL string, model string, apiKey string, responseTimeout time.Duration) *HTTPProvider {
 	return &HTTPProvider{
 		baseURL:         strings.TrimSuffix(baseURL, "/"),
 		model:           model,
+		apiKey:          strings.TrimSpace(apiKey),
 		responseTimeout: responseTimeout,
 		client:          &http.Client{},
 	}
@@ -325,6 +327,7 @@ func (p *HTTPProvider) generateStream(parentCtx, respCtx context.Context, messag
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
+	p.applyAuth(req)
 
 	res, err := p.client.Do(req)
 	if err != nil {
@@ -462,6 +465,7 @@ func (p *HTTPProvider) consumeSingleJSON(ctx context.Context, messages []ChatMes
 		return llmResponse{}, fmt.Errorf("create fallback request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	p.applyAuth(req)
 
 	res, err := p.client.Do(req)
 	if err != nil {
@@ -498,6 +502,13 @@ func (p *HTTPProvider) consumeSingleJSON(ctx context.Context, messages []ChatMes
 		ToolCalls: message.ToolCalls,
 		Usage:     decoded.Usage.tokenUsage(),
 	}, nil
+}
+
+func (p *HTTPProvider) applyAuth(req *http.Request) {
+	if p.apiKey == "" {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+p.apiKey)
 }
 
 func extractChunk(raw string) (string, string, []toolCallDelta, *TokenUsage, bool) {

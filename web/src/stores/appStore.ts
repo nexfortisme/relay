@@ -221,7 +221,12 @@ export const useAppStore = defineStore('app', () => {
   const isSidebarCollapsed = ref(shouldCollapseSidebarInitially())
   const theme = ref<'dark' | 'light'>(getStoredTheme())
   const showSettings = ref(false)
-  const settingsForm = ref<Settings>({ llm_url: '', llm_model: '', system_prompt: '' })
+  const settingsForm = ref<Settings>({
+    llm_url: '',
+    llm_model: '',
+    llm_api_key: '',
+    system_prompt: '',
+  })
   const settingsSaving = ref(false)
   const settingsError = ref('')
   const renameDraft = ref('')
@@ -793,7 +798,7 @@ export const useAppStore = defineStore('app', () => {
       const settings = await getSettings()
       settingsForm.value = { ...settings }
     } catch {
-      settingsForm.value = { llm_url: '', llm_model: '', system_prompt: '' }
+      settingsForm.value = { llm_url: '', llm_model: '', llm_api_key: '', system_prompt: '' }
     }
     showSettings.value = true
   }
