@@ -12,6 +12,9 @@
 # TMP Directory from Air
 api/tmp
 
+# Script Test Files
+scripts/test-files
+
 relay.db
 relay.db-shm
 relay.db-wal
