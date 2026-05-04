@@ -12,6 +12,7 @@ Creates a dataset organized by file type with:
 from __future__ import annotations
 
 import argparse
+import io
 import shutil
 from pathlib import Path
 
@@ -59,6 +60,16 @@ TYPE_DIRECTORIES = {
     "Images": IMAGE_FORMATS,
     "BatchLimits": [],
 }
+
+PILLOW_HINT = (
+    "Pillow is required to generate valid images. "
+    "Install with: python3 -m pip install Pillow"
+)
+
+try:
+    from PIL import Image
+except ImportError:  # pragma: no cover - runtime dependency check
+    Image = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -135,20 +146,130 @@ def write_sized_text(path: Path, size: int, template: str) -> None:
         f.write(joined)
 
 
-def image_header(ext: str) -> bytes:
-    headers = {
-        "png": b"\x89PNG\r\n\x1a\n",
-        "jpg": b"\xff\xd8\xff\xe0" + b"JFIF\x00",
-        "jpeg": b"\xff\xd8\xff\xe0" + b"JFIF\x00",
-        "gif": b"GIF89a",
-        "webp": b"RIFF\x00\x00\x00\x00WEBP",
-        "svg": b'<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"></svg>',
-        "bmp": b"BM",
-        "ico": b"\x00\x00\x01\x00",
-        "avif": b"\x00\x00\x00 ftypavif",
-        "tiff": b"II*\x00",
+def pil_format_for_ext(ext: str) -> str:
+    mapping = {
+        "png": "PNG",
+        "jpg": "JPEG",
+        "jpeg": "JPEG",
+        "gif": "GIF",
+        "webp": "WEBP",
+        "bmp": "BMP",
+        "ico": "ICO",
+        "avif": "AVIF",
+        "tiff": "TIFF",
     }
-    return headers[ext]
+    return mapping[ext]
+
+
+def build_svg_bytes(size: int) -> bytes:
+    base = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128">\n'
+        '  <rect x="0" y="0" width="128" height="128" fill="#101820"/>\n'
+        '  <text x="12" y="64" fill="#f2f2f2" font-size="14">Relay SVG Test</text>\n'
+        "  <!-- PAD -->\n"
+        "</svg>\n"
+    )
+    payload = base.encode("utf-8")
+    if len(payload) >= size:
+        return payload[:size]
+    pad_len = size - len(payload)
+    pad = ("A" * max(0, pad_len - len("  <!--  -->\n"))).encode("utf-8")
+    comment = b"  <!-- " + pad + b" -->\n"
+    return payload.replace(b"  <!-- PAD -->\n", comment)
+
+
+def save_valid_svg(path: Path, target_bytes: int) -> None:
+    svg_bytes = build_svg_bytes(target_bytes)
+    path.write_bytes(svg_bytes)
+
+
+def generate_noise_image(width: int, height: int) -> "Image.Image":
+    assert Image is not None
+    noise = Image.effect_noise((width, height), 96)
+    return noise.convert("RGB")
+
+
+def encode_pillow_image(ext: str, width: int, height: int) -> bytes:
+    assert Image is not None
+    image = generate_noise_image(width, height)
+    output = io.BytesIO()
+    fmt = pil_format_for_ext(ext)
+    save_kwargs: dict[str, object] = {}
+    if fmt == "JPEG":
+        save_kwargs = {"quality": 95, "optimize": False}
+    elif fmt == "WEBP":
+        save_kwargs = {"quality": 100, "method": 0}
+    elif fmt == "ICO":
+        # ICO requires square sizes. Keep one large icon to increase size predictably.
+        edge = min(width, height)
+        image = image.resize((edge, edge))
+        save_kwargs = {"sizes": [(edge, edge)]}
+    image.save(output, format=fmt, **save_kwargs)
+    return output.getvalue()
+
+
+def try_encode_pillow_image(ext: str, width: int, height: int) -> bytes | None:
+    try:
+        return encode_pillow_image(ext, width, height)
+    except Exception:
+        return None
+
+
+def best_fit_image_bytes(ext: str, target_size: int) -> tuple[bytes, bool]:
+    if ext == "svg":
+        return build_svg_bytes(target_size), True
+    assert Image is not None
+    low = 32
+    high = 1024
+    max_dim_by_ext = {
+        "png": 4096,
+        "jpg": 4096,
+        "jpeg": 4096,
+        "gif": 2048,
+        "webp": 3072,
+        "bmp": 4096,
+        "ico": 1024,
+        "avif": 2048,
+        "tiff": 4096,
+    }
+    max_dim = max_dim_by_ext.get(ext, 2048)
+    first = try_encode_pillow_image(ext, low, low)
+    if first is None:
+        raise RuntimeError(f"Failed to encode any {ext} image with current Pillow build.")
+    best = first
+
+    # Expand upper bound until we can get near/over the target or hit cap.
+    while len(best) < target_size and high <= max_dim:
+        candidate = try_encode_pillow_image(ext, high, high)
+        if candidate is None:
+            break
+        best = candidate if abs(len(candidate) - target_size) < abs(len(best) - target_size) else best
+        if len(candidate) >= target_size:
+            break
+        high *= 2
+
+    left = low
+    right = min(high, max_dim)
+    for _ in range(12):
+        mid = (left + right) // 2
+        candidate = try_encode_pillow_image(ext, mid, mid)
+        if candidate is None:
+            right = mid - 1
+            continue
+        if abs(len(candidate) - target_size) < abs(len(best) - target_size):
+            best = candidate
+        if len(candidate) < target_size:
+            left = mid + 1
+        else:
+            right = mid - 1
+    return best, len(best) >= target_size
+
+
+def write_valid_image(path: Path, ext: str, target_size: int) -> tuple[int, bool]:
+    content, met_target = best_fit_image_bytes(ext, target_size)
+    path.write_bytes(content)
+    return len(content), met_target
 
 
 def write_small_and_large_text_files(root: Path, small: int, large: int) -> list[Path]:
@@ -202,15 +323,17 @@ def write_pdf_files(root: Path, small: int, large: int) -> list[Path]:
 
 
 def write_image_files(root: Path, small: int, image_limit: int) -> list[Path]:
+    if Image is None:
+        raise RuntimeError(PILLOW_HINT)
     created: list[Path] = []
     folder = root / "Images"
     under = max(image_limit - 128, small + 1)
     over = image_limit + 128
+    warnings: list[str] = []
 
     for ext in IMAGE_FORMATS:
         ext_dir = folder / ext.upper()
         ext_dir.mkdir(parents=True, exist_ok=True)
-        header = image_header(ext)
         for name, size in [
             (f"small.{ext}", small),
             (f"edge-under-image-limit.{ext}", under),
@@ -219,8 +342,20 @@ def write_image_files(root: Path, small: int, image_limit: int) -> list[Path]:
             (f"UPPERCASE..NAME.{ext.upper()}", small),
         ]:
             path = ext_dir / name
-            write_sized_binary(path, size, header)
+            if ext == "svg":
+                save_valid_svg(path, size)
+            else:
+                actual_size, met_target = write_valid_image(path, ext, size)
+                if "edge-over-image-limit" in name and not met_target:
+                    warnings.append(
+                        f"{ext.upper()} over-limit sample reached {format_bytes(actual_size)} "
+                        f"(target {format_bytes(size)})."
+                    )
             created.append(path)
+    if warnings:
+        print("Image generation warnings:")
+        for message in warnings:
+            print(f"  - {message}")
     return created
 
 
@@ -312,6 +447,8 @@ def main() -> None:
         print("Directories:")
         for dirname in TYPE_DIRECTORIES:
             print(f"  - {root / dirname}")
+        if Image is None:
+            print(f"Image generation note: {PILLOW_HINT}")
         return
 
     ensure_dirs(root)
