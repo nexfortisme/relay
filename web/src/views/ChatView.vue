@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import ChatComposer from '../components/ChatComposer.vue'
@@ -42,7 +42,7 @@ const goHome = () => {
   router.push('/')
 }
 
-onUnmounted(appStore.closeStream)
+onMounted(appStore.resumeSelectedConversationStream)
 </script>
 
 <template>

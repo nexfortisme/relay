@@ -44,6 +44,8 @@ const uploadLimits: UploadLimits = {
   maxTotalUploadBytes,
   maxImageUploadBytes,
 }
+const websocketConnecting = 0
+const websocketOpen = 1
 
 type ConversationSelectionOptions = {
   updateUrl?: boolean
@@ -234,6 +236,7 @@ export const useAppStore = defineStore('app', () => {
   const isSuggestingTitle = ref(false)
   const isEditingTitle = ref(false)
   let streamSocket: WebSocket | null = null
+  let streamConversationId: string | null = null
   const pendingStreamDeltas = new Map<string, QueuedStreamDelta>()
   let streamFlushHandle: number | null = null
 
@@ -283,8 +286,17 @@ export const useAppStore = defineStore('app', () => {
 
   function closeStream() {
     flushQueuedStreamDeltas()
-    streamSocket?.close()
+    const socket = streamSocket
     streamSocket = null
+    streamConversationId = null
+    socket?.close()
+  }
+
+  function resumeSelectedConversationStream() {
+    if (!selectedConversationId.value) {
+      return
+    }
+    setupStream(selectedConversationId.value)
   }
 
   async function loadConversations() {
@@ -350,28 +362,55 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function setupStream(conversationId: string) {
+    if (isActiveStreamFor(conversationId)) {
+      return
+    }
     closeStream()
     streamError.value = ''
-    streamSocket = new WebSocket(conversationStreamUrl(conversationId))
+    const socket = new WebSocket(conversationStreamUrl(conversationId))
+    streamSocket = socket
+    streamConversationId = conversationId
 
-    streamSocket.onmessage = (event) => {
+    socket.onmessage = (event) => {
+      if (streamSocket !== socket) {
+        return
+      }
       handleStreamPayload(conversationId, JSON.parse(event.data) as StreamPayload)
     }
 
-    streamSocket.onerror = () => {
+    socket.onerror = () => {
+      if (streamSocket !== socket) {
+        return
+      }
       flushQueuedStreamDeltas()
       streamError.value = 'Stream disconnected'
       resetGenerationFor(conversationId)
+      streamSocket = null
+      streamConversationId = null
+      socket.close()
     }
 
-    streamSocket.onclose = (event) => {
+    socket.onclose = (event) => {
+      if (streamSocket !== socket) {
+        return
+      }
       flushQueuedStreamDeltas()
+      streamSocket = null
+      streamConversationId = null
       if (event.wasClean) {
         return
       }
       streamError.value = `Stream closed (code ${event.code})`
       resetGenerationFor(conversationId)
     }
+  }
+
+  function isActiveStreamFor(conversationId: string): boolean {
+    if (!streamSocket || streamConversationId !== conversationId) {
+      return false
+    }
+    const readyState = (streamSocket as { readyState?: number }).readyState
+    return readyState === undefined || readyState === websocketConnecting || readyState === websocketOpen
   }
 
   function handleStreamPayload(conversationId: string, payload: StreamPayload) {
@@ -1027,6 +1066,7 @@ export const useAppStore = defineStore('app', () => {
     maxConversationTokenCount,
     initializeApp,
     closeStream,
+    resumeSelectedConversationStream,
     loadConversations,
     handleCreateConversation,
     goHome,

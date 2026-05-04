@@ -180,4 +180,28 @@ describe('appStore streaming', () => {
       },
     ])
   })
+
+  it('reopens the selected conversation stream after it was closed', async () => {
+    const store = useAppStore()
+    await store.selectConversation('conv-1')
+    const socket = MockWebSocket.instances[0]
+    if (!socket) {
+      throw new Error('expected stream websocket to be created')
+    }
+
+    store.resumeSelectedConversationStream()
+
+    expect(MockWebSocket.instances).toHaveLength(1)
+
+    store.closeStream()
+    emit(socket, { type: 'thinking', messageId: 'msg-1', thinking: 'stale' })
+    flushAnimationFrame?.(0)
+
+    expect(socket.close).toHaveBeenCalledOnce()
+    expect(store.messages).toEqual([])
+
+    store.resumeSelectedConversationStream()
+
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
 })
