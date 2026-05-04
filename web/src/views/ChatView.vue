@@ -132,6 +132,7 @@ onUnmounted(appStore.closeStream)
 .chat-panel {
   display: grid;
   grid-template-rows: auto auto 1fr auto;
+  min-width: 0;
   overflow: hidden;
   background: var(--bg);
   position: relative;
@@ -168,10 +169,6 @@ onUnmounted(appStore.closeStream)
     border: 0;
     background: rgba(4, 9, 20, 0.52);
     cursor: pointer;
-  }
-
-  .chat-panel {
-    min-width: 0;
   }
 
   .error {
