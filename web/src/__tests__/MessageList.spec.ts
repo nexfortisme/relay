@@ -105,6 +105,32 @@ describe('MessageList attachment preview', () => {
 
 })
 
+describe('MessageList scrolling', () => {
+  it('resets accidental horizontal drift when auto-scrolling', async () => {
+    const wrapper = mount(MessageList, {
+      attachTo: document.body,
+      props: {
+        messages: [userMessage([])],
+        pendingAssistant: false,
+      },
+    })
+    const messagesEl = wrapper.find('.messages').element as HTMLElement
+    Object.defineProperty(messagesEl, 'scrollHeight', {
+      configurable: true,
+      value: 960,
+    })
+
+    messagesEl.scrollLeft = 320
+    messagesEl.scrollTop = 12
+    await (wrapper.vm as unknown as { scrollToBottom: () => Promise<void> }).scrollToBottom()
+
+    expect(messagesEl.scrollLeft).toBe(0)
+    expect(messagesEl.scrollTop).toBe(960)
+
+    wrapper.unmount()
+  })
+})
+
 describe('ChatHeader token meter', () => {
   it('renders conversation token usage with the configured cap', () => {
     const wrapper = mount(ChatHeader, {

@@ -256,6 +256,7 @@ async function scrollToBottom() {
   if (!el) {
     return;
   }
+  el.scrollLeft = 0;
   el.scrollTop = el.scrollHeight;
 }
 
@@ -433,7 +434,10 @@ defineExpose({ scrollToBottom });
 <style scoped>
 .messages {
   padding: 1.1rem 1.35rem 7.1rem;
-  overflow: auto;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-x: none;
   display: grid;
   gap: 0.68rem;
   align-content: start;
@@ -627,6 +631,8 @@ defineExpose({ scrollToBottom });
 
 .message-markdown {
   font-size: 0.94rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .message-markdown :deep(> :first-child) {
