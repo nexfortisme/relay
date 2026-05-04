@@ -116,7 +116,7 @@ func TestGenerateStreamRetriesAfterRepeatedResponse(t *testing.T) {
 		}
 	})
 
-	provider := NewHTTPProvider("http://llm.test", "test-model", time.Second)
+	provider := NewHTTPProvider("http://llm.test", "test-model", "", time.Second)
 	provider.client = &http.Client{Transport: transport}
 	stream := provider.GenerateStream(context.Background(), []ChatMessage{
 		{Role: "user", Content: "hello"},
@@ -153,6 +153,55 @@ func TestGenerateStreamRetriesAfterRepeatedResponse(t *testing.T) {
 	prompt := requests[1].Messages[len(requests[1].Messages)-1]
 	if prompt.Role != "user" || !strings.Contains(prompt.ContentString(), "without restating or repeating") {
 		t.Fatalf("expected anti-repetition retry prompt, got role=%q content=%q", prompt.Role, prompt.ContentString())
+	}
+}
+
+func TestHTTPProviderAddsAPIKeyToStreamAndFallbackRequests(t *testing.T) {
+	var mu sync.Mutex
+	var authHeaders []string
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		mu.Lock()
+		authHeaders = append(authHeaders, r.Header.Get("Authorization"))
+		requestNumber := len(authHeaders)
+		mu.Unlock()
+
+		switch requestNumber {
+		case 1:
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader("")),
+			}, nil
+		case 2:
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"choices":[{"message":{"content":"done"}}]}`)),
+			}, nil
+		default:
+			return nil, fmt.Errorf("unexpected request %d", requestNumber)
+		}
+	})
+
+	provider := NewHTTPProvider("http://llm.test", "test-model", "secret-token", time.Second)
+	provider.client = &http.Client{Transport: transport}
+	stream := provider.GenerateStream(context.Background(), []ChatMessage{
+		{Role: "user", Content: "hello"},
+	}, tools.NoopRuntime{})
+
+	for event := range stream {
+		if event.Err != nil {
+			t.Fatalf("unexpected stream error: %v", event.Err)
+		}
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(authHeaders) != 2 {
+		t.Fatalf("expected stream and fallback requests, got %d", len(authHeaders))
+	}
+	for _, header := range authHeaders {
+		if header != "Bearer secret-token" {
+			t.Fatalf("expected bearer auth header, got %q", header)
+		}
 	}
 }
 

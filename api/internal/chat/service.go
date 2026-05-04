@@ -77,6 +77,7 @@ func (s *Service) settingOrDefault(ctx context.Context, userID, key, defaultVal 
 type RuntimeSettings struct {
 	LLMURL       string
 	LLMModel     string
+	LLMAPIKey    string
 	SystemPrompt string
 }
 
@@ -84,6 +85,7 @@ func (s *Service) LoadRuntimeSettings(ctx context.Context, userID string) Runtim
 	return RuntimeSettings{
 		LLMURL:       s.settingOrDefault(ctx, userID, "llm_url", s.defaultLLMURL),
 		LLMModel:     s.settingOrDefault(ctx, userID, "llm_model", s.defaultLLMModel),
+		LLMAPIKey:    s.settingOrDefault(ctx, userID, "llm_api_key", ""),
 		SystemPrompt: s.settingOrDefault(ctx, userID, "system_prompt", ""),
 	}
 }
@@ -95,6 +97,7 @@ func (s *Service) DefaultSettings() map[string]string {
 	return map[string]string{
 		"llm_url":       s.defaultLLMURL,
 		"llm_model":     s.defaultLLMModel,
+		"llm_api_key":   "",
 		"system_prompt": "",
 	}
 }
@@ -112,7 +115,7 @@ func (s *Service) GetSettings(ctx context.Context, userID string) (map[string]st
 }
 
 func (s *Service) UpdateSettings(ctx context.Context, userID string, settings map[string]string) error {
-	allowed := map[string]bool{"llm_url": true, "llm_model": true, "system_prompt": true}
+	allowed := map[string]bool{"llm_url": true, "llm_model": true, "llm_api_key": true, "system_prompt": true}
 	for k, v := range settings {
 		if !allowed[k] {
 			continue
@@ -386,7 +389,7 @@ func (s *Service) SuggestConversationTitle(ctx context.Context, userID, conversa
 		return "New chat", nil
 	}
 	settings := s.LoadRuntimeSettings(ctx, userID)
-	provider := llm.NewHTTPProvider(settings.LLMURL, settings.LLMModel, s.responseTimeout)
+	provider := llm.NewHTTPProvider(settings.LLMURL, settings.LLMModel, settings.LLMAPIKey, s.responseTimeout)
 	titlePrompt, err := prompts.Load(prompts.SuggestTitle)
 	if err != nil {
 		return "", fmt.Errorf("load title prompt: %w", err)
@@ -472,7 +475,7 @@ func (s *Service) generateAssistant(conversationID string, assistantMessageID st
 	defer s.unregisterCancel(conversationID)
 
 	startTime := time.Now()
-	provider := llm.NewHTTPProvider(settings.LLMURL, settings.LLMModel, s.responseTimeout)
+	provider := llm.NewHTTPProvider(settings.LLMURL, settings.LLMModel, settings.LLMAPIKey, s.responseTimeout)
 	stream := provider.GenerateStream(ctx, messages, s.tools)
 	accumulator := assistantAccumulator{}
 
