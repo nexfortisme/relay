@@ -19,13 +19,13 @@ import {
   type FeedItemView,
 } from '../lib/api'
 import { renderMarkdown } from '../lib/markdown'
-import { useAppStore } from '../stores/appStore'
+import { useUiStore } from '../stores/uiStore'
 
 type BackfillMode = 'latest' | 'since' | 'all'
 type SummaryMode = 'summary' | 'resummary' | 'expanded'
 
-const appStore = useAppStore()
-const { isSidebarCollapsed } = storeToRefs(appStore)
+const uiStore = useUiStore()
+const { isSidebarCollapsed } = storeToRefs(uiStore)
 
 const feeds = ref<Feed[]>([])
 const items = ref<FeedItem[]>([])
@@ -453,7 +453,7 @@ function vimeoEmbedUrl(rawUrl: string): string {
       class="mobile-sidebar-backdrop"
       type="button"
       aria-label="Close sidebar"
-      @click="appStore.toggleSidebarCollapsed"
+      @click="uiStore.toggleSidebarCollapsed"
     />
 
     <section class="feeds-shell">

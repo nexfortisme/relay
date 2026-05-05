@@ -38,7 +38,7 @@ func (s *Store) GetUserByUsername(ctx context.Context, username string) (User, e
 	// Scanning the rows and parsing it into the user object
 	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return User{}, fmt.Errorf("User Not Found")
+			return User{}, ErrNotFound
 		}
 		return User{}, fmt.Errorf("Error Fetching User: %w", err)
 	}
@@ -58,7 +58,7 @@ func (s *Store) GetUser(ctx context.Context, id string) (User, error) {
 	// Scanning the rows and parsing it into the user object
 	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return User{}, fmt.Errorf("User Not Found")
+			return User{}, ErrNotFound
 		}
 		return User{}, fmt.Errorf("Error Fetching User: %w", err)
 	}
@@ -120,7 +120,7 @@ func (s *Store) GetSessionByRefreshHash(ctx context.Context, refreshHash string)
 	// Scanning the rows and parsing it into the session object
 	if err := row.Scan(&sess.ID, &sess.UserID, &sess.RefreshTokenHash, &sess.ExpiresAt, &sess.RememberMe, &sess.CreatedAt, &revoked); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return Session{}, fmt.Errorf("Session Not Found")
+			return Session{}, ErrNotFound
 		}
 		return Session{}, fmt.Errorf("Error Fetching Session: %w", err)
 	}

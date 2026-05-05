@@ -4,13 +4,13 @@ import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import PrismAvatar from './PrismAvatar.vue'
-import { useAppStore } from '../stores/appStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import { useAuthStore } from '../stores/authStore'
 
 // Bottom-of-sidebar profile pill with a popover menu (Settings, Sign out).
 // Lives in its own component so every sidebar in the app can drop it in
 // without copying the click-outside / flyout machinery.
-const appStore = useAppStore()
+const settingsStore = useSettingsStore()
 const authStore = useAuthStore()
 const router = useRouter()
 const { user } = storeToRefs(authStore)
@@ -38,7 +38,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocumentClick)
 
 function openSettings() {
   close()
-  appStore.openSettings()
+  settingsStore.openSettings()
 }
 
 async function signOut() {

@@ -3,7 +3,7 @@ import { storeToRefs } from 'pinia'
 import { RouterLink, useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import PrismLogo from './PrismLogo.vue'
-import { useAppStore } from '../stores/appStore'
+import { useUiStore } from '../stores/uiStore'
 
 const tabs = [
   { to: '/chat', label: 'Chat' },
@@ -13,9 +13,9 @@ const tabs = [
   { to: '/feeds', label: 'Feeds' },
 ] as const
 
-const appStore = useAppStore()
+const uiStore = useUiStore()
 const router = useRouter()
-const { isSidebarCollapsed } = storeToRefs(appStore)
+const { isSidebarCollapsed } = storeToRefs(uiStore)
 </script>
 
 <template>
@@ -33,7 +33,7 @@ const { isSidebarCollapsed } = storeToRefs(appStore)
         class="expand-sidebar-btn"
         title="Expand sidebar"
         aria-label="Expand sidebar"
-        @click="appStore.toggleSidebarCollapsed"
+        @click="uiStore.toggleSidebarCollapsed"
       >
         <AppIcon name="chevron-right" />
       </button>
