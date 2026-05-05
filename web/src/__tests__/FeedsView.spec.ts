@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import FeedsView from '../views/FeedsView.vue'
 import {
   checkFeed,
+  deleteFeed,
   getFeedItem,
   listFeedItems,
   listFeeds,
@@ -19,6 +20,7 @@ vi.mock('../lib/api', async (importOriginal) => {
     ...actual,
     checkFeed: vi.fn<typeof actual.checkFeed>(),
     createFeed: vi.fn<typeof actual.createFeed>(),
+    deleteFeed: vi.fn<typeof actual.deleteFeed>(),
     getFeedItem: vi.fn<typeof actual.getFeedItem>(),
     listFeedItems: vi.fn<typeof actual.listFeedItems>(),
     listFeeds: vi.fn<typeof actual.listFeeds>(),
@@ -75,6 +77,7 @@ function mockApi() {
   })
   vi.mocked(getFeedItem).mockResolvedValue(item)
   vi.mocked(updateFeedItem).mockResolvedValue({ ...item, read: true })
+  vi.mocked(deleteFeed).mockResolvedValue(undefined)
   vi.mocked(checkFeed).mockResolvedValue({
     url: feed.url,
     title: feed.title,
@@ -223,6 +226,27 @@ describe('FeedsView', () => {
     await flushPromises()
 
     expect(listFeedItems).toHaveBeenLastCalledWith('all', 'feed-1')
+  })
+
+  it('confirms before deleting a feed and refreshes the inbox', async () => {
+    const wrapper = mountFeeds()
+    await flushPromises()
+
+    await wrapper.find('.feed-settings').trigger('click')
+    expect(wrapper.find('.feed-dialog').exists()).toBe(true)
+
+    await wrapper.find('.dialog-delete-action').trigger('click')
+    expect(deleteFeed).not.toHaveBeenCalled()
+    expect(wrapper.find('.delete-confirmation').text()).toContain('Delete Example Feed?')
+
+    await wrapper.find('.delete-confirmation .danger-action').trigger('click')
+    await flushPromises()
+
+    expect(deleteFeed).toHaveBeenCalledWith('feed-1')
+    expect(wrapper.find('.feed-dialog').exists()).toBe(false)
+    expect(wrapper.find('.feed-snackbar').text()).toBe('Feed deleted.')
+    expect(listFeeds).toHaveBeenCalledTimes(2)
+    expect(listFeedItems).toHaveBeenLastCalledWith('unread', null)
   })
 
   it('shows an active yellow filled star after starring an item', async () => {

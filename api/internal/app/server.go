@@ -44,11 +44,25 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 		return nil, nil, err
 	}
 
+	var chatService *chat.Service
+	feedService := feeds.NewService(st, func(ctx context.Context, userID string) feeds.LLMSettings {
+		if chatService == nil {
+			return feeds.LLMSettings{}
+		}
+		settings := chatService.LoadRuntimeSettings(ctx, userID)
+		return feeds.LLMSettings{
+			LLMURL:    settings.LLMURL,
+			LLMModel:  settings.LLMModel,
+			LLMAPIKey: settings.LLMAPIKey,
+		}
+	}, logger)
+
 	toolRuntime := tools.NewCompositeRuntime(
 		tools.NewMCPRuntime(cfg.MCPURL),
+		feeds.NewToolRuntime(feedService),
 		tools.NoopRuntime{},
 	)
-	chatService := chat.NewService(
+	chatService = chat.NewService(
 		st,
 		cfg.LLMURL,
 		cfg.LLMModel,
@@ -57,14 +71,6 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 		attachments.PromptOptions{MaxImageBytes: cfg.MaxImageBytes},
 		cfg.MaxTokenCount,
 	)
-	feedService := feeds.NewService(st, func(ctx context.Context, userID string) feeds.LLMSettings {
-		settings := chatService.LoadRuntimeSettings(ctx, userID)
-		return feeds.LLMSettings{
-			LLMURL:    settings.LLMURL,
-			LLMModel:  settings.LLMModel,
-			LLMAPIKey: settings.LLMAPIKey,
-		}
-	}, logger)
 	feedCtx, stopFeeds := context.WithCancel(context.Background())
 	feedService.Start(feedCtx)
 
@@ -131,6 +137,7 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 		authed.PATCH("/feeds/items/:id", handlers.UpdateFeedItem)
 		authed.POST("/feeds/items/:id/summarize", handlers.SummarizeFeedItem)
 		authed.PATCH("/feeds/:id", handlers.UpdateFeed)
+		authed.DELETE("/feeds/:id", handlers.DeleteFeed)
 	}
 
 	registerStaticWebUI(engine, logger)

@@ -195,7 +195,7 @@ func (s *Service) addUserMessageAndGenerate(
 	}
 
 	settings := s.LoadRuntimeSettings(ctx, userID)
-	go s.generateAssistant(conversationID, assistantMsg.ID, toLLMMessages(history, settings.SystemPrompt, citeSourcesDirective), settings)
+	go s.generateAssistant(userID, conversationID, assistantMsg.ID, toLLMMessages(history, settings.SystemPrompt, citeSourcesDirective), settings)
 	return assistantMsg, nil
 }
 

@@ -196,6 +196,18 @@ WHERE user_id = ? AND id = ?
 	return s.GetFeed(ctx, userID, feedID)
 }
 
+func (s *Store) DeleteFeed(ctx context.Context, userID, feedID string) error {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM feeds WHERE user_id = ? AND id = ?`, userID, feedID)
+	if err != nil {
+		return fmt.Errorf("delete feed: %w", err)
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *Store) UpdateFeedCheckState(ctx context.Context, feedID string, checkedAt time.Time, nextCheckAt time.Time, lastError string) error {
 	_, err := s.db.ExecContext(ctx, `
 UPDATE feeds

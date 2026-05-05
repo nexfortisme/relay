@@ -144,6 +144,19 @@ func (h *Handlers) UpdateFeed(c *gin.Context) {
 	c.JSON(http.StatusOK, feed)
 }
 
+func (h *Handlers) DeleteFeed(c *gin.Context) {
+	userID, ok := userIDFromGin(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	if err := h.feeds.DeleteFeed(c.Request.Context(), userID, c.Param("id")); err != nil {
+		writeFeedError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 func (h *Handlers) ListFeedItems(c *gin.Context) {
 	userID, ok := userIDFromGin(c)
 	if !ok {

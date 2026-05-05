@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -153,5 +154,62 @@ func TestStoreDueFeedsAndCheckState(t *testing.T) {
 	}
 	if feed.LastCheckedAt == nil || !feed.NextCheckAt.Equal(next) {
 		t.Fatalf("unexpected check state: %#v", feed)
+	}
+}
+
+func TestStoreDeleteFeedCascadesItemsAndScopesUser(t *testing.T) {
+	st, err := New(":memory:")
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	if _, err := st.CreateFeed(ctx, Feed{
+		ID:                     "feed-1",
+		UserID:                 "user-1",
+		URL:                    "https://example.com/rss.xml",
+		Title:                  "Example",
+		PollingIntervalMinutes: 30,
+		NextCheckAt:            now.Add(30 * time.Minute),
+		CreatedAt:              now,
+		UpdatedAt:              now,
+	}); err != nil {
+		t.Fatalf("create feed: %v", err)
+	}
+	if _, err := st.CreateFeedItems(ctx, []FeedItem{
+		{
+			ID:         "item-1",
+			UserID:     "user-1",
+			FeedID:     "feed-1",
+			ExternalID: "guid-1",
+			Title:      "First",
+			CreatedAt:  now,
+			UpdatedAt:  now,
+		},
+	}); err != nil {
+		t.Fatalf("create feed items: %v", err)
+	}
+
+	if err := st.DeleteFeed(ctx, "user-2", "feed-1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected not found for other user delete, got %v", err)
+	}
+	if _, err := st.GetFeed(ctx, "user-1", "feed-1"); err != nil {
+		t.Fatalf("feed should still exist after other user delete: %v", err)
+	}
+
+	if err := st.DeleteFeed(ctx, "user-1", "feed-1"); err != nil {
+		t.Fatalf("delete feed: %v", err)
+	}
+	if _, err := st.GetFeed(ctx, "user-1", "feed-1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected feed not found after delete, got %v", err)
+	}
+	items, err := st.ListFeedItems(ctx, "user-1", FeedItemFilter{View: "all"})
+	if err != nil {
+		t.Fatalf("list items after delete: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected feed items to cascade delete, got %#v", items)
 	}
 }

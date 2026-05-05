@@ -185,6 +185,10 @@ func (s *Service) UpdateFeed(ctx context.Context, userID, feedID string, update 
 	return feed, nil
 }
 
+func (s *Service) DeleteFeed(ctx context.Context, userID, feedID string) error {
+	return s.store.DeleteFeed(ctx, userID, feedID)
+}
+
 func (s *Service) ListItems(ctx context.Context, userID string, filter store.FeedItemFilter) ([]store.FeedItem, error) {
 	return s.store.ListFeedItems(ctx, userID, filter)
 }

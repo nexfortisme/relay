@@ -7,6 +7,7 @@ import PageNavTabs from '../components/PageNavTabs.vue'
 import {
   checkFeed,
   createFeed,
+  deleteFeed,
   getFeedItem,
   listFeedItems,
   listFeeds,
@@ -49,6 +50,8 @@ const showFeedDialog = ref(false)
 const editingFeed = ref<Feed | null>(null)
 const checkingFeed = ref(false)
 const savingFeed = ref(false)
+const deletingFeed = ref(false)
+const confirmingDeleteFeed = ref(false)
 const dialogError = ref('')
 const checkResult = ref<FeedCheckResult | null>(null)
 
@@ -362,12 +365,14 @@ function openOriginal() {
 
 function openAddDialog() {
   editingFeed.value = null
+  confirmingDeleteFeed.value = false
   resetFeedForm()
   showFeedDialog.value = true
 }
 
 function openEditDialog(feed: Feed) {
   editingFeed.value = feed
+  confirmingDeleteFeed.value = false
   feedForm.url = feed.url
   feedForm.name = feed.title
   feedForm.pollingIntervalMinutes = feed.pollingIntervalMinutes
@@ -383,7 +388,11 @@ function openEditDialog(feed: Feed) {
 }
 
 function closeFeedDialog() {
+  if (deletingFeed.value) {
+    return
+  }
   showFeedDialog.value = false
+  confirmingDeleteFeed.value = false
 }
 
 function resetFeedForm() {
@@ -419,7 +428,7 @@ async function detectFeed() {
 }
 
 async function saveFeed() {
-  if (!canSaveFeed.value || savingFeed.value) {
+  if (!canSaveFeed.value || savingFeed.value || deletingFeed.value) {
     return
   }
   savingFeed.value = true
@@ -455,6 +464,35 @@ async function saveFeed() {
     dialogError.value = error instanceof Error ? error.message : 'Failed to save feed'
   } finally {
     savingFeed.value = false
+  }
+}
+
+async function deleteEditingFeed() {
+  if (!editingFeed.value || deletingFeed.value) {
+    return
+  }
+  const feedId = editingFeed.value.id
+  deletingFeed.value = true
+  dialogError.value = ''
+  try {
+    await deleteFeed(feedId)
+    if (selectedFeedId.value === feedId) {
+      selectedFeedId.value = null
+    }
+    if (selectedItem.value?.feedId === feedId) {
+      selectedItem.value = null
+      selectedItemId.value = null
+    }
+    showFeedDialog.value = false
+    confirmingDeleteFeed.value = false
+    showSnackbar('Feed deleted.')
+    await refreshFeeds()
+    await refreshItems()
+  } catch (error) {
+    dialogError.value = error instanceof Error ? error.message : 'Failed to delete feed'
+  } finally {
+    deletingFeed.value = false
+    confirmingDeleteFeed.value = false
   }
 }
 
@@ -966,15 +1004,53 @@ function vimeoEmbedUrl(rawUrl: string): string {
             <input v-if="feedForm.backfillMode === 'since'" v-model="feedForm.backfillSince" type="date" />
           </div>
 
+          <div v-if="editingFeed && confirmingDeleteFeed" class="delete-confirmation" role="alert">
+            <div>
+              <strong>Delete {{ editingFeed.title }}?</strong>
+              <p>All saved items from this feed will be removed.</p>
+            </div>
+            <div class="delete-confirmation-actions">
+              <button
+                type="button"
+                class="secondary-action"
+                :disabled="deletingFeed"
+                @click="confirmingDeleteFeed = false"
+              >
+                Keep feed
+              </button>
+              <button
+                type="button"
+                class="danger-action"
+                :disabled="deletingFeed"
+                @click="deleteEditingFeed"
+              >
+                <AppIcon name="trash" :size="15" />
+                {{ deletingFeed ? 'Deleting' : 'Delete feed' }}
+              </button>
+            </div>
+          </div>
+
           <p v-if="dialogError" class="inline-error">{{ dialogError }}</p>
         </div>
 
         <footer class="dialog-footer">
-          <button type="button" class="secondary-action" @click="closeFeedDialog">Cancel</button>
+          <button
+            v-if="editingFeed && !confirmingDeleteFeed"
+            type="button"
+            class="danger-action dialog-delete-action"
+            :disabled="savingFeed || deletingFeed"
+            @click="confirmingDeleteFeed = true"
+          >
+            <AppIcon name="trash" :size="15" />
+            Delete
+          </button>
+          <button type="button" class="secondary-action" :disabled="deletingFeed" @click="closeFeedDialog">
+            Cancel
+          </button>
           <button
             type="button"
             class="primary-action"
-            :disabled="!canSaveFeed || savingFeed"
+            :disabled="!canSaveFeed || savingFeed || deletingFeed"
             @click="saveFeed"
           >
             {{ savingFeed ? 'Saving' : editingFeed ? 'Save settings' : 'Add feed' }}
@@ -1047,6 +1123,7 @@ function vimeoEmbedUrl(rawUrl: string): string {
 
 .primary-action,
 .secondary-action,
+.danger-action,
 .text-action,
 .icon-btn {
   border: 1px solid var(--border);
@@ -1074,8 +1151,24 @@ function vimeoEmbedUrl(rawUrl: string): string {
 }
 
 .secondary-action,
+.danger-action,
 .text-action {
   padding: 0 0.7rem;
+}
+
+.danger-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+}
+
+.danger-action:hover {
+  border-color: color-mix(in srgb, var(--danger) 62%, var(--border));
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface));
 }
 
 .icon-btn {
@@ -1156,6 +1249,7 @@ function vimeoEmbedUrl(rawUrl: string): string {
 
 .primary-action:disabled,
 .secondary-action:disabled,
+.danger-action:disabled,
 .text-action:disabled,
 .icon-btn:disabled {
   opacity: 0.55;
@@ -1702,6 +1796,10 @@ function vimeoEmbedUrl(rawUrl: string): string {
   justify-content: flex-end;
 }
 
+.dialog-delete-action {
+  margin-right: auto;
+}
+
 .detect-row {
   align-items: stretch;
 }
@@ -1743,6 +1841,40 @@ function vimeoEmbedUrl(rawUrl: string): string {
   display: grid;
   gap: 0.55rem;
   padding: 0.75rem;
+}
+
+.delete-confirmation {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--danger) 38%, var(--border));
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+}
+
+.delete-confirmation strong,
+.delete-confirmation p {
+  margin: 0;
+}
+
+.delete-confirmation strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.delete-confirmation p {
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.delete-confirmation-actions {
+  display: inline-flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .segmented {
@@ -1824,6 +1956,10 @@ function vimeoEmbedUrl(rawUrl: string): string {
   }
 
   .settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .delete-confirmation {
     grid-template-columns: 1fr;
   }
 
