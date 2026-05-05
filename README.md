@@ -1,38 +1,76 @@
 # Relay
 
-Relay is a full-stack AI chat application with a Go backend and Vue 3 frontend. It supports streaming responses over WebSocket, tool calling through MCP, file attachments (including images), JWT auth, and local persistence with SQLite.
+Relay is a full-stack AI application with a Go backend and Vue 3 frontend. The main experience is realtime chat with token-by-token streaming over WebSocket, SQLite persistence, and optional tool calling (Model Context Protocol plus first-party feed tools). A built-in **Feeds** inbox subscribes to RSS/Atom sources, polls on a schedule, and can summarize items with your configured LLM.
 
 ## Features
 
-- Real-time AI chat with token-by-token streaming
-- Optional extended "thinking" stream separate from final response text
-- Conversation management: create, rename, archive, restore, delete
-- Retry and stop controls for in-progress or failed assistant generations
-- File attachments with vision-ready image handling
-- Cookie-based JWT auth with refresh tokens and a seeded root account
-- OpenAI-compatible provider support (LM Studio, Ollama-compatible gateways, and others)
-- MCP-based tool execution with built-in weather/search/time/fetch tools
-- Optimistic frontend updates with reconciliation to server-persisted messages
+### Chat
+
+- Streaming assistant output with incremental `token` events and optional separate `thinking` / reasoning stream
+- Conversation CRUD: create, rename, archive, restore, delete
+- Retry and stop for in-flight or failed assistant generations; requeue failed messages
+- Attachments from the composer (including images suited for multimodal models) with optimistic UI that reconciles to server-backed messages
+- Markdown rendering for assistant content in the UI
+- Usage-style metadata where the model/provider exposes it (e.g. token counts)
+
+### Feeds
+
+- Subscribe to RSS/Atom URLs with a preview **check feed** flow before saving
+- Configurable polling interval, automatic periodic refresh in the backend, manual refresh in the UI
+- Backfill options when adding a feed (e.g. latest / since date / fuller history with limits)
+- Read and starred state; unread, starred, and all-item views
+- On-demand or automatic **LLM summaries** for items (automatic summary is gated on feed settings); expanded / re-summary actions in the UI
+- Feed settings placeholder fields for routing items into **notebooks** when that area ships
+
+### Dashboard and navigation
+
+- **Home** launcher for quick jumps (e.g. open Feeds, start Chat with prefilled draft)
+- **Chat** and **Feeds** are fully wired to the API
+- **Notebooks**, **Scheduled**, and **My Data** routes exist with placeholder copy for future features
+
+### Account and settings
+
+- Cookie-based JWT access tokens with refresh tokens; register, login, logout, `/auth/me`
+- Optional **`DISABLE_AUTH`** single-user mode (all requests treated as the seeded root user) for local dev
+- Root user seeded from **`ROOT_USERNAME`** / **`ROOT_PASSWORD`** (change before any real deployment)
+- Per-user persisted settings over the API: default LLM base URL, model id, optional API key, and custom **system prompt**
+
+### Models and tools
+
+- OpenAI-compatible chat completions (LM Studio, Ollama gateways, hosted APIs, etc.); **`LLM_URL`** or **`LLM_BASE_URL`**
+- **Composite tool runtime**: tools are merged from the internal MCP HTTP server and from Relay’s feed tooling (`list_feeds`, `get_feed_items`), so the model can read your feed inbox inside chat
+- Internal MCP tools (streamable HTTP on **`MCP_SERVER_ADDRESS`**, exposed at **`MCP_URL`**): `web_search` (SearxNG when configured), `get_weather`, `get_time`
+- **`fetch_url`** / **`fetch_urls`** are registered on the MCP server but call an external **fetcher** MCP relay (`FETCHER_MCP_ENDPOINT`, default `http://localhost:3000/mcp`) for JS-heavy pages — run that stack if you rely on browsing-style fetch
+
+### Operations
+
+- **`GET /health`** on the main HTTP server for liveness checks
+- When `web/dist` is present beside the backend, Gin serves static assets and **SPA fallback** for non-API routes (Docker / production-style single port)
 
 ## Architecture
 
 ```text
-web (Vue 3 + Pinia + Vite)  <->  api (Gin + SQLite + WebSocket)
-                                          |
-                                          v
-                              internal MCP server (:8090)
+web (Vue 3 + Pinia + Vue Router + Vite)
+        |  HTTP / WS
+        v
+api (Gin + SQLite + WebSocket chat + feed scheduler)
+        |
+        +-- internal MCP (:8090)  streamable HTTP tools
+        |
+        +-- optional FETCHER MCP (browse/fetch_url) via FETCHER_MCP_ENDPOINT
 ```
 
-- `api/`: backend service, HTTP API, WebSocket stream, SQLite storage, LLM integration, MCP runtime
-- `web/`: frontend app, Pinia store-driven state, streaming UI
-- `scripts/dev.sh`: bootstraps dependencies and runs backend + frontend together
+- **`api/`**: HTTP API, WebSocket stream, SQLite, LLM client, attachments, MCP client/runtime, RSS/Atom feed fetch + summarize
+- **`web/`**: Pinia stores (auth, chat, conversations, settings, UI), routed views
+- **`resources/`**: prompt and resource markdown used by backend packages
+- **`scripts/dev.sh`**: installs deps and runs **`air`** for the API and **`bun dev`** for the frontend
 
 ## Requirements
 
 - Go (current stable)
 - Bun
 - Air (`go install github.com/air-verse/air@latest`)
-- Node.js `^20.19.0 || >=22.12.0` (run `nvm use 24` before Bun commands)
+- Node.js `^20.19.0 || >=22.12.0` (e.g. `nvm use 24` before Bun commands if needed)
 
 ## Quick Start
 
@@ -73,6 +111,7 @@ web (Vue 3 + Pinia + Vite)  <->  api (Gin + SQLite + WebSocket)
 ```bash
 go mod download
 air
+go test ./...
 go build ./...
 ```
 
@@ -94,22 +133,24 @@ bun run build-only
 
 Key environment variables:
 
-- `LLM_URL`: OpenAI-compatible API base URL
-- `LLM_MODEL`: default model identifier
-- `API_PORT`: backend HTTP port (default `8091`)
-- `MCP_SERVER_ADDRESS`: internal MCP bind address (default `:8090`)
-- `MCP_URL`: MCP endpoint used by runtime (default `http://localhost:8090/mcp`)
-- `WEB_ORIGIN`: allowed web origin for CORS (default `http://localhost:5173`)
-- `VITE_API_BASE_DEV`: frontend API base used by Vite dev server (default `http://localhost:8091/api`)
-- `VITE_API_BASE`: frontend API base used by built UI (default `/api` for same-origin backend calls)
-- `SQLITE_PATH`: SQLite file path
-- `JWT_TOKEN`, `JWT_REFRESH_TOKEN`: auth signing secrets
-- `DISABLE_AUTH`: disable auth in local single-user mode
-- `ROOT_USERNAME`, `ROOT_PASSWORD`: default seeded admin credentials
-- `COOKIE_SECURE`: require secure cookies over HTTPS
-- `VITE_MAX_UPLOAD_BYTES`, `VITE_MAX_IMAGE_BYTES`, `VITE_MAX_TOKEN_COUNT`: frontend limits
+- **`LLM_URL`** or **`LLM_BASE_URL`**: OpenAI-compatible API base URL (one of them required)
+- **`LLM_MODEL`**: default model id when settings do not override
+- **`API_PORT`**: backend HTTP port (default `8091`)
+- **`MCP_SERVER_ADDRESS`**: internal MCP bind address (default `:8090`)
+- **`MCP_URL`**: MCP endpoint consumed by the chat runtime (default `http://localhost:8090/mcp`)
+- **`FETCHER_MCP_ENDPOINT`**: URL of the relay-fetcher MCP server used by `fetch_url` / `fetch_urls` (default `http://localhost:3000/mcp`)
+- **`SEARXNG_URL`**: base URL for a SearxNG instance; enables meaningful `web_search` results
+- **`WEB_ORIGIN`**: browser origin allowed by CORS (default `http://localhost:5173`)
+- **`VITE_API_BASE_DEV`**: frontend API base during Vite dev (default `http://localhost:8091/api`)
+- **`VITE_API_BASE`**: frontend API base in production builds (default `/api`)
+- **`SQLITE_PATH`**: SQLite database file path
+- **`JWT_TOKEN`**, **`JWT_REFRESH_TOKEN`**: secrets for signing and hashing tokens
+- **`DISABLE_AUTH`**: disable auth wall and act as root user
+- **`ROOT_USERNAME`**, **`ROOT_PASSWORD`**: seeded admin account
+- **`COOKIE_SECURE`**: require HTTPS for cookies when true
+- **`VITE_MAX_UPLOAD_BYTES`**, **`VITE_MAX_IMAGE_BYTES`**, **`VITE_MAX_TOKEN_COUNT`**: limits mirrored in backend where applicable
 
-See `example.env` for the full list.
+See **`example.env`** for comments and defaults.
 
 ## Docker Deployment
 
@@ -143,38 +184,68 @@ docker run -d \
 
 Notes:
 
-- The container defaults `SQLITE_PATH` to `/data/relay.db`.
-- Mount `/data` (named volume or host path) to keep the database across rebuilds/redeploys.
-- The UI is served by the same backend process, so you only need to publish port `8091`.
+- The container defaults **`SQLITE_PATH`** to `/data/relay.db`.
+- Mount `/data` so the database survives image rebuilds.
+- The bundled UI is served from the backend; only **`8091`** (or your chosen **`API_PORT`**) needs to be published unless you terminate TLS elsewhere.
 
 ## API Surface
 
-All routes are prefixed with `/api`.
+Routes under **`/api`** unless noted.
 
-- `POST /auth/register`
-- `POST /auth/login`
-- `POST /auth/logout`
-- `POST /auth/refresh`
-- `GET /auth/me` (auth required)
-- `GET/PUT /settings`
-- `POST /conversations`
-- `GET /conversations?includeArchived=1`
-- `PATCH /conversations/:id`
-- `PATCH /conversations/:id/archive`
-- `PATCH /conversations/:id/restore`
-- `DELETE /conversations/:id`
-- `POST /conversations/:id/suggest-title`
-- `GET /conversations/:id/messages`
-- `POST /conversations/:id/messages`
-- `POST /conversations/:id/messages/failed`
-- `POST /conversations/:id/messages/:messageId/requeue`
-- `GET /files/:id/download`
-- `GET /conversations/:id/stream` (WebSocket)
-- `POST /conversations/:id/stop`
+Auth (no prior session required):
 
-Except for the auth bootstrap routes (`/auth/register`, `/auth/login`, `/auth/refresh`), API routes require authentication by default.
+- **`POST /auth/register`**
+- **`POST /auth/login`**
+- **`POST /auth/logout`**
+- **`POST /auth/refresh`**
 
-WebSocket event types:
+Authenticated:
+
+- **`GET /auth/me`**
+- **`GET` / `PUT /settings`** — per-user LLM URL, model, API key, system prompt
+
+Conversations:
+
+- **`POST /conversations`**
+- **`GET /conversations`** — supports `includeArchived`
+- **`PATCH /conversations/:id`**
+- **`PATCH /conversations/:id/archive`**
+- **`PATCH /conversations/:id/restore`**
+- **`DELETE /conversations/:id`**
+- **`POST /conversations/:id/suggest-title`**
+
+Messages and streaming:
+
+- **`GET /conversations/:id/messages`**
+- **`POST /conversations/:id/messages`** — JSON body or multipart with `files[]`
+- **`POST /conversations/:id/messages/failed`**
+- **`POST /conversations/:id/messages/:messageId/requeue`**
+- **`GET /conversations/:id/stream`** — WebSocket upgrade
+- **`POST /conversations/:id/stop`**
+
+Files:
+
+- **`GET /files/:id/download`** — attachment bytes for authenticated owner
+
+Feeds:
+
+- **`GET /feeds`**
+- **`POST /feeds/check`** — resolve and describe a subscription URL without persisting
+- **`POST /feeds`**
+- **`GET /feeds/items`** — list items; query **`view`** = `unread` (default), `starred`, or `all`; optional **`feedId`** to scope one subscription
+- **`GET /feeds/items/:id`**
+- **`PATCH /feeds/items/:id`** — e.g. read / starred toggles
+- **`POST /feeds/items/:id/summarize`**
+- **`PATCH /feeds/:id`**
+- **`DELETE /feeds/:id`**
+
+Other:
+
+- **`GET /health`** — process liveness (not under `/api`)
+
+Except for the auth bootstrap routes above, **`/api/*`** routes expect a valid session cookie (or **`DISABLE_AUTH`**).
+
+### WebSocket event types
 
 - `token`
 - `thinking`
