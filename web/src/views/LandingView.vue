@@ -65,6 +65,7 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
         <a href="#capabilities">Capabilities</a>
         <a href="#screenshots">Screenshots</a>
         <a href="#workflow">Workflow</a>
+        <a href="#about">About</a>
       </nav>
 
       <div class="nav-actions">
@@ -178,6 +179,20 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
               <strong>{{ step }}</strong>
             </li>
           </ol>
+        </div>
+      </section>
+
+      <section id="about" class="about-section" aria-labelledby="about-title">
+        <div class="about-inner">
+          <h2 id="about-title">About</h2>
+          <p>
+            Relay is open source. Report issues, suggest improvements, or explore the code on
+            <a
+              href="https://github.com/nexfortisme/relay"
+              target="_blank"
+              rel="noopener noreferrer"
+            >GitHub</a>.
+          </p>
         </div>
       </section>
     </main>
@@ -695,6 +710,44 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
   font-size: 1.1rem;
 }
 
+.about-section {
+  padding: 3rem 2rem 1rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.about-inner {
+  width: min(1180px, 100%);
+  margin-inline: auto;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.about-section h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 760;
+  color: #f4f7fb;
+}
+
+.about-section p {
+  margin: 0;
+  max-width: 42rem;
+  color: #b7c0ce;
+  font-size: 0.95rem;
+  line-height: 1.65;
+}
+
+.about-section a {
+  color: #7dd3fc;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.about-section a:hover {
+  color: #f4f7fb;
+  text-decoration: underline;
+}
+
 .landing-footer {
   display: flex;
   align-items: center;
@@ -784,7 +837,8 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
   .hero-section,
   .capability-section,
   .screenshot-section,
-  .workflow-section {
+  .workflow-section,
+  .about-section {
     padding-inline: 1rem;
   }
 
