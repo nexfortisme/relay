@@ -24,6 +24,8 @@ WORKDIR /app
 RUN mkdir -p /data
 
 COPY --from=api-builder /out/relay /app/relay
+# Frontend dist: JS/CSS under dist/assets/ (landing screenshots are bundled there via Vite imports)
+# plus copies of web/public/* (favicons, etc.).
 COPY --from=web-builder /build/web/dist /app/web/dist
 COPY resources /app/resources
 

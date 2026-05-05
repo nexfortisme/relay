@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import AppIcon from '../components/AppIcon.vue'
 import PrismLogo from '../components/PrismLogo.vue'
+import screenshotChatSrc from '../assets/landing/relay-chat.png'
+import screenshotFeedsSrc from '../assets/landing/relay-feeds.png'
+import screenshotHomeSrc from '../assets/landing/relay-home.png'
 
 const capabilities = [
   {
@@ -31,19 +34,19 @@ const capabilities = [
 
 const screenshots = [
   {
-    src: '/screenshots/relay-home.png',
+    src: screenshotHomeSrc,
     title: 'Start from the app home',
     description:
       'Launch a chat, jump into feeds, or pick up recent work from the dashboard built for repeat use.',
   },
   {
-    src: '/screenshots/relay-chat.png',
+    src: screenshotChatSrc,
     title: 'Work inside streaming chat',
     description:
       'Watch answers form, include attachments, inspect thinking, and continue from the same source-backed context.',
   },
   {
-    src: '/screenshots/relay-feeds.png',
+    src: screenshotFeedsSrc,
     title: 'Turn feeds into briefings',
     description:
       'Read incoming items, summarize them with the model, and carry the useful parts into your workspace.',
@@ -84,9 +87,9 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
         </div>
 
         <div class="hero-screens" aria-hidden="true">
-          <img class="hero-screen hero-screen--main" src="/screenshots/relay-home.png" alt="" />
-          <img class="hero-screen hero-screen--chat" src="/screenshots/relay-chat.png" alt="" />
-          <img class="hero-screen hero-screen--feeds" src="/screenshots/relay-feeds.png" alt="" />
+          <img class="hero-screen hero-screen--main" :src="screenshotHomeSrc" alt="" />
+          <img class="hero-screen hero-screen--chat" :src="screenshotChatSrc" alt="" />
+          <img class="hero-screen hero-screen--feeds" :src="screenshotFeedsSrc" alt="" />
         </div>
 
         <div class="hero-copy">

@@ -166,6 +166,8 @@ func registerStaticWebUI(engine *gin.Engine, logger *slog.Logger) {
 	}
 
 	engine.Static("/assets", filepath.Join(distDir, "assets"))
+	// Landing page screenshots live under web/public/screenshots → dist/screenshots (Vite copy).
+	engine.Static("/screenshots", filepath.Join(distDir, "screenshots"))
 	engine.StaticFile("/favicon.ico", filepath.Join(distDir, "favicon.ico"))
 	engine.StaticFile("/favicon.svg", filepath.Join(distDir, "favicon.svg"))
 	engine.StaticFile("/apple-touch-icon.png", filepath.Join(distDir, "apple-touch-icon.png"))
