@@ -47,7 +47,8 @@ type updateFeedItemRequest struct {
 }
 
 type summarizeFeedItemRequest struct {
-	Mode string `json:"mode"`
+	Mode             string `json:"mode"`
+	TargetCharacters int    `json:"targetCharacters"`
 }
 
 func (h *Handlers) CheckFeed(c *gin.Context) {
@@ -207,7 +208,7 @@ func (h *Handlers) SummarizeFeedItem(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
 		return
 	}
-	item, err := h.feeds.SummarizeItem(c.Request.Context(), userID, c.Param("id"), req.Mode)
+	item, err := h.feeds.SummarizeItem(c.Request.Context(), userID, c.Param("id"), req.Mode, req.TargetCharacters)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})

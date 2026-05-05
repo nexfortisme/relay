@@ -185,6 +185,31 @@ describe('FeedsView', () => {
     expect(wrapper.find('.item-row').classes()).toContain('item-row--read-dimmed')
   })
 
+  it('starts the read dwell timer when the inbox item is clicked', async () => {
+    vi.useFakeTimers()
+    vi.mocked(getFeedItem).mockImplementationOnce(
+      () =>
+        new Promise<FeedItem>((resolve) => {
+          setTimeout(() => resolve(item), 4000)
+        }),
+    )
+    const wrapper = mountFeeds()
+    await flushPromises()
+
+    await wrapper.find('.item-row').trigger('click')
+    await vi.advanceTimersByTimeAsync(4999)
+    await flushPromises()
+
+    expect(updateFeedItem).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1)
+    await flushPromises()
+
+    expect(updateFeedItem).toHaveBeenCalledWith('item-1', { read: true })
+
+    wrapper.unmount()
+  })
+
   it('can show all items for an individual feed', async () => {
     const wrapper = mountFeeds()
     await flushPromises()
@@ -214,6 +239,34 @@ describe('FeedsView', () => {
     expect(wrapper.find('.star-action--active').exists()).toBe(true)
     expect(wrapper.find('.star-action').attributes('aria-pressed')).toBe('true')
     expect(wrapper.find('.item-star-icon').exists()).toBe(true)
+  })
+
+  it('shows the summary shimmer while requesting a sized feed description', async () => {
+    let resolveSummary: (value: FeedItem) => void = () => {}
+    vi.mocked(summarizeFeedItem).mockImplementationOnce(
+      () =>
+        new Promise<FeedItem>((resolve) => {
+          resolveSummary = resolve
+        }),
+    )
+    const wrapper = mountFeeds()
+    await flushPromises()
+
+    await wrapper.find('.item-row').trigger('click')
+    await flushPromises()
+    await wrapper.find('button[title="Summarize"]').trigger('click')
+    await flushPromises()
+
+    expect(summarizeFeedItem).toHaveBeenCalledWith('item-1', 'summary', 150)
+    expect(wrapper.find('.summary-working-text').text()).toBe('Summarizing...')
+    expect(wrapper.find('.item-preview--summarizing').exists()).toBe(true)
+
+    resolveSummary({ ...item, summary: 'An AI-sized preview.', summaryStatus: 'ready' })
+    await flushPromises()
+
+    expect(wrapper.find('.item-preview').text()).toBe('An AI-sized preview.')
+
+    wrapper.unmount()
   })
 
   it('disables summary controls for video items', async () => {

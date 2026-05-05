@@ -125,6 +125,16 @@ func TestSummaryQueueHasTwoSlots(t *testing.T) {
 	}
 }
 
+func TestSummaryPromptUsesTargetCharactersForInboxDescription(t *testing.T) {
+	prompt := summarySystemPrompt("summary", 42)
+	if !strings.Contains(prompt, "80 characters") {
+		t.Fatalf("expected prompt to clamp small target to 80 characters, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "no markdown") {
+		t.Fatalf("expected prompt to forbid markdown, got %q", prompt)
+	}
+}
+
 func TestSummarizeItemRejectsVideoItems(t *testing.T) {
 	st, err := store.New(":memory:")
 	if err != nil {

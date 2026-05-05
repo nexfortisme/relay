@@ -104,9 +104,6 @@ export const useConversationStore = defineStore('conversation', () => {
       const suggestedTitle = await suggestConversationTitle(selectedConversationId.value)
       renameDraft.value = clampTitleForDisplay(suggestedTitle)
       await saveConversationTitle()
-    } catch (error) {
-      // Expose to callers via a re-throw; chat store will catch and display
-      throw error
     } finally {
       isSuggestingTitle.value = false
     }

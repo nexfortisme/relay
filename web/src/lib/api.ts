@@ -521,13 +521,14 @@ export async function updateFeedItem(
 export async function summarizeFeedItem(
   itemId: string,
   mode: "summary" | "resummary" | "expanded",
+  targetCharacters?: number,
 ): Promise<FeedItem> {
   return fetchJson<FeedItem>(
     `/feeds/items/${itemId}/summarize`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode }),
+      body: JSON.stringify({ mode, targetCharacters }),
     },
     "Failed to summarize feed item",
   );

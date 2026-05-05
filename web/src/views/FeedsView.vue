@@ -42,6 +42,8 @@ const feedError = ref('')
 const itemError = ref('')
 const summarizingMode = ref<SummaryMode | null>(null)
 const snackbarMessage = ref('')
+const itemListPaneEl = ref<HTMLElement | null>(null)
+const summaryTargetCharacters = ref(150)
 
 const showFeedDialog = ref(false)
 const editingFeed = ref<Feed | null>(null)
@@ -64,6 +66,7 @@ const feedForm = reactive({
 
 let readTimer: ReturnType<typeof setTimeout> | null = null
 let snackbarTimer: ReturnType<typeof setTimeout> | null = null
+let summaryTargetObserver: ResizeObserver | null = null
 const pendingReadRemovalId = ref<string | null>(null)
 
 const totalUnread = computed(() =>
@@ -101,11 +104,13 @@ const canSaveFeed = computed(
 onMounted(async () => {
   await refreshFeeds()
   await refreshItems()
+  startSummaryTargetObserver()
 })
 
 onBeforeUnmount(() => {
   clearReadTimer()
   clearSnackbarTimer()
+  stopSummaryTargetObserver()
   commitPendingReadRemoval()
 })
 
@@ -192,19 +197,33 @@ async function selectItem(item: FeedItem) {
   clearReadTimer()
   selectedItemId.value = item.id
   itemError.value = ''
+  if (!item.read) {
+    scheduleReadTimer(item.id)
+  }
   try {
     const detail = await getFeedItem(item.id)
-    selectedItem.value = detail
-    if (!detail.read) {
+    if (selectedItemId.value !== item.id) {
+      return
+    }
+    const readDetail =
+      pendingReadRemovalId.value === item.id ? { ...detail, read: true } : detail
+    selectedItem.value = readDetail
+    if (readDetail.read) {
+      clearReadTimer()
+    } else if (item.read) {
       scheduleReadTimer(detail.id)
     }
   } catch (error) {
-    itemError.value = error instanceof Error ? error.message : 'Failed to load feed item'
+    if (selectedItemId.value === item.id) {
+      clearReadTimer()
+      itemError.value = error instanceof Error ? error.message : 'Failed to load feed item'
+    }
   }
 }
 
 function scheduleReadTimer(itemId: string) {
   readTimer = setTimeout(() => {
+    readTimer = null
     void markItemReadAfterDwell(itemId)
   }, 5000)
 }
@@ -288,13 +307,32 @@ async function runSummary(mode: SummaryMode) {
   if (!selectedItem.value || summarizingMode.value || isVideoItem(selectedItem.value)) {
     return
   }
+  const itemId = selectedItem.value.id
   summarizingMode.value = mode
   itemError.value = ''
+  const workingItem = {
+    ...selectedItem.value,
+    summaryStatus: 'working',
+    summaryError: '',
+  }
+  selectedItem.value = workingItem
+  patchLocalItem(workingItem, { keepUnreadVisible: true })
   try {
-    const updated = await summarizeFeedItem(selectedItem.value.id, mode)
-    selectedItem.value = updated
+    const updated = await summarizeFeedItem(itemId, mode, summaryTargetCharacters.value)
+    if (selectedItemId.value === itemId) {
+      selectedItem.value = updated
+    }
     patchLocalItem(updated, { keepUnreadVisible: true })
   } catch (error) {
+    if (selectedItemId.value === itemId) {
+      const errorItem = {
+        ...workingItem,
+        summaryStatus: 'error',
+        summaryError: error instanceof Error ? error.message : 'Failed to summarize item',
+      }
+      selectedItem.value = errorItem
+      patchLocalItem(errorItem, { keepUnreadVisible: true })
+    }
     itemError.value = error instanceof Error ? error.message : 'Failed to summarize item'
   } finally {
     summarizingMode.value = null
@@ -440,6 +478,55 @@ function formatItemDate(value?: string): string {
 
 function itemMeta(item: FeedItem): string {
   return [item.feedTitle, item.author, formatItemDate(item.publishedAt)].filter(Boolean).join(' · ')
+}
+
+function itemDescription(item: FeedItem): string {
+  if (item.summaryStatus === 'working') {
+    return 'Summarizing...'
+  }
+  if (item.summary && item.summaryStatus !== 'error') {
+    return plainSummaryText(item.summary) || item.preview
+  }
+  return item.preview
+}
+
+function plainSummaryText(value: string): string {
+  return value
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '')
+    .replace(/[`*_]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function startSummaryTargetObserver() {
+  updateSummaryTargetCharacters()
+  if (!itemListPaneEl.value || typeof ResizeObserver === 'undefined') {
+    return
+  }
+  summaryTargetObserver = new ResizeObserver(() => {
+    updateSummaryTargetCharacters()
+  })
+  summaryTargetObserver.observe(itemListPaneEl.value)
+}
+
+function stopSummaryTargetObserver() {
+  summaryTargetObserver?.disconnect()
+  summaryTargetObserver = null
+}
+
+function updateSummaryTargetCharacters() {
+  const width = itemListPaneEl.value?.getBoundingClientRect().width ?? 0
+  if (width <= 0) {
+    return
+  }
+  const usableWidth = Math.max(0, width - 28)
+  summaryTargetCharacters.value = clamp(Math.round(usableWidth / 7), 80, 220)
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value))
 }
 
 function isVideoItem(item: FeedItem): boolean {
@@ -606,7 +693,7 @@ function vimeoEmbedUrl(rawUrl: string): string {
           <p v-if="!feedsLoading && feeds.length === 0" class="empty-small">No feeds yet.</p>
         </aside>
 
-        <section class="item-list-pane">
+        <section ref="itemListPaneEl" class="item-list-pane">
           <div class="item-list-header">
             <div>
               <h2>{{ itemListTitle }}</h2>
@@ -646,7 +733,12 @@ function vimeoEmbedUrl(rawUrl: string): string {
                 </span>
               </span>
               <span class="item-meta">{{ itemMeta(item) }}</span>
-              <span class="item-preview">{{ item.preview }}</span>
+              <span
+                class="item-preview"
+                :class="{ 'item-preview--summarizing': item.summaryStatus === 'working' }"
+              >
+                {{ itemDescription(item) }}
+              </span>
             </button>
           </div>
           <p v-if="!itemsLoading && items.length === 0" class="empty-state">Nothing here.</p>
@@ -701,7 +793,13 @@ function vimeoEmbedUrl(rawUrl: string): string {
                   :aria-pressed="selectedItem.starred"
                   @click="toggleSelectedStar"
                 >
-                  <AppIcon name="star" :size="16" :filled="selectedItem.starred" />
+                  <span
+                    class="star-fade-icon"
+                    :class="{ 'star-fade-icon--active': selectedItem.starred }"
+                  >
+                    <AppIcon class="star-fade-icon__outline" name="star" :size="16" />
+                    <AppIcon class="star-fade-icon__fill" name="star" :size="16" filled />
+                  </span>
                 </button>
                 <button class="icon-btn" type="button" title="Save to notebook" disabled>
                   <AppIcon name="book" :size="16" />
@@ -710,7 +808,7 @@ function vimeoEmbedUrl(rawUrl: string): string {
             </header>
 
             <section
-              v-if="selectedItem.summary || selectedItem.summaryStatus"
+              v-if="selectedItem.summary || selectedItem.summaryStatus || summarizingMode"
               class="summary-panel"
               aria-label="AI summary"
             >
@@ -718,7 +816,10 @@ function vimeoEmbedUrl(rawUrl: string): string {
                 <AppIcon name="sparkles" :size="16" />
                 Summary
               </div>
-              <p v-if="selectedItem.summaryStatus === 'working' || summarizingMode">
+              <p
+                v-if="selectedItem.summaryStatus === 'working' || summarizingMode"
+                class="summary-working-text"
+              >
                 Summarizing...
               </p>
               <p v-else-if="selectedItem.summaryError" class="inline-error">
@@ -983,6 +1084,10 @@ function vimeoEmbedUrl(rawUrl: string): string {
   display: inline-grid;
   place-items: center;
   flex: 0 0 auto;
+  transition:
+    color 0.18s ease,
+    background 0.18s ease,
+    border-color 0.18s ease;
 }
 
 .star-action--active {
@@ -993,6 +1098,41 @@ function vimeoEmbedUrl(rawUrl: string): string {
 
 .star-action--active:hover {
   background: color-mix(in srgb, #d99a00 18%, var(--surface-hover));
+}
+
+.star-fade-icon {
+  position: relative;
+  width: 1rem;
+  height: 1rem;
+  display: inline-grid;
+  place-items: center;
+}
+
+.star-fade-icon__outline,
+.star-fade-icon__fill {
+  grid-area: 1 / 1;
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease;
+}
+
+.star-fade-icon__outline {
+  opacity: 1;
+}
+
+.star-fade-icon__fill {
+  color: #d99a00;
+  opacity: 0;
+  transform: scale(0.88);
+}
+
+.star-fade-icon--active .star-fade-icon__outline {
+  opacity: 0;
+}
+
+.star-fade-icon--active .star-fade-icon__fill {
+  opacity: 1;
+  transform: scale(1);
 }
 
 .refresh-action {
@@ -1281,6 +1421,7 @@ function vimeoEmbedUrl(rawUrl: string): string {
 
 .item-list {
   align-content: start;
+  gap: 0;
 }
 
 .item-row {
@@ -1352,6 +1493,33 @@ function vimeoEmbedUrl(rawUrl: string): string {
   white-space: nowrap;
   color: var(--muted);
   font-size: 0.78rem;
+}
+
+.item-preview--summarizing,
+.summary-working-text {
+  background: linear-gradient(
+    110deg,
+    color-mix(in srgb, var(--text) 70%, #fff) 5%,
+    color-mix(in srgb, var(--primary) 60%, #fff) 35%,
+    #fff 50%,
+    color-mix(in srgb, var(--primary) 60%, #fff) 65%,
+    color-mix(in srgb, var(--text) 70%, #fff) 95%
+  );
+  background-size: 260% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 0.4rem color-mix(in srgb, var(--primary) 35%, transparent));
+  animation: feed-summary-shimmer 1s linear infinite;
+}
+
+@keyframes feed-summary-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -20% 0;
+  }
 }
 
 .item-panel {
