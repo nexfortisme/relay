@@ -37,9 +37,11 @@ const starredCount = ref(0)
 const feedSearch = ref('')
 const feedsLoading = ref(false)
 const itemsLoading = ref(false)
+const manualRefreshLoading = ref(false)
 const feedError = ref('')
 const itemError = ref('')
 const summarizingMode = ref<SummaryMode | null>(null)
+const snackbarMessage = ref('')
 
 const showFeedDialog = ref(false)
 const editingFeed = ref<Feed | null>(null)
@@ -61,6 +63,7 @@ const feedForm = reactive({
 })
 
 let readTimer: ReturnType<typeof setTimeout> | null = null
+let snackbarTimer: ReturnType<typeof setTimeout> | null = null
 const pendingReadRemovalId = ref<string | null>(null)
 
 const totalUnread = computed(() =>
@@ -99,6 +102,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   clearReadTimer()
+  clearSnackbarTimer()
   commitPendingReadRemoval()
 })
 
@@ -123,7 +127,7 @@ async function refreshStarredCount() {
   }
 }
 
-async function refreshItems() {
+async function refreshItems(): Promise<FeedItem[] | null> {
   commitPendingReadRemoval()
   clearReadTimer()
   selectedItem.value = null
@@ -131,11 +135,29 @@ async function refreshItems() {
   itemsLoading.value = true
   itemError.value = ''
   try {
-    items.value = await listFeedItems(activeView.value, selectedFeedId.value)
+    const refreshedItems = await listFeedItems(activeView.value, selectedFeedId.value)
+    items.value = refreshedItems
+    return refreshedItems
   } catch (error) {
     itemError.value = error instanceof Error ? error.message : 'Failed to load feed items'
+    return null
   } finally {
     itemsLoading.value = false
+  }
+}
+
+async function refreshItemsWithFeedback() {
+  if (manualRefreshLoading.value) {
+    return
+  }
+  manualRefreshLoading.value = true
+  try {
+    const refreshedItems = await refreshItems()
+    if (refreshedItems) {
+      showSnackbar(refreshResultMessage(refreshedItems.length))
+    }
+  } finally {
+    manualRefreshLoading.value = false
   }
 }
 
@@ -210,6 +232,33 @@ function clearReadTimer() {
   }
   clearTimeout(readTimer)
   readTimer = null
+}
+
+function refreshResultMessage(count: number): string {
+  if (count === 0) {
+    return 'Nothing was found.'
+  }
+  if (count === 1) {
+    return '1 item found.'
+  }
+  return `${count} items found.`
+}
+
+function showSnackbar(message: string) {
+  clearSnackbarTimer()
+  snackbarMessage.value = message
+  snackbarTimer = setTimeout(() => {
+    snackbarMessage.value = ''
+    snackbarTimer = null
+  }, 3200)
+}
+
+function clearSnackbarTimer() {
+  if (!snackbarTimer) {
+    return
+  }
+  clearTimeout(snackbarTimer)
+  snackbarTimer = null
 }
 
 async function toggleSelectedStar() {
@@ -464,8 +513,18 @@ function vimeoEmbedUrl(rawUrl: string): string {
           <p>{{ totalUnread }} unread</p>
         </div>
         <div class="header-actions">
-          <button class="icon-btn" type="button" title="Refresh feeds" @click="refreshItems">
-            <AppIcon name="refresh" :size="17" />
+          <button
+            class="icon-btn refresh-action"
+            type="button"
+            :title="manualRefreshLoading ? 'Refreshing feeds' : 'Refresh feeds'"
+            :aria-label="manualRefreshLoading ? 'Refreshing feeds' : 'Refresh feeds'"
+            :aria-busy="manualRefreshLoading"
+            :disabled="manualRefreshLoading"
+            @click="refreshItemsWithFeedback"
+          >
+            <span class="refresh-icon" :class="{ 'refresh-icon--spinning': manualRefreshLoading }">
+              <AppIcon name="refresh" :size="17" />
+            </span>
           </button>
           <button class="primary-action" type="button" @click="openAddDialog">
             <AppIcon name="plus" :size="16" />
@@ -797,6 +856,9 @@ function vimeoEmbedUrl(rawUrl: string): string {
         </footer>
       </section>
     </div>
+    <div v-if="snackbarMessage" class="feed-snackbar" role="status" aria-live="polite">
+      {{ snackbarMessage }}
+    </div>
   </div>
 </template>
 
@@ -896,6 +958,25 @@ function vimeoEmbedUrl(rawUrl: string): string {
   display: inline-grid;
   place-items: center;
   flex: 0 0 auto;
+}
+
+.refresh-action {
+  position: relative;
+}
+
+.refresh-icon {
+  display: inline-grid;
+  place-items: center;
+}
+
+.refresh-icon--spinning {
+  animation: feed-refresh-spin 0.8s linear infinite;
+}
+
+@keyframes feed-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .primary-action:disabled,
@@ -1259,6 +1340,24 @@ function vimeoEmbedUrl(rawUrl: string): string {
 
 .mobile-sidebar-backdrop {
   display: none;
+}
+
+.feed-snackbar {
+  position: fixed;
+  left: 50%;
+  bottom: 1rem;
+  z-index: 90;
+  max-width: min(24rem, calc(100vw - 2rem));
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 0.86rem;
+  font-weight: 650;
+  text-align: center;
+  transform: translateX(-50%);
 }
 
 .feed-dialog-overlay {
