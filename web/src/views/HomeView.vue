@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import AppIcon from '../components/AppIcon.vue'
@@ -7,6 +7,7 @@ import AppSidebar from '../components/AppSidebar.vue'
 import PrismLogo from '../components/PrismLogo.vue'
 import { useUiStore } from '../stores/uiStore'
 import { useChatStore } from '../stores/chatStore'
+import { listFeeds, type Feed } from '../lib/api'
 
 const uiStore = useUiStore()
 const chatStore = useChatStore()
@@ -14,6 +15,23 @@ const router = useRouter()
 const { isSidebarCollapsed, theme } = storeToRefs(uiStore)
 
 const launcherDraft = ref('')
+const feeds = ref<Feed[]>([])
+const feedsLoading = ref(false)
+
+const sortedFeeds = computed(() =>
+  [...feeds.value].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+)
+const recentFeeds = computed(() => sortedFeeds.value.slice(0, 3))
+const hasMore = computed(() => feeds.value.length > 3)
+
+onMounted(async () => {
+  feedsLoading.value = true
+  try {
+    feeds.value = await listFeeds()
+  } finally {
+    feedsLoading.value = false
+  }
+})
 
 async function startNewChat() {
   const trimmed = launcherDraft.value.trim()
@@ -119,13 +137,23 @@ async function startNewChat() {
         <section class="home-card">
           <div class="home-card-header">
             <h3>Today's feed digest</h3>
-            <span class="muted">placeholder</span>
+            <button v-if="hasMore" class="see-more-btn" @click="router.push('/feeds')">
+              See more
+            </button>
           </div>
-          <ul class="placeholder-list">
-            <li><span>The Verge</span><span class="muted">4 new</span></li>
-            <li><span>NYT Cooking</span><span class="muted">2 new</span></li>
-            <li><span>HN front page</span><span class="muted">11 new</span></li>
+          <div v-if="feedsLoading" class="muted feed-loading">Loading…</div>
+          <ul v-else-if="recentFeeds.length > 0" class="feed-list">
+            <li v-for="feed in recentFeeds" :key="feed.id" class="feed-list-item" @click="router.push('/feeds')">
+              <span class="feed-list-title">{{ feed.title }}</span>
+              <span :class="feed.unreadCount > 0 ? 'feed-unread-count' : 'muted'">
+                {{ feed.unreadCount }} new
+              </span>
+            </li>
           </ul>
+          <p v-else class="feed-empty">
+            No feeds yet.
+            <button class="feed-empty-link" @click="router.push('/feeds')">Add one</button>
+          </p>
         </section>
       </div>
     </main>
@@ -366,6 +394,86 @@ async function startNewChat() {
 
 .placeholder-list li:last-child {
   border-bottom: none;
+}
+
+.see-more-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--primary);
+  font-size: 0.78rem;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.see-more-btn:hover {
+  text-decoration: underline;
+}
+
+.feed-loading {
+  font-size: 0.88rem;
+}
+
+.feed-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.feed-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.88rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.feed-list-item:last-child {
+  border-bottom: none;
+}
+
+.feed-list-item:hover .feed-list-title {
+  color: var(--primary);
+}
+
+.feed-list-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.feed-unread-count {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--primary);
+  margin-left: 0.5rem;
+}
+
+.feed-empty {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.feed-empty-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--primary);
+  cursor: pointer;
+  font-size: inherit;
+  font-weight: 500;
+}
+
+.feed-empty-link:hover {
+  text-decoration: underline;
 }
 
 .mobile-sidebar-backdrop {
