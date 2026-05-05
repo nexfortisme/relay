@@ -77,6 +77,9 @@ const filteredFeeds = computed(() => {
   return feeds.value.filter((feed) => feed.title.toLowerCase().includes(query))
 })
 const activeFeed = computed(() => feeds.value.find((feed) => feed.id === selectedFeedId.value))
+const selectedFeedShowsAll = computed(
+  () => selectedFeedId.value !== null && activeView.value === 'all',
+)
 const itemListTitle = computed(() => {
   if (activeFeed.value) {
     return activeFeed.value.title
@@ -170,6 +173,14 @@ async function chooseView(view: FeedItemView) {
 async function chooseFeed(feedId: string) {
   activeView.value = 'unread'
   selectedFeedId.value = selectedFeedId.value === feedId ? null : feedId
+  await refreshItems()
+}
+
+async function toggleSelectedFeedAll() {
+  if (!selectedFeedId.value) {
+    return
+  }
+  activeView.value = selectedFeedShowsAll.value ? 'unread' : 'all'
   await refreshItems()
 }
 
@@ -551,7 +562,7 @@ function vimeoEmbedUrl(rawUrl: string): string {
             </button>
             <button
               class="filter-row"
-              :class="{ 'filter-row--active': activeView === 'starred' }"
+              :class="{ 'filter-row--active': activeView === 'starred' && !selectedFeedId }"
               type="button"
               @click="chooseView('starred')"
             >
@@ -560,7 +571,7 @@ function vimeoEmbedUrl(rawUrl: string): string {
             </button>
             <button
               class="filter-row"
-              :class="{ 'filter-row--active': activeView === 'all' }"
+              :class="{ 'filter-row--active': activeView === 'all' && !selectedFeedId }"
               type="button"
               @click="chooseView('all')"
             >
@@ -601,6 +612,17 @@ function vimeoEmbedUrl(rawUrl: string): string {
               <h2>{{ itemListTitle }}</h2>
               <p>{{ items.length }} items</p>
             </div>
+            <label v-if="activeFeed" class="feed-view-toggle">
+              <span>Show all</span>
+              <input
+                type="checkbox"
+                :checked="selectedFeedShowsAll"
+                @change="toggleSelectedFeedAll"
+              />
+              <span class="toggle-track" aria-hidden="true">
+                <span class="toggle-thumb" />
+              </span>
+            </label>
           </div>
           <p v-if="itemError" class="inline-error">{{ itemError }}</p>
           <div class="item-list">
@@ -1076,6 +1098,7 @@ function vimeoEmbedUrl(rawUrl: string): string {
 .feed-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
   border: 1px solid transparent;
   border-radius: 0.45rem;
   align-self: start;
@@ -1135,12 +1158,14 @@ function vimeoEmbedUrl(rawUrl: string): string {
 }
 
 .feed-settings {
-  width: 1.7rem;
-  height: 1.7rem;
+  width: 2.15rem;
+  height: auto;
   border: 0;
   border-radius: 0.35rem;
   display: inline-grid;
   place-items: center;
+  align-self: stretch;
+  justify-self: center;
   color: var(--muted);
   background: transparent;
   cursor: pointer;
@@ -1170,6 +1195,75 @@ function vimeoEmbedUrl(rawUrl: string): string {
 .item-list-header {
   padding: 0.85rem 0.9rem;
   border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.item-list-header > div {
+  min-width: 0;
+}
+
+.feed-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.feed-view-toggle input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  opacity: 0;
+  white-space: nowrap;
+}
+
+.toggle-track {
+  width: 2rem;
+  height: 1.1rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem;
+  background: var(--surface);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.toggle-thumb {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 999px;
+  background: var(--muted);
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease;
+}
+
+.feed-view-toggle input:checked + .toggle-track {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+  background: color-mix(in srgb, var(--primary) 18%, var(--surface));
+}
+
+.feed-view-toggle input:checked + .toggle-track .toggle-thumb {
+  transform: translateX(0.9rem);
+  background: var(--primary);
+}
+
+.feed-view-toggle input:focus-visible + .toggle-track {
+  outline: 2px solid color-mix(in srgb, var(--primary) 40%, transparent);
+  outline-offset: 2px;
 }
 
 .item-list {

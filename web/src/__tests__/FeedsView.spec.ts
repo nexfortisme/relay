@@ -184,6 +184,21 @@ describe('FeedsView', () => {
     expect(updateFeedItem).toHaveBeenCalledWith('item-1', { read: true })
   })
 
+  it('can show all items for an individual feed', async () => {
+    const wrapper = mountFeeds()
+    await flushPromises()
+
+    vi.mocked(listFeedItems).mockClear()
+    await wrapper.find('.feed-main').trigger('click')
+    await flushPromises()
+
+    expect(listFeedItems).toHaveBeenLastCalledWith('unread', 'feed-1')
+    await wrapper.find('.feed-view-toggle input').setValue(true)
+    await flushPromises()
+
+    expect(listFeedItems).toHaveBeenLastCalledWith('all', 'feed-1')
+  })
+
   it('disables summary controls for video items', async () => {
     vi.mocked(getFeedItem).mockResolvedValueOnce({
       ...item,
