@@ -6,14 +6,17 @@ import AppIcon from './AppIcon.vue'
 import PrismAvatar from './PrismAvatar.vue'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useAuthStore } from '../stores/authStore'
+import { useUiStore } from '../stores/uiStore'
 
 // Bottom-of-sidebar profile pill with a popover menu (Settings, Sign out).
 // Lives in its own component so every sidebar in the app can drop it in
 // without copying the click-outside / flyout machinery.
 const settingsStore = useSettingsStore()
 const authStore = useAuthStore()
+const uiStore = useUiStore()
 const router = useRouter()
 const { user } = storeToRefs(authStore)
+const { theme } = storeToRefs(uiStore)
 
 const open = ref(false)
 const root = ref<HTMLElement | null>(null)
@@ -46,6 +49,11 @@ async function signOut() {
   await authStore.logout()
   router.replace('/login')
 }
+
+function toggleTheme() {
+  uiStore.toggleTheme()
+  close()
+}
 </script>
 
 <template>
@@ -55,6 +63,10 @@ async function signOut() {
         <button class="user-menu-item" role="menuitem" @click="openSettings">
           <AppIcon name="settings" :size="16" />
           <span>Settings</span>
+        </button>
+        <button class="user-menu-item" role="menuitem" @click="toggleTheme">
+          <AppIcon :name="theme === 'dark' ? 'sun' : 'moon'" :size="16" />
+          <span>{{ theme === 'dark' ? 'Light mode' : 'Dark mode' }}</span>
         </button>
         <button class="user-menu-item" role="menuitem" @click="signOut">
           <AppIcon name="archive" :size="16" />

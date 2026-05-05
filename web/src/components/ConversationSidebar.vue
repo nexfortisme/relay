@@ -10,7 +10,6 @@ const props = defineProps<{
   generatingConversationId: string | null;
   selectedConversationId: string | null;
   showArchived: boolean;
-  theme: "dark" | "light";
 }>();
 
 defineEmits<{
@@ -22,7 +21,6 @@ defineEmits<{
   select: [conversationId: string];
   toggleArchived: [];
   toggleCollapse: [];
-  toggleTheme: [];
 }>();
 
 const activeConversations = computed(() =>
@@ -92,13 +90,6 @@ onBeforeUnmount(() => {
           @click="$emit('toggleArchived')"
         >
           <AppIcon name="archive" />
-        </button>
-        <button
-          class="control-btn"
-          :title="theme === 'dark' ? 'Light mode' : 'Dark mode'"
-          @click="$emit('toggleTheme')"
-        >
-          <AppIcon :name="theme === 'dark' ? 'sun' : 'moon'" />
         </button>
       </div>
     </div>
@@ -262,7 +253,7 @@ onBeforeUnmount(() => {
 
 .sidebar-controls {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: 1fr;
   gap: 0.45rem;
 }
 
