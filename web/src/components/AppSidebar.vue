@@ -22,7 +22,7 @@ type NavItem = {
 }
 
 const navItems: NavItem[] = [
-  { to: '/', label: 'Home', icon: 'sparkles', enabled: true },
+  { to: '/home', label: 'Home', icon: 'sparkles', enabled: true },
   { to: '/chat', label: 'Chat', icon: 'sparkles', enabled: true },
   { to: '/notebooks', label: 'Notebooks', icon: 'file', enabled: false },
   { to: '/scheduled', label: 'Scheduled', icon: 'clock', enabled: false },
@@ -44,7 +44,7 @@ function selectConversation(conversationId: string) {
 <template>
   <aside class="home-sidebar">
     <div class="home-sidebar-header">
-      <button class="home-logo" @click="router.push('/')">
+      <button class="home-logo" @click="router.push('/home')">
         <PrismLogo />
         <span>Relay</span>
       </button>

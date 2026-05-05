@@ -47,7 +47,7 @@ describe('App', () => {
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
-        { path: '/', component: HomeView },
+        { path: '/home', component: HomeView },
         { path: '/chat', component: ChatView },
       ],
     })
