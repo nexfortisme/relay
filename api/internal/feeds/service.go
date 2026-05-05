@@ -17,9 +17,12 @@ import (
 )
 
 const (
-	defaultPollingMinutes = 30
-	minPollingMinutes     = 5
-	schedulerInterval     = 30 * time.Second
+	defaultPollingMinutes     = 30
+	defaultSummaryTargetChars = 150
+	maxSummaryTargetChars     = 320
+	minPollingMinutes         = 5
+	minSummaryTargetChars     = 80
+	schedulerInterval         = 30 * time.Second
 )
 
 var ErrVideoSummaryUnsupported = errors.New("video feed items cannot be summarized")
@@ -194,7 +197,7 @@ func (s *Service) PatchItem(ctx context.Context, userID, itemID string, patch It
 	return s.store.UpdateFeedItemFlags(ctx, userID, itemID, patch.Read, patch.Starred)
 }
 
-func (s *Service) SummarizeItem(ctx context.Context, userID, itemID, mode string) (store.FeedItem, error) {
+func (s *Service) SummarizeItem(ctx context.Context, userID, itemID, mode string, targetCharacters ...int) (store.FeedItem, error) {
 	mode = normalizeSummaryMode(mode)
 	item, err := s.store.GetFeedItem(ctx, userID, itemID)
 	if err != nil {
@@ -209,7 +212,7 @@ func (s *Service) SummarizeItem(ctx context.Context, userID, itemID, mode string
 	defer s.releaseSummarySlot()
 
 	_ = s.store.SetFeedItemSummaryStatus(context.Background(), userID, itemID, "working", "")
-	summary, err := s.generateSummary(ctx, userID, item, mode)
+	summary, err := s.generateSummary(ctx, userID, item, mode, firstTargetCharacters(targetCharacters))
 	if err != nil {
 		_ = s.store.SetFeedItemSummaryStatus(context.Background(), userID, itemID, "error", err.Error())
 		return store.FeedItem{}, err
@@ -388,7 +391,7 @@ func (s *Service) releaseSummarySlot() {
 	}
 }
 
-func (s *Service) generateSummary(ctx context.Context, userID string, item store.FeedItem, mode string) (string, error) {
+func (s *Service) generateSummary(ctx context.Context, userID string, item store.FeedItem, mode string, targetCharacters int) (string, error) {
 	settings := s.settings(ctx, userID)
 	if strings.TrimSpace(settings.LLMURL) == "" || strings.TrimSpace(settings.LLMModel) == "" {
 		return "", fmt.Errorf("LLM settings are required for summaries")
@@ -401,7 +404,7 @@ func (s *Service) generateSummary(ctx context.Context, userID string, item store
 	messages := []llm.ChatMessage{
 		{
 			Role:    "system",
-			Content: summarySystemPrompt(mode),
+			Content: summarySystemPrompt(mode, targetCharacters),
 		},
 		{
 			Role: "user",
@@ -457,13 +460,34 @@ func (s *Service) generateFeedName(ctx context.Context, userID string, parsed Pa
 	return clampText(strings.Trim(builder.String(), "\"' \n\t"), 80)
 }
 
-func summarySystemPrompt(mode string) string {
+func summarySystemPrompt(mode string, targetCharacters int) string {
 	switch mode {
 	case "expanded":
 		return "Summarize this feed item for a reader. Use a short heading and 4 to 6 concise bullets. Focus on concrete facts and useful context."
 	default:
-		return "Summarize this feed item for a reader in 2 to 4 concise bullets. Focus on concrete facts and avoid speculation."
+		target := normalizeSummaryTargetCharacters(targetCharacters)
+		return fmt.Sprintf("Write a concise plain-text description of this feed item for an inbox preview. Aim for about %d characters so it fills a single preview line. Return only the description, with no markdown. Focus on concrete facts and avoid speculation.", target)
 	}
+}
+
+func firstTargetCharacters(values []int) int {
+	if len(values) == 0 {
+		return 0
+	}
+	return values[0]
+}
+
+func normalizeSummaryTargetCharacters(value int) int {
+	if value <= 0 {
+		return defaultSummaryTargetChars
+	}
+	if value < minSummaryTargetChars {
+		return minSummaryTargetChars
+	}
+	if value > maxSummaryTargetChars {
+		return maxSummaryTargetChars
+	}
+	return value
 }
 
 func normalizeSummaryMode(mode string) string {
