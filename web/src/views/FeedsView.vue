@@ -642,7 +642,7 @@ function vimeoEmbedUrl(rawUrl: string): string {
                 <strong>{{ item.title }}</strong>
                 <span class="item-badges">
                   <span v-if="isVideoItem(item)" class="item-badge">Video</span>
-                  <AppIcon v-if="item.starred" name="star" :size="14" />
+                  <AppIcon v-if="item.starred" class="item-star-icon" name="star" :size="14" filled />
                 </span>
               </span>
               <span class="item-meta">{{ itemMeta(item) }}</span>
@@ -694,12 +694,14 @@ function vimeoEmbedUrl(rawUrl: string): string {
                   Expand
                 </button>
                 <button
-                  class="icon-btn"
+                  class="icon-btn star-action"
+                  :class="{ 'star-action--active': selectedItem.starred }"
                   type="button"
                   :title="selectedItem.starred ? 'Unstar item' : 'Star item'"
+                  :aria-pressed="selectedItem.starred"
                   @click="toggleSelectedStar"
                 >
-                  <AppIcon name="star" :size="16" />
+                  <AppIcon name="star" :size="16" :filled="selectedItem.starred" />
                 </button>
                 <button class="icon-btn" type="button" title="Save to notebook" disabled>
                   <AppIcon name="book" :size="16" />
@@ -981,6 +983,16 @@ function vimeoEmbedUrl(rawUrl: string): string {
   display: inline-grid;
   place-items: center;
   flex: 0 0 auto;
+}
+
+.star-action--active {
+  color: #d99a00;
+  border-color: color-mix(in srgb, #d99a00 55%, var(--border));
+  background: color-mix(in srgb, #d99a00 13%, var(--surface));
+}
+
+.star-action--active:hover {
+  background: color-mix(in srgb, #d99a00 18%, var(--surface-hover));
 }
 
 .refresh-action {
@@ -1305,6 +1317,10 @@ function vimeoEmbedUrl(rawUrl: string): string {
   align-items: center;
   gap: 0.35rem;
   flex: 0 0 auto;
+}
+
+.item-star-icon {
+  color: #d99a00;
 }
 
 .item-badge {

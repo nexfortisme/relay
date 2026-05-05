@@ -27,12 +27,14 @@ defineProps<{
     | 'trash'
     | 'x'
   size?: number
+  filled?: boolean
 }>()
 </script>
 
 <template>
   <svg
     class="app-icon"
+    :class="{ 'app-icon--filled': filled }"
     :width="size ?? 18"
     :height="size ?? 18"
     viewBox="0 0 24 24"
@@ -164,5 +166,9 @@ defineProps<{
 .app-icon {
   display: block;
   flex: 0 0 auto;
+}
+
+.app-icon--filled {
+  fill: currentColor;
 }
 </style>

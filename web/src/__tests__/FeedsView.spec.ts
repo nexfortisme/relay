@@ -200,6 +200,22 @@ describe('FeedsView', () => {
     expect(listFeedItems).toHaveBeenLastCalledWith('all', 'feed-1')
   })
 
+  it('shows an active yellow filled star after starring an item', async () => {
+    vi.mocked(updateFeedItem).mockResolvedValueOnce({ ...item, starred: true })
+    const wrapper = mountFeeds()
+    await flushPromises()
+
+    await wrapper.find('.item-row').trigger('click')
+    await flushPromises()
+    await wrapper.find('.star-action').trigger('click')
+    await flushPromises()
+
+    expect(updateFeedItem).toHaveBeenCalledWith('item-1', { starred: true })
+    expect(wrapper.find('.star-action--active').exists()).toBe(true)
+    expect(wrapper.find('.star-action').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.find('.item-star-icon').exists()).toBe(true)
+  })
+
   it('disables summary controls for video items', async () => {
     vi.mocked(getFeedItem).mockResolvedValueOnce({
       ...item,
