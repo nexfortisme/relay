@@ -133,6 +133,7 @@ describe('FeedsView', () => {
     await flushPromises()
 
     expect(updateFeedItem).toHaveBeenCalledWith('item-1', { read: true })
+    expect(wrapper.find('.item-row').classes()).toContain('item-row--read-dimmed')
   })
 
   it('disables summary controls for video items', async () => {

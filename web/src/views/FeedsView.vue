@@ -552,6 +552,7 @@ function vimeoEmbedUrl(rawUrl: string): string {
               :class="{
                 'item-row--selected': selectedItemId === item.id,
                 'item-row--read': item.read,
+                'item-row--read-dimmed': activeView === 'unread' && item.read,
               }"
               type="button"
               @click="selectItem(item)"
@@ -1102,10 +1103,18 @@ function vimeoEmbedUrl(rawUrl: string): string {
   border-radius: 0;
   border-width: 0 0 1px;
   border-color: var(--border);
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    opacity 0.18s ease;
 }
 
 .item-row--read {
   color: var(--muted);
+}
+
+.item-row--read-dimmed {
+  opacity: 0.52;
 }
 
 .item-title-line {
