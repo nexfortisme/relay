@@ -119,15 +119,21 @@ type HTTPProvider struct {
 	baseURL         string
 	model           string
 	apiKey          string
+	reasoningEffort string
 	client          *http.Client
 	responseTimeout time.Duration
 }
 
 func NewHTTPProvider(baseURL string, model string, apiKey string, responseTimeout time.Duration) *HTTPProvider {
+	return NewHTTPProviderWithReasoningEffort(baseURL, model, apiKey, responseTimeout, "")
+}
+
+func NewHTTPProviderWithReasoningEffort(baseURL string, model string, apiKey string, responseTimeout time.Duration, reasoningEffort string) *HTTPProvider {
 	return &HTTPProvider{
 		baseURL:         strings.TrimSuffix(baseURL, "/"),
 		model:           model,
 		apiKey:          strings.TrimSpace(apiKey),
+		reasoningEffort: strings.TrimSpace(reasoningEffort),
 		responseTimeout: responseTimeout,
 		client:          &http.Client{},
 	}
@@ -152,12 +158,13 @@ func (p *HTTPProvider) GenerateStream(ctx context.Context, messages []ChatMessag
 }
 
 type chatRequest struct {
-	Model         string         `json:"model"`
-	Messages      []ChatMessage  `json:"messages"`
-	Stream        bool           `json:"stream"`
-	StreamOptions *streamOptions `json:"stream_options,omitempty"`
-	Tools         []openAITool   `json:"tools,omitempty"`
-	ToolChoice    string         `json:"tool_choice,omitempty"`
+	Model           string         `json:"model"`
+	Messages        []ChatMessage  `json:"messages"`
+	Stream          bool           `json:"stream"`
+	StreamOptions   *streamOptions `json:"stream_options,omitempty"`
+	Tools           []openAITool   `json:"tools,omitempty"`
+	ToolChoice      string         `json:"tool_choice,omitempty"`
+	ReasoningEffort string         `json:"reasoning_effort,omitempty"`
 }
 
 type streamOptions struct {
@@ -305,12 +312,13 @@ type llmResponse struct {
 
 func (p *HTTPProvider) generateStream(parentCtx, respCtx context.Context, messages []ChatMessage, requestTools []openAITool, out chan<- TokenEvent) (llmResponse, bool, error) {
 	payload, err := json.Marshal(chatRequest{
-		Model:         p.model,
-		Messages:      messages,
-		Stream:        true,
-		StreamOptions: &streamOptions{IncludeUsage: true},
-		Tools:         requestTools,
-		ToolChoice:    toolChoice(requestTools),
+		Model:           p.model,
+		Messages:        messages,
+		Stream:          true,
+		StreamOptions:   &streamOptions{IncludeUsage: true},
+		Tools:           requestTools,
+		ToolChoice:      toolChoice(requestTools),
+		ReasoningEffort: p.reasoningEffort,
 	})
 	if err != nil {
 		return llmResponse{}, false, fmt.Errorf("marshal request: %w", err)
@@ -445,11 +453,12 @@ func (p *HTTPProvider) consumeSSE(parentCtx, respCtx context.Context, body io.Re
 
 func (p *HTTPProvider) consumeSingleJSON(ctx context.Context, messages []ChatMessage, requestTools []openAITool) (llmResponse, error) {
 	payload, err := json.Marshal(chatRequest{
-		Model:      p.model,
-		Messages:   messages,
-		Stream:     false,
-		Tools:      requestTools,
-		ToolChoice: toolChoice(requestTools),
+		Model:           p.model,
+		Messages:        messages,
+		Stream:          false,
+		Tools:           requestTools,
+		ToolChoice:      toolChoice(requestTools),
+		ReasoningEffort: p.reasoningEffort,
 	})
 	if err != nil {
 		return llmResponse{}, fmt.Errorf("marshal fallback request: %w", err)
