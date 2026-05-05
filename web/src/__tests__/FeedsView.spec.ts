@@ -182,6 +182,7 @@ describe('FeedsView', () => {
     await flushPromises()
 
     expect(updateFeedItem).toHaveBeenCalledWith('item-1', { read: true })
+    expect(wrapper.find('.item-row').classes()).toContain('item-row--read-dimmed')
   })
 
   it('can show all items for an individual feed', async () => {
