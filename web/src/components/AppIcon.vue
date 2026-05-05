@@ -2,13 +2,16 @@
 defineProps<{
   name:
     | 'archive'
+    | 'book'
     | 'chevron-left'
     | 'chevron-right'
     | 'check'
     | 'clock'
     | 'copy'
     | 'download'
+    | 'external-link'
     | 'file'
+    | 'inbox'
     | 'moon'
     | 'paperclip'
     | 'pencil'
@@ -18,6 +21,7 @@ defineProps<{
     | 'send'
     | 'settings'
     | 'square'
+    | 'star'
     | 'sparkles'
     | 'sun'
     | 'trash'
@@ -44,6 +48,10 @@ defineProps<{
       <path d="M10 12h4" />
       <path d="M22 3H2v5h20z" />
     </template>
+    <template v-else-if="name === 'book'">
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z" />
+    </template>
     <template v-else-if="name === 'chevron-left'">
       <path d="m15 18-6-6 6-6" />
     </template>
@@ -66,9 +74,19 @@ defineProps<{
       <polyline points="7 10 12 15 17 10" />
       <line x1="12" y1="15" x2="12" y2="3" />
     </template>
+    <template v-else-if="name === 'external-link'">
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <path d="M15 3h6v6" />
+      <path d="M10 14 21 3" />
+    </template>
     <template v-else-if="name === 'file'">
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
       <path d="M14 2v6h6" />
+    </template>
+    <template v-else-if="name === 'inbox'">
+      <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+      <path d="m5.5 5.1-3.2 7.7A2 2 0 0 0 4.2 15h15.6a2 2 0 0 0 1.9-2.2l-3.2-7.7A2 2 0 0 0 16.6 4H7.4a2 2 0 0 0-1.9 1.1z" />
+      <path d="M2 12v7a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-7" />
     </template>
     <template v-else-if="name === 'moon'">
       <path d="M20.9 13.5A8 8 0 0 1 10.5 3.1 8.7 8.7 0 1 0 20.9 13.5z" />
@@ -108,6 +126,9 @@ defineProps<{
     </template>
     <template v-else-if="name === 'square'">
       <rect x="6" y="6" width="12" height="12" rx="2" />
+    </template>
+    <template v-else-if="name === 'star'">
+      <path d="m12 2 3.1 6.3 6.9 1-5 4.8 1.2 6.9-6.2-3.3L5.8 21 7 14.1 2 9.3l6.9-1z" />
     </template>
     <template v-else-if="name === 'sparkles'">
       <path d="m12 3 1.5 3.5L17 8l-3.5 1.5L12 13l-1.5-3.5L7 8l3.5-1.5z" />

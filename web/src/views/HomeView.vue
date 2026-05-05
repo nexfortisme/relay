@@ -75,7 +75,7 @@ async function startNewChat() {
             <AppIcon name="file" :size="20" />
             <span>Notebook</span>
           </button>
-          <button class="launcher-tile" disabled title="Coming soon">
+          <button class="launcher-tile" @click="router.push('/feeds')">
             <AppIcon name="send" :size="20" />
             <span>Feeds</span>
           </button>

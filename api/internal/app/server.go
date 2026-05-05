@@ -15,6 +15,7 @@ import (
 	"github.com/nexfortisme/relay/internal/auth"
 	"github.com/nexfortisme/relay/internal/chat"
 	"github.com/nexfortisme/relay/internal/config"
+	"github.com/nexfortisme/relay/internal/feeds"
 	"github.com/nexfortisme/relay/internal/httpapi"
 	"github.com/nexfortisme/relay/internal/store"
 	"github.com/nexfortisme/relay/internal/tools"
@@ -56,11 +57,23 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 		attachments.PromptOptions{MaxImageBytes: cfg.MaxImageBytes},
 		cfg.MaxTokenCount,
 	)
-	handlers := httpapi.NewHandlers(chatService, logger, cfg.MaxUploadBytes)
+	feedService := feeds.NewService(st, func(ctx context.Context, userID string) feeds.LLMSettings {
+		settings := chatService.LoadRuntimeSettings(ctx, userID)
+		return feeds.LLMSettings{
+			LLMURL:    settings.LLMURL,
+			LLMModel:  settings.LLMModel,
+			LLMAPIKey: settings.LLMAPIKey,
+		}
+	}, logger)
+	feedCtx, stopFeeds := context.WithCancel(context.Background())
+	feedService.Start(feedCtx)
+
+	handlers := httpapi.NewHandlers(chatService, feedService, logger, cfg.MaxUploadBytes)
 
 	authSvc := auth.NewService(cfg.JWTSecret, cfg.JWTRefreshSecret)
 	rootUserID, err := httpapi.EnsureRootUser(context.Background(), st, authSvc, chatService, cfg.RootUsername, cfg.RootPassword, logger)
 	if err != nil {
+		stopFeeds()
 		_ = st.Close()
 		return nil, nil, fmt.Errorf("seed root user: %w", err)
 	}
@@ -110,11 +123,20 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 		authed.POST("/conversations/:id/messages/:messageId/requeue", handlers.RequeueMessage)
 		authed.GET("/files/:id/download", handlers.DownloadFile)
 		authed.GET("/conversations/:id/stream", handlers.StreamConversation)
+		authed.GET("/feeds", handlers.ListFeeds)
+		authed.POST("/feeds/check", handlers.CheckFeed)
+		authed.POST("/feeds", handlers.CreateFeed)
+		authed.GET("/feeds/items", handlers.ListFeedItems)
+		authed.GET("/feeds/items/:id", handlers.GetFeedItem)
+		authed.PATCH("/feeds/items/:id", handlers.UpdateFeedItem)
+		authed.POST("/feeds/items/:id/summarize", handlers.SummarizeFeedItem)
+		authed.PATCH("/feeds/:id", handlers.UpdateFeed)
 	}
 
 	registerStaticWebUI(engine, logger)
 
 	cleanup := func() {
+		stopFeeds()
 		_ = st.Close()
 	}
 

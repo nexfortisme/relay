@@ -66,13 +66,13 @@ type User struct {
 }
 
 type Session struct {
-	ID                string    `json:"id"`
-	UserID            string    `json:"userId"`
-	RefreshTokenHash  string    `json:"-"`
-	ExpiresAt         time.Time `json:"expiresAt"`
-	RememberMe        bool      `json:"rememberMe"`
-	CreatedAt         time.Time `json:"createdAt"`
-	RevokedAt         *time.Time `json:"revokedAt,omitempty"`
+	ID               string     `json:"id"`
+	UserID           string     `json:"userId"`
+	RefreshTokenHash string     `json:"-"`
+	ExpiresAt        time.Time  `json:"expiresAt"`
+	RememberMe       bool       `json:"rememberMe"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	RevokedAt        *time.Time `json:"revokedAt,omitempty"`
 }
 
 var ErrNotFound = errors.New("not found")
@@ -207,6 +207,64 @@ func (s *Store) migrate(ctx context.Context) error {
 		updated_at DATETIME NOT NULL,
 		PRIMARY KEY(user_id, key)
 		);
+
+		CREATE TABLE IF NOT EXISTS feeds (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		url TEXT NOT NULL,
+		title TEXT NOT NULL,
+		site_url TEXT NOT NULL DEFAULT '',
+		description TEXT NOT NULL DEFAULT '',
+		polling_interval_minutes INTEGER NOT NULL DEFAULT 30,
+		auto_summarize INTEGER NOT NULL DEFAULT 0,
+		auto_add_to_notebook INTEGER NOT NULL DEFAULT 0,
+		notebook_id TEXT NOT NULL DEFAULT '',
+		last_checked_at DATETIME,
+		next_check_at DATETIME NOT NULL,
+		last_error TEXT NOT NULL DEFAULT '',
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL,
+		UNIQUE(user_id, url)
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_feeds_user
+		ON feeds(user_id, title);
+
+		CREATE INDEX IF NOT EXISTS idx_feeds_due
+		ON feeds(next_check_at);
+
+		CREATE TABLE IF NOT EXISTS feed_items (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		feed_id TEXT NOT NULL,
+		external_id TEXT NOT NULL,
+		title TEXT NOT NULL,
+		url TEXT NOT NULL DEFAULT '',
+		author TEXT NOT NULL DEFAULT '',
+		published_at DATETIME,
+		preview TEXT NOT NULL DEFAULT '',
+		content TEXT NOT NULL DEFAULT '',
+		media_type TEXT NOT NULL DEFAULT '',
+		media_url TEXT NOT NULL DEFAULT '',
+		summary TEXT NOT NULL DEFAULT '',
+		summary_status TEXT NOT NULL DEFAULT '',
+		summary_error TEXT NOT NULL DEFAULT '',
+		read INTEGER NOT NULL DEFAULT 0,
+		starred INTEGER NOT NULL DEFAULT 0,
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL,
+		FOREIGN KEY(feed_id) REFERENCES feeds(id) ON DELETE CASCADE,
+		UNIQUE(feed_id, external_id)
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_feed_items_user_read
+		ON feed_items(user_id, read, published_at DESC, created_at DESC);
+
+		CREATE INDEX IF NOT EXISTS idx_feed_items_user_starred
+		ON feed_items(user_id, starred, published_at DESC, created_at DESC);
+
+		CREATE INDEX IF NOT EXISTS idx_feed_items_feed
+		ON feed_items(feed_id, published_at DESC, created_at DESC);
 	`
 
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
@@ -228,6 +286,8 @@ func (s *Store) migrate(ctx context.Context) error {
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0`)
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0`)
 	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0`)
+	_, _ = s.db.ExecContext(ctx, `ALTER TABLE feed_items ADD COLUMN media_type TEXT NOT NULL DEFAULT ''`)
+	_, _ = s.db.ExecContext(ctx, `ALTER TABLE feed_items ADD COLUMN media_url TEXT NOT NULL DEFAULT ''`)
 
 	// The old per-message attachments table has been replaced by the
 	// dedicated files + message_files tables. Drop it on first run; any

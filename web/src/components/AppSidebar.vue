@@ -27,7 +27,7 @@ const navItems: NavItem[] = [
   { to: '/notebooks', label: 'Notebooks', icon: 'file', enabled: false },
   { to: '/scheduled', label: 'Scheduled', icon: 'clock', enabled: false },
   { to: '/my-data', label: 'My Data', icon: 'archive', enabled: false },
-  { to: '/feeds', label: 'Feeds', icon: 'send', enabled: false },
+  { to: '/feeds', label: 'Feeds', icon: 'send', enabled: true },
 ]
 
 async function startNewChat() {

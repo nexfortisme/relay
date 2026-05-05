@@ -33,6 +33,80 @@ export type Message = {
   createdAt: string;
 };
 
+export type Feed = {
+  id: string;
+  url: string;
+  title: string;
+  siteUrl: string;
+  description?: string;
+  pollingIntervalMinutes: number;
+  autoSummarize: boolean;
+  autoAddToNotebook: boolean;
+  notebookId?: string;
+  lastCheckedAt?: string;
+  nextCheckAt: string;
+  lastError?: string;
+  unreadCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FeedCheckResult = {
+  url: string;
+  title: string;
+  siteUrl: string;
+  description: string;
+  itemCount: number;
+};
+
+export type FeedItem = {
+  id: string;
+  feedId: string;
+  feedTitle?: string;
+  externalId: string;
+  title: string;
+  url: string;
+  author?: string;
+  publishedAt?: string;
+  preview: string;
+  content?: string;
+  mediaType?: string;
+  mediaUrl?: string;
+  summary?: string;
+  summaryStatus?: string;
+  summaryError?: string;
+  read: boolean;
+  starred: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FeedItemView = "unread" | "starred" | "all";
+
+export type FeedBackfillRequest = {
+  mode: "latest" | "since" | "all";
+  limit?: number;
+  since?: string;
+};
+
+export type CreateFeedPayload = {
+  url: string;
+  name?: string;
+  pollingIntervalMinutes: number;
+  autoSummarize: boolean;
+  autoAddToNotebook: boolean;
+  notebookId?: string;
+  backfill: FeedBackfillRequest;
+};
+
+export type UpdateFeedPayload = Partial<{
+  name: string;
+  pollingIntervalMinutes: number;
+  autoSummarize: boolean;
+  autoAddToNotebook: boolean;
+  notebookId: string;
+}>;
+
 function normalizeCreateMessageError(rawMessage: string, includesFiles: boolean): string {
   const message = rawMessage.trim();
   const lower = message.toLowerCase();
@@ -364,4 +438,97 @@ export async function updateSettings(settings: Partial<Settings>): Promise<Setti
 
 export function fileDownloadUrl(fileId: string): string {
   return `${API_BASE}/files/${fileId}/download`;
+}
+
+export async function listFeeds(): Promise<Feed[]> {
+  const data = await fetchJson<{ items: Feed[] }>("/feeds", undefined, "Failed to load feeds");
+  return data.items;
+}
+
+export async function checkFeed(url: string): Promise<FeedCheckResult> {
+  return fetchJson<FeedCheckResult>(
+    "/feeds/check",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    },
+    "Failed to check feed",
+  );
+}
+
+export async function createFeed(
+  payload: CreateFeedPayload,
+): Promise<{ feed: Feed; items: FeedItem[] }> {
+  return fetchJson<{ feed: Feed; items: FeedItem[] }>(
+    "/feeds",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Failed to add feed",
+  );
+}
+
+export async function updateFeed(feedId: string, payload: UpdateFeedPayload): Promise<Feed> {
+  return fetchJson<Feed>(
+    `/feeds/${feedId}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Failed to update feed",
+  );
+}
+
+export async function listFeedItems(
+  view: FeedItemView,
+  feedId?: string | null,
+): Promise<FeedItem[]> {
+  const params = new URLSearchParams({ view });
+  if (feedId) {
+    params.set("feedId", feedId);
+  }
+  const data = await fetchJson<{ items: FeedItem[] }>(
+    `/feeds/items?${params.toString()}`,
+    undefined,
+    "Failed to load feed items",
+  );
+  return data.items;
+}
+
+export async function getFeedItem(itemId: string): Promise<FeedItem> {
+  return fetchJson<FeedItem>(`/feeds/items/${itemId}`, undefined, "Failed to load feed item");
+}
+
+export async function updateFeedItem(
+  itemId: string,
+  payload: Partial<Pick<FeedItem, "read" | "starred">>,
+): Promise<FeedItem> {
+  return fetchJson<FeedItem>(
+    `/feeds/items/${itemId}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Failed to update feed item",
+  );
+}
+
+export async function summarizeFeedItem(
+  itemId: string,
+  mode: "summary" | "resummary" | "expanded",
+): Promise<FeedItem> {
+  return fetchJson<FeedItem>(
+    `/feeds/items/${itemId}/summarize`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
+    },
+    "Failed to summarize feed item",
+  );
 }
