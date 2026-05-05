@@ -53,6 +53,7 @@ func TestFeedHandlersCreateListPatchAndIsolateUsers(t *testing.T) {
 	router.GET("/feeds", handlers.ListFeeds)
 	router.GET("/feeds/items", handlers.ListFeedItems)
 	router.PATCH("/feeds/items/:id", handlers.UpdateFeedItem)
+	router.DELETE("/feeds/:id", handlers.DeleteFeed)
 
 	createBody := strings.NewReader(`{"url":"` + feedServer.URL + `/rss.xml","backfill":{"mode":"latest","limit":1},"pollingIntervalMinutes":30}`)
 	createReq := httptest.NewRequest(http.MethodPost, "/feeds", createBody)
@@ -126,6 +127,34 @@ func TestFeedHandlersCreateListPatchAndIsolateUsers(t *testing.T) {
 	}
 	if len(unreadPayload.Items) != 0 {
 		t.Fatalf("expected read item removed from unread view, got %#v", unreadPayload.Items)
+	}
+
+	otherUserDeleteReq := httptest.NewRequest(http.MethodDelete, "/feeds/"+listFeedsPayload.Items[0].ID, nil)
+	otherUserDeleteReq.Header.Set("X-User-ID", "user-2")
+	otherUserDeleteRes := httptest.NewRecorder()
+	router.ServeHTTP(otherUserDeleteRes, otherUserDeleteReq)
+	if otherUserDeleteRes.Code != http.StatusNotFound {
+		t.Fatalf("other user delete status=%d body=%s", otherUserDeleteRes.Code, otherUserDeleteRes.Body.String())
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/feeds/"+listFeedsPayload.Items[0].ID, nil)
+	deleteRes := httptest.NewRecorder()
+	router.ServeHTTP(deleteRes, deleteReq)
+	if deleteRes.Code != http.StatusNoContent {
+		t.Fatalf("delete feed status=%d body=%s", deleteRes.Code, deleteRes.Body.String())
+	}
+
+	itemsAfterDeleteReq := httptest.NewRequest(http.MethodGet, "/feeds/items?view=all", nil)
+	itemsAfterDeleteRes := httptest.NewRecorder()
+	router.ServeHTTP(itemsAfterDeleteRes, itemsAfterDeleteReq)
+	var itemsAfterDeletePayload struct {
+		Items []store.FeedItem `json:"items"`
+	}
+	if err := json.Unmarshal(itemsAfterDeleteRes.Body.Bytes(), &itemsAfterDeletePayload); err != nil {
+		t.Fatalf("decode items after delete response: %v", err)
+	}
+	if len(itemsAfterDeletePayload.Items) != 0 {
+		t.Fatalf("expected feed delete to remove items, got %#v", itemsAfterDeletePayload.Items)
 	}
 }
 

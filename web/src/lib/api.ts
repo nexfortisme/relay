@@ -483,6 +483,10 @@ export async function updateFeed(feedId: string, payload: UpdateFeedPayload): Pr
   );
 }
 
+export async function deleteFeed(feedId: string): Promise<void> {
+  await fetchNoContent(`/feeds/${feedId}`, { method: "DELETE" }, "Failed to delete feed");
+}
+
 export async function listFeedItems(
   view: FeedItemView,
   feedId?: string | null,

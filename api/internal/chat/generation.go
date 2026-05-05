@@ -6,13 +6,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nexfortisme/relay/internal/auth"
 	"github.com/nexfortisme/relay/internal/llm"
 	"github.com/nexfortisme/relay/internal/prompts"
 	"github.com/nexfortisme/relay/internal/tools"
 )
 
-func (s *Service) generateAssistant(conversationID string, assistantMessageID string, messages []llm.ChatMessage, settings RuntimeSettings) {
-	ctx, cancel := context.WithCancel(context.Background())
+func (s *Service) generateAssistant(userID string, conversationID string, assistantMessageID string, messages []llm.ChatMessage, settings RuntimeSettings) {
+	ctx, cancel := context.WithCancel(auth.ContextWithUserID(context.Background(), userID))
 	defer cancel()
 	s.registerCancel(conversationID, cancel)
 	defer s.unregisterCancel(conversationID)
