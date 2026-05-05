@@ -21,6 +21,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /out/relay ./main.go
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
 
+# Slim image has no default CA bundle; HTTPS (e.g. outbound RSS) fails with x509: unknown authority.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN mkdir -p /data
 
 COPY --from=api-builder /out/relay /app/relay
