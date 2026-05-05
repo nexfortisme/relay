@@ -160,6 +160,7 @@ func registerStaticWebUI(engine *gin.Engine, logger *slog.Logger) {
 
 	engine.Static("/assets", filepath.Join(distDir, "assets"))
 	engine.StaticFile("/favicon.ico", filepath.Join(distDir, "favicon.ico"))
+	engine.StaticFile("/favicon.svg", filepath.Join(distDir, "favicon.svg"))
 	engine.StaticFile("/apple-touch-icon.png", filepath.Join(distDir, "apple-touch-icon.png"))
 	engine.StaticFile("/favicon-96x96.png", filepath.Join(distDir, "favicon-96x96.png"))
 	engine.StaticFile("/site.webmanifest", filepath.Join(distDir, "site.webmanifest"))
