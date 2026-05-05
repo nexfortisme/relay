@@ -17,7 +17,7 @@ import (
 
 type AuthHandlers struct {
 	store        *store.Store
-	auth         *auth.Service
+	auth         *auth.AuthService
 	chat         *chat.Service
 	logger       *slog.Logger
 	cookieDomain string
@@ -26,7 +26,7 @@ type AuthHandlers struct {
 	disabledUser string
 }
 
-func NewAuthHandlers(st *store.Store, authSvc *auth.Service, chatSvc *chat.Service, logger *slog.Logger, cookieSecure, disableAuth bool, disabledUserID string) *AuthHandlers {
+func NewAuthHandlers(st *store.Store, authSvc *auth.AuthService, chatSvc *chat.Service, logger *slog.Logger, cookieSecure, disableAuth bool, disabledUserID string) *AuthHandlers {
 	return &AuthHandlers{
 		store:        st,
 		auth:         authSvc,
@@ -305,7 +305,7 @@ func userIDFromGin(c *gin.Context) (string, bool) {
 // exist, so a fresh dev DB can always be logged into without a manual
 // registration step. The credentials come from config; rotate them before
 // deploying anywhere real.
-func EnsureRootUser(ctx context.Context, st *store.Store, authSvc *auth.Service, chatSvc *chat.Service, username, password string, logger *slog.Logger) (string, error) {
+func EnsureRootUser(ctx context.Context, st *store.Store, authSvc *auth.AuthService, chatSvc *chat.Service, username, password string, logger *slog.Logger) (string, error) {
 	username = strings.ToLower(strings.TrimSpace(username))
 	if username == "" {
 		username = "root"

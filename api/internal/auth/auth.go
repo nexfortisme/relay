@@ -29,13 +29,13 @@ var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 )
 
-type Service struct {
+type AuthService struct {
 	jwtSecret     []byte
 	refreshSecret []byte
 }
 
-func NewService(jwtSecret, refreshSecret string) *Service {
-	return &Service{
+func NewService(jwtSecret, refreshSecret string) *AuthService {
+	return &AuthService{
 		jwtSecret:     []byte(jwtSecret),
 		refreshSecret: []byte(refreshSecret),
 	}
@@ -49,7 +49,7 @@ type AccessClaims struct {
 	jwt.RegisteredClaims
 }
 
-func (s *Service) HashPassword(password string) (string, error) {
+func (s *AuthService) HashPassword(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return "", fmt.Errorf("hash password: %w", err)
@@ -57,11 +57,11 @@ func (s *Service) HashPassword(password string) (string, error) {
 	return string(hash), nil
 }
 
-func (s *Service) VerifyPassword(hash, password string) bool {
+func (s *AuthService) VerifyPassword(hash, password string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 
-func (s *Service) IssueAccessToken(userID string, now time.Time) (string, time.Time, error) {
+func (s *AuthService) IssueAccessToken(userID string, now time.Time) (string, time.Time, error) {
 	expiresAt := now.Add(AccessTokenTTL)
 	claims := AccessClaims{
 		UserID: userID,
@@ -79,7 +79,7 @@ func (s *Service) IssueAccessToken(userID string, now time.Time) (string, time.T
 	return signed, expiresAt, nil
 }
 
-func (s *Service) ParseAccessToken(token string) (string, error) {
+func (s *AuthService) ParseAccessToken(token string) (string, error) {
 	claims := &AccessClaims{}
 	parsed, err := jwt.ParseWithClaims(token, claims, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -96,7 +96,7 @@ func (s *Service) ParseAccessToken(token string) (string, error) {
 // IssueRefreshToken returns a new opaque refresh token and a deterministic
 // hash to store. The plaintext is given to the client; the hash is what the
 // server keeps so a leaked DB never reveals usable tokens.
-func (s *Service) IssueRefreshToken() (plaintext, hash string, err error) {
+func (s *AuthService) IssueRefreshToken() (plaintext, hash string, err error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
 		return "", "", fmt.Errorf("generate refresh token: %w", err)
@@ -108,7 +108,7 @@ func (s *Service) IssueRefreshToken() (plaintext, hash string, err error) {
 // HashRefreshToken keys refresh tokens by HMAC-style hash with the refresh
 // secret. Using SHA-256 over (secret || token) lets us look up by hash in O(1)
 // while still binding the hash to the deployment's secret.
-func (s *Service) HashRefreshToken(plaintext string) string {
+func (s *AuthService) HashRefreshToken(plaintext string) string {
 	h := sha256.New()
 	h.Write(s.refreshSecret)
 	h.Write([]byte(plaintext))

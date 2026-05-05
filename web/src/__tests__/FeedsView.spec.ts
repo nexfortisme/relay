@@ -57,6 +57,14 @@ const item: FeedItem = {
   updatedAt: new Date().toISOString(),
 }
 
+const secondItem: FeedItem = {
+  ...item,
+  id: 'item-2',
+  externalId: 'guid-2',
+  title: 'Second post',
+  url: 'https://example.com/second',
+}
+
 function mockApi() {
   vi.mocked(listFeeds).mockResolvedValue([feed])
   vi.mocked(listFeedItems).mockImplementation(async (view) => {
@@ -122,6 +130,47 @@ describe('FeedsView', () => {
     expect((wrapper.find('#feed-name').element as HTMLInputElement).value).toBe(feed.title)
   })
 
+  it('shows progress and a count after manually refreshing feed items', async () => {
+    const wrapper = mountFeeds()
+    await flushPromises()
+
+    let resolveRefresh: (items: FeedItem[]) => void = () => {}
+    vi.mocked(listFeedItems).mockImplementationOnce(
+      () =>
+        new Promise<FeedItem[]>((resolve) => {
+          resolveRefresh = resolve
+        }),
+    )
+
+    const refreshButton = wrapper.find('.refresh-action')
+    await refreshButton.trigger('click')
+
+    expect((refreshButton.element as HTMLButtonElement).disabled).toBe(true)
+    expect(wrapper.find('.refresh-icon--spinning').exists()).toBe(true)
+
+    resolveRefresh([item, secondItem])
+    await flushPromises()
+
+    expect((refreshButton.element as HTMLButtonElement).disabled).toBe(false)
+    expect(wrapper.find('.feed-snackbar').text()).toBe('2 items found.')
+
+    wrapper.unmount()
+  })
+
+  it('says nothing was found after a manual refresh returns no feed items', async () => {
+    const wrapper = mountFeeds()
+    await flushPromises()
+
+    vi.mocked(listFeedItems).mockResolvedValueOnce([])
+
+    await wrapper.find('.refresh-action').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.feed-snackbar').text()).toBe('Nothing was found.')
+
+    wrapper.unmount()
+  })
+
   it('marks an opened unread item as read after five seconds', async () => {
     vi.useFakeTimers()
     const wrapper = mountFeeds()
@@ -133,6 +182,22 @@ describe('FeedsView', () => {
     await flushPromises()
 
     expect(updateFeedItem).toHaveBeenCalledWith('item-1', { read: true })
+    expect(wrapper.find('.item-row').classes()).toContain('item-row--read-dimmed')
+  })
+
+  it('can show all items for an individual feed', async () => {
+    const wrapper = mountFeeds()
+    await flushPromises()
+
+    vi.mocked(listFeedItems).mockClear()
+    await wrapper.find('.feed-main').trigger('click')
+    await flushPromises()
+
+    expect(listFeedItems).toHaveBeenLastCalledWith('unread', 'feed-1')
+    await wrapper.find('.feed-view-toggle input').setValue(true)
+    await flushPromises()
+
+    expect(listFeedItems).toHaveBeenLastCalledWith('all', 'feed-1')
   })
 
   it('shows an active yellow filled star after starring an item', async () => {

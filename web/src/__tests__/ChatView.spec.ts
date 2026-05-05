@@ -3,7 +3,7 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import ChatView from '../views/ChatView.vue'
-import { useAppStore } from '../stores/appStore'
+import { useChatStore } from '../stores/chatStore'
 
 vi.mock('../lib/api', () => ({
   archiveConversation: vi.fn<() => void>(),
@@ -58,7 +58,7 @@ describe('ChatView stream lifecycle', () => {
     await router.push('/chat')
     await router.isReady()
 
-    const store = useAppStore()
+    const store = useChatStore()
     await store.selectConversation('conv-1')
     const socket = MockWebSocket.instances[0]
     if (!socket) {

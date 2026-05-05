@@ -19,13 +19,13 @@ import {
   type FeedItemView,
 } from '../lib/api'
 import { renderMarkdown } from '../lib/markdown'
-import { useAppStore } from '../stores/appStore'
+import { useUiStore } from '../stores/uiStore'
 
 type BackfillMode = 'latest' | 'since' | 'all'
 type SummaryMode = 'summary' | 'resummary' | 'expanded'
 
-const appStore = useAppStore()
-const { isSidebarCollapsed } = storeToRefs(appStore)
+const uiStore = useUiStore()
+const { isSidebarCollapsed } = storeToRefs(uiStore)
 
 const feeds = ref<Feed[]>([])
 const items = ref<FeedItem[]>([])
@@ -37,9 +37,11 @@ const starredCount = ref(0)
 const feedSearch = ref('')
 const feedsLoading = ref(false)
 const itemsLoading = ref(false)
+const manualRefreshLoading = ref(false)
 const feedError = ref('')
 const itemError = ref('')
 const summarizingMode = ref<SummaryMode | null>(null)
+const snackbarMessage = ref('')
 
 const showFeedDialog = ref(false)
 const editingFeed = ref<Feed | null>(null)
@@ -61,6 +63,7 @@ const feedForm = reactive({
 })
 
 let readTimer: ReturnType<typeof setTimeout> | null = null
+let snackbarTimer: ReturnType<typeof setTimeout> | null = null
 const pendingReadRemovalId = ref<string | null>(null)
 
 const totalUnread = computed(() =>
@@ -74,6 +77,9 @@ const filteredFeeds = computed(() => {
   return feeds.value.filter((feed) => feed.title.toLowerCase().includes(query))
 })
 const activeFeed = computed(() => feeds.value.find((feed) => feed.id === selectedFeedId.value))
+const selectedFeedShowsAll = computed(
+  () => selectedFeedId.value !== null && activeView.value === 'all',
+)
 const itemListTitle = computed(() => {
   if (activeFeed.value) {
     return activeFeed.value.title
@@ -99,6 +105,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   clearReadTimer()
+  clearSnackbarTimer()
   commitPendingReadRemoval()
 })
 
@@ -123,7 +130,7 @@ async function refreshStarredCount() {
   }
 }
 
-async function refreshItems() {
+async function refreshItems(): Promise<FeedItem[] | null> {
   commitPendingReadRemoval()
   clearReadTimer()
   selectedItem.value = null
@@ -131,11 +138,29 @@ async function refreshItems() {
   itemsLoading.value = true
   itemError.value = ''
   try {
-    items.value = await listFeedItems(activeView.value, selectedFeedId.value)
+    const refreshedItems = await listFeedItems(activeView.value, selectedFeedId.value)
+    items.value = refreshedItems
+    return refreshedItems
   } catch (error) {
     itemError.value = error instanceof Error ? error.message : 'Failed to load feed items'
+    return null
   } finally {
     itemsLoading.value = false
+  }
+}
+
+async function refreshItemsWithFeedback() {
+  if (manualRefreshLoading.value) {
+    return
+  }
+  manualRefreshLoading.value = true
+  try {
+    const refreshedItems = await refreshItems()
+    if (refreshedItems) {
+      showSnackbar(refreshResultMessage(refreshedItems.length))
+    }
+  } finally {
+    manualRefreshLoading.value = false
   }
 }
 
@@ -148,6 +173,14 @@ async function chooseView(view: FeedItemView) {
 async function chooseFeed(feedId: string) {
   activeView.value = 'unread'
   selectedFeedId.value = selectedFeedId.value === feedId ? null : feedId
+  await refreshItems()
+}
+
+async function toggleSelectedFeedAll() {
+  if (!selectedFeedId.value) {
+    return
+  }
+  activeView.value = selectedFeedShowsAll.value ? 'unread' : 'all'
   await refreshItems()
 }
 
@@ -210,6 +243,33 @@ function clearReadTimer() {
   }
   clearTimeout(readTimer)
   readTimer = null
+}
+
+function refreshResultMessage(count: number): string {
+  if (count === 0) {
+    return 'Nothing was found.'
+  }
+  if (count === 1) {
+    return '1 item found.'
+  }
+  return `${count} items found.`
+}
+
+function showSnackbar(message: string) {
+  clearSnackbarTimer()
+  snackbarMessage.value = message
+  snackbarTimer = setTimeout(() => {
+    snackbarMessage.value = ''
+    snackbarTimer = null
+  }, 3200)
+}
+
+function clearSnackbarTimer() {
+  if (!snackbarTimer) {
+    return
+  }
+  clearTimeout(snackbarTimer)
+  snackbarTimer = null
 }
 
 async function toggleSelectedStar() {
@@ -453,7 +513,7 @@ function vimeoEmbedUrl(rawUrl: string): string {
       class="mobile-sidebar-backdrop"
       type="button"
       aria-label="Close sidebar"
-      @click="appStore.toggleSidebarCollapsed"
+      @click="uiStore.toggleSidebarCollapsed"
     />
 
     <section class="feeds-shell">
@@ -464,8 +524,18 @@ function vimeoEmbedUrl(rawUrl: string): string {
           <p>{{ totalUnread }} unread</p>
         </div>
         <div class="header-actions">
-          <button class="icon-btn" type="button" title="Refresh feeds" @click="refreshItems">
-            <AppIcon name="refresh" :size="17" />
+          <button
+            class="icon-btn refresh-action"
+            type="button"
+            :title="manualRefreshLoading ? 'Refreshing feeds' : 'Refresh feeds'"
+            :aria-label="manualRefreshLoading ? 'Refreshing feeds' : 'Refresh feeds'"
+            :aria-busy="manualRefreshLoading"
+            :disabled="manualRefreshLoading"
+            @click="refreshItemsWithFeedback"
+          >
+            <span class="refresh-icon" :class="{ 'refresh-icon--spinning': manualRefreshLoading }">
+              <AppIcon name="refresh" :size="17" />
+            </span>
           </button>
           <button class="primary-action" type="button" @click="openAddDialog">
             <AppIcon name="plus" :size="16" />
@@ -492,7 +562,7 @@ function vimeoEmbedUrl(rawUrl: string): string {
             </button>
             <button
               class="filter-row"
-              :class="{ 'filter-row--active': activeView === 'starred' }"
+              :class="{ 'filter-row--active': activeView === 'starred' && !selectedFeedId }"
               type="button"
               @click="chooseView('starred')"
             >
@@ -501,7 +571,7 @@ function vimeoEmbedUrl(rawUrl: string): string {
             </button>
             <button
               class="filter-row"
-              :class="{ 'filter-row--active': activeView === 'all' }"
+              :class="{ 'filter-row--active': activeView === 'all' && !selectedFeedId }"
               type="button"
               @click="chooseView('all')"
             >
@@ -542,6 +612,17 @@ function vimeoEmbedUrl(rawUrl: string): string {
               <h2>{{ itemListTitle }}</h2>
               <p>{{ items.length }} items</p>
             </div>
+            <label v-if="activeFeed" class="feed-view-toggle">
+              <span>Show all</span>
+              <input
+                type="checkbox"
+                :checked="selectedFeedShowsAll"
+                @change="toggleSelectedFeedAll"
+              />
+              <span class="toggle-track" aria-hidden="true">
+                <span class="toggle-thumb" />
+              </span>
+            </label>
           </div>
           <p v-if="itemError" class="inline-error">{{ itemError }}</p>
           <div class="item-list">
@@ -552,6 +633,7 @@ function vimeoEmbedUrl(rawUrl: string): string {
               :class="{
                 'item-row--selected': selectedItemId === item.id,
                 'item-row--read': item.read,
+                'item-row--read-dimmed': activeView === 'unread' && item.read,
               }"
               type="button"
               @click="selectItem(item)"
@@ -799,6 +881,9 @@ function vimeoEmbedUrl(rawUrl: string): string {
         </footer>
       </section>
     </div>
+    <div v-if="snackbarMessage" class="feed-snackbar" role="status" aria-live="polite">
+      {{ snackbarMessage }}
+    </div>
   </div>
 </template>
 
@@ -910,6 +995,25 @@ function vimeoEmbedUrl(rawUrl: string): string {
   background: color-mix(in srgb, #d99a00 18%, var(--surface-hover));
 }
 
+.refresh-action {
+  position: relative;
+}
+
+.refresh-icon {
+  display: inline-grid;
+  place-items: center;
+}
+
+.refresh-icon--spinning {
+  animation: feed-refresh-spin 0.8s linear infinite;
+}
+
+@keyframes feed-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .primary-action:disabled,
 .secondary-action:disabled,
 .text-action:disabled,
@@ -1007,6 +1111,7 @@ function vimeoEmbedUrl(rawUrl: string): string {
 .feed-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
   border: 1px solid transparent;
   border-radius: 0.45rem;
   align-self: start;
@@ -1066,12 +1171,14 @@ function vimeoEmbedUrl(rawUrl: string): string {
 }
 
 .feed-settings {
-  width: 1.7rem;
-  height: 1.7rem;
+  width: 2.15rem;
+  height: auto;
   border: 0;
   border-radius: 0.35rem;
   display: inline-grid;
   place-items: center;
+  align-self: stretch;
+  justify-self: center;
   color: var(--muted);
   background: transparent;
   cursor: pointer;
@@ -1101,6 +1208,75 @@ function vimeoEmbedUrl(rawUrl: string): string {
 .item-list-header {
   padding: 0.85rem 0.9rem;
   border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.item-list-header > div {
+  min-width: 0;
+}
+
+.feed-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.feed-view-toggle input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  opacity: 0;
+  white-space: nowrap;
+}
+
+.toggle-track {
+  width: 2rem;
+  height: 1.1rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem;
+  background: var(--surface);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.toggle-thumb {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 999px;
+  background: var(--muted);
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease;
+}
+
+.feed-view-toggle input:checked + .toggle-track {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+  background: color-mix(in srgb, var(--primary) 18%, var(--surface));
+}
+
+.feed-view-toggle input:checked + .toggle-track .toggle-thumb {
+  transform: translateX(0.9rem);
+  background: var(--primary);
+}
+
+.feed-view-toggle input:focus-visible + .toggle-track {
+  outline: 2px solid color-mix(in srgb, var(--primary) 40%, transparent);
+  outline-offset: 2px;
 }
 
 .item-list {
@@ -1114,10 +1290,18 @@ function vimeoEmbedUrl(rawUrl: string): string {
   border-radius: 0;
   border-width: 0 0 1px;
   border-color: var(--border);
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    opacity 0.18s ease;
 }
 
 .item-row--read {
   color: var(--muted);
+}
+
+.item-row--read-dimmed {
+  opacity: 0.52;
 }
 
 .item-title-line {
@@ -1275,6 +1459,24 @@ function vimeoEmbedUrl(rawUrl: string): string {
 
 .mobile-sidebar-backdrop {
   display: none;
+}
+
+.feed-snackbar {
+  position: fixed;
+  left: 50%;
+  bottom: 1rem;
+  z-index: 90;
+  max-width: min(24rem, calc(100vw - 2rem));
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 0.86rem;
+  font-weight: 650;
+  text-align: center;
+  transform: translateX(-50%);
 }
 
 .feed-dialog-overlay {
