@@ -61,7 +61,6 @@ onMounted(chatStore.resumeSelectedConversationStream)
       :generating-conversation-id="generatingConversationId"
       :selected-conversation-id="selectedConversationId"
       :show-archived="showArchived"
-      :theme="theme"
       @archive="chatStore.archiveChat"
       @create="chatStore.handleCreateConversation"
       @home="goHome"
@@ -70,7 +69,6 @@ onMounted(chatStore.resumeSelectedConversationStream)
       @select="chatStore.selectConversation"
       @toggle-archived="conversationStore.toggleArchived"
       @toggle-collapse="uiStore.toggleSidebarCollapsed"
-      @toggle-theme="uiStore.toggleTheme"
     />
     <button
       v-if="!isSidebarCollapsed"
