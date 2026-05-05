@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="960" viewBox="0 0 1440 960" role="img" aria-labelledby="title desc">
+  <title id="title">Relay feeds screenshot</title>
+  <desc id="desc">A Relay feeds screenshot showing feed sources, unread items, article preview, and summarization controls.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111827"/>
+      <stop offset=".52" stop-color="#0f1115"/>
+      <stop offset="1" stop-color="#172033"/>
+    </linearGradient>
+    <linearGradient id="facet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#60a5fa"/>
+      <stop offset=".5" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#f1c27d"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="24" stdDeviation="28" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect width="1440" height="960" fill="url(#bg)"/>
+  <path d="M0 246 402 0h203L0 379z" fill="#22d3ee" opacity=".08"/>
+  <path d="m991 0 449 272v142L774 0z" fill="#f59e0b" opacity=".07"/>
+  <g filter="url(#shadow)">
+    <rect x="92" y="78" width="1256" height="804" rx="28" fill="#0f1115"/>
+    <rect x="93" y="79" width="1254" height="802" rx="27" fill="none" stroke="#2b3240" stroke-width="2"/>
+    <rect x="92" y="78" width="260" height="804" rx="28" fill="#151821"/>
+    <path d="M352 78v804M352 170h996" stroke="#2b3240" stroke-width="2"/>
+    <g transform="translate(132 122)">
+      <path d="M22 0 39 22 22 44 5 22Z" fill="#22d3ee"/>
+      <text x="58" y="30" fill="#f4f7fb" font-family="Arial" font-size="26" font-weight="740">Relay</text>
+    </g>
+    <rect x="132" y="210" width="180" height="42" rx="9" fill="#191d27"/>
+    <rect x="132" y="272" width="180" height="42" rx="9" fill="#191d27"/>
+    <rect x="132" y="334" width="180" height="42" rx="9" fill="#222b3f" stroke="#3b82f6"/>
+    <rect x="132" y="396" width="180" height="42" rx="9" fill="#191d27"/>
+    <g fill="#9aa5b5" font-family="Arial" font-size="17" font-weight="600">
+      <text x="174" y="237">Home</text>
+      <text x="174" y="299">Chat</text>
+      <text x="174" y="361" fill="#f4f7fb">Feeds</text>
+      <text x="174" y="423">My Data</text>
+    </g>
+    <g transform="translate(392 112)" font-family="Arial">
+      <text x="0" y="33" fill="#f4f7fb" font-size="25" font-weight="740">Feeds</text>
+      <rect x="742" y="0" width="174" height="42" rx="10" fill="#2563eb"/>
+      <text x="788" y="27" fill="#fff" font-size="16" font-weight="700">Add feed</text>
+    </g>
+    <g transform="translate(392 210)" font-family="Arial">
+      <rect width="260" height="598" rx="16" fill="#151821" stroke="#2b3240"/>
+      <text x="28" y="50" fill="#f4f7fb" font-size="21" font-weight="720">Sources</text>
+      <rect x="28" y="78" width="204" height="40" rx="9" fill="#0f1115" stroke="#2b3240"/>
+      <text x="48" y="104" fill="#9aa5b5" font-size="15">Search feeds</text>
+      <rect x="28" y="148" width="204" height="58" rx="10" fill="#222b3f" stroke="#3b82f6"/>
+      <text x="52" y="174" fill="#f4f7fb" font-size="16" font-weight="700">Design Weekly</text>
+      <text x="52" y="194" fill="#9aa5b5" font-size="13">8 unread</text>
+      <rect x="28" y="224" width="204" height="58" rx="10" fill="#191d27"/>
+      <text x="52" y="250" fill="#f4f7fb" font-size="16" font-weight="700">AI Systems</text>
+      <text x="52" y="270" fill="#9aa5b5" font-size="13">12 unread</text>
+      <rect x="28" y="300" width="204" height="58" rx="10" fill="#191d27"/>
+      <text x="52" y="326" fill="#f4f7fb" font-size="16" font-weight="700">Launch Radar</text>
+      <text x="52" y="346" fill="#9aa5b5" font-size="13">3 unread</text>
+    </g>
+    <g transform="translate(682 210)" font-family="Arial">
+      <rect width="292" height="598" rx="16" fill="#151821" stroke="#2b3240"/>
+      <text x="28" y="50" fill="#f4f7fb" font-size="21" font-weight="720">All unread</text>
+      <g>
+        <rect x="28" y="82" width="236" height="112" rx="10" fill="#222b3f" stroke="#3b82f6"/>
+        <text x="48" y="113" fill="#f4f7fb" font-size="16" font-weight="700">A calmer way to ship</text>
+        <text x="48" y="141" fill="#9aa5b5" font-size="14">Signals from product teams...</text>
+        <text x="48" y="168" fill="#60a5fa" font-size="13">Design Weekly</text>
+      </g>
+      <g fill="#191d27">
+        <rect x="28" y="218" width="236" height="96" rx="10"/>
+        <rect x="28" y="338" width="236" height="96" rx="10"/>
+        <rect x="28" y="458" width="236" height="96" rx="10"/>
+      </g>
+      <g fill="#9aa5b5" font-size="15">
+        <text x="48" y="252">Context windows and teams</text>
+        <text x="48" y="372">Notebook-backed replies</text>
+        <text x="48" y="492">Small tools, faster review</text>
+      </g>
+    </g>
+    <g transform="translate(1004 210)" font-family="Arial">
+      <rect width="304" height="598" rx="16" fill="#111827" stroke="#2b3240"/>
+      <text x="32" y="54" fill="#f4f7fb" font-size="23" font-weight="740">A calmer way to ship</text>
+      <text x="32" y="88" fill="#9aa5b5" font-size="15">Design Weekly - 9:14 AM</text>
+      <rect x="32" y="124" width="238" height="44" rx="10" fill="#2563eb"/>
+      <text x="80" y="152" fill="#fff" font-size="16" font-weight="700">Summarize</text>
+      <rect x="32" y="190" width="238" height="94" rx="10" fill="#191d27" stroke="#2b3240"/>
+      <text x="52" y="224" fill="#d6dce7" font-size="15">Relay keeps summaries,</text>
+      <text x="52" y="249" fill="#d6dce7" font-size="15">links, and source context</text>
+      <text x="52" y="274" fill="#d6dce7" font-size="15">beside the item.</text>
+      <text x="32" y="336" fill="#d6dce7" font-size="16">Teams are using smaller loops:</text>
+      <text x="32" y="372" fill="#d6dce7" font-size="16">capture the signal, generate a</text>
+      <text x="32" y="408" fill="#d6dce7" font-size="16">brief, and continue in chat.</text>
+      <path d="M32 456h238" stroke="#2b3240"/>
+      <text x="32" y="504" fill="#9aa5b5" font-size="15">Unread items stay visible until</text>
+      <text x="32" y="530" fill="#9aa5b5" font-size="15">you have actually opened them.</text>
+    </g>
+  </g>
+</svg>

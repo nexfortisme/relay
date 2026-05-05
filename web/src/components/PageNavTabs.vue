@@ -25,7 +25,7 @@ const { isSidebarCollapsed } = storeToRefs(uiStore)
         class="header-logo-btn"
         title="Go home"
         aria-label="Go home"
-        @click="router.push('/')"
+        @click="router.push('/home')"
       >
         <PrismLogo />
       </button>

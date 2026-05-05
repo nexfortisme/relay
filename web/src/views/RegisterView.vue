@@ -28,7 +28,7 @@ async function submit() {
   submitting.value = true
   try {
     await auth.register(username.value.trim(), password.value, rememberMe.value)
-    router.replace('/')
+    router.replace('/home')
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : 'Registration failed'
   } finally {

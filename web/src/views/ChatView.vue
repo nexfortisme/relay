@@ -47,7 +47,7 @@ const shouldShowEmptyGreeting = computed(
 )
 
 const goHome = () => {
-  router.push('/')
+  router.push('/home')
 }
 
 onMounted(chatStore.resumeSelectedConversationStream)

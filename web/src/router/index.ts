@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import ChatView from '../views/ChatView.vue'
 import FeedsView from '../views/FeedsView.vue'
 import HomeView from '../views/HomeView.vue'
+import LandingView from '../views/LandingView.vue'
 import LoginView from '../views/LoginView.vue'
 import MyDataView from '../views/MyDataView.vue'
 import NotebooksView from '../views/NotebooksView.vue'
@@ -13,9 +14,15 @@ import { useAuthStore } from '../stores/authStore'
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
-    { path: '/register', name: 'register', component: RegisterView, meta: { public: true } },
-    { path: '/', name: 'home', component: HomeView },
+    { path: '/', name: 'landing', component: LandingView, meta: { public: true, guestOnly: true } },
+    { path: '/login', name: 'login', component: LoginView, meta: { public: true, guestOnly: true } },
+    {
+      path: '/register',
+      name: 'register',
+      component: RegisterView,
+      meta: { public: true, guestOnly: true },
+    },
+    { path: '/home', name: 'home', component: HomeView },
     { path: '/chat', name: 'chat', component: ChatView },
     { path: '/notebooks', name: 'notebooks', component: NotebooksView },
     { path: '/scheduled', name: 'scheduled', component: ScheduledView },
@@ -36,8 +43,12 @@ router.beforeEach(async (to) => {
   if (!auth.isAuthenticated && !isPublic) {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
-  if (auth.isAuthenticated && isPublic) {
-    return { path: '/' }
+  if (auth.isAuthenticated && to.meta?.guestOnly === true) {
+    const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : '/home'
+    if (redirect === '/' || redirect === '/login' || redirect === '/register') {
+      return { path: '/home' }
+    }
+    return { path: redirect }
   }
   return true
 })
