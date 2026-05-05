@@ -3,22 +3,28 @@ import { onMounted, onUnmounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterView, useRouter, useRoute } from 'vue-router'
 import SettingsModal from './components/SettingsModal.vue'
-import { useAppStore } from './stores/appStore'
+import { useUiStore } from './stores/uiStore'
+import { useSettingsStore } from './stores/settingsStore'
+import { useChatStore } from './stores/chatStore'
+import { useConversationStore } from './stores/conversationStore'
 import { useAuthStore } from './stores/authStore'
 
-const appStore = useAppStore()
+const uiStore = useUiStore()
+const settingsStore = useSettingsStore()
+const chatStore = useChatStore()
+const conversationStore = useConversationStore()
 const authStore = useAuthStore()
 const router = useRouter()
 const route = useRoute()
-const { settingsError, settingsForm, settingsSaving, showSettings, theme } =
-  storeToRefs(appStore)
+const { settingsError, settingsForm, settingsSaving, showSettings } = storeToRefs(settingsStore)
+const { theme } = storeToRefs(uiStore)
 const { isAuthenticated, unauthorizedAt } = storeToRefs(authStore)
 const compactSidebarQuery = '(max-width: 760px)'
 let compactSidebarMedia: MediaQueryList | null = null
 
 function collapseSidebarForCompactLayout(event: MediaQueryList | MediaQueryListEvent) {
   if (event.matches) {
-    appStore.setSidebarCollapsed(true)
+    uiStore.setSidebarCollapsed(true)
   }
 }
 
@@ -33,8 +39,8 @@ onMounted(async () => {
   // first navigation, but we also want to load the chat data once we know
   // a user is signed in. Doing it here keeps the appStore agnostic of the
   // auth store and avoids a double-load when login redirects in.
-  if (isAuthenticated.value && !appStore.conversations.length) {
-    await appStore.initializeApp()
+  if (isAuthenticated.value && !conversationStore.conversations.length) {
+    await chatStore.initializeApp()
   }
 })
 
@@ -44,9 +50,9 @@ onUnmounted(() => {
 
 watch(isAuthenticated, async (authed) => {
   if (authed) {
-    await appStore.initializeApp()
+    await chatStore.initializeApp()
   } else {
-    appStore.closeStream()
+    chatStore.closeStream()
   }
 })
 
@@ -68,8 +74,8 @@ watch(unauthorizedAt, (value) => {
       v-model:settings="settingsForm"
       :error="settingsError"
       :saving="settingsSaving"
-      @close="appStore.closeSettings"
-      @save="appStore.saveSettings"
+      @close="settingsStore.closeSettings"
+      @save="settingsStore.saveSettings"
     />
   </main>
 </template>

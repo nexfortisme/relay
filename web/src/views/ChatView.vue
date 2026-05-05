@@ -8,31 +8,39 @@ import ConversationSidebar from '../components/ConversationSidebar.vue'
 import EmptyChatGreeting from '../components/EmptyChatGreeting.vue'
 import MessageList from '../components/MessageList.vue'
 import PageNavTabs from '../components/PageNavTabs.vue'
-import { DEFAULT_CONVERSATION_TITLE, useAppStore } from '../stores/appStore'
+import { DEFAULT_CONVERSATION_TITLE, useConversationStore } from '../stores/conversationStore'
+import { useChatStore } from '../stores/chatStore'
+import { useUiStore } from '../stores/uiStore'
 
-const appStore = useAppStore()
+const conversationStore = useConversationStore()
+const chatStore = useChatStore()
+const uiStore = useUiStore()
 const router = useRouter()
+
 const {
   conversations,
+  isEditingTitle,
+  isRenaming,
+  isSuggestingTitle,
+  renameDraft,
+  selectedConversation,
+  selectedConversationId,
+  showArchived,
+} = storeToRefs(conversationStore)
+
+const {
   conversationTokenCount,
   draft,
   generatingConversationId,
   isConversationTokenCapReached,
-  isEditingTitle,
-  isRenaming,
   isSending,
-  isSidebarCollapsed,
-  isSuggestingTitle,
   messages,
-  renameDraft,
-  selectedConversation,
-  selectedConversationId,
   selectedFiles,
   shouldShowPendingAssistantPlaceholder,
-  showArchived,
   streamError,
-  theme,
-} = storeToRefs(appStore)
+} = storeToRefs(chatStore)
+
+const { isSidebarCollapsed, theme } = storeToRefs(uiStore)
 
 const shouldShowEmptyGreeting = computed(
   () => messages.value.length === 0 && !shouldShowPendingAssistantPlaceholder.value,
@@ -42,7 +50,7 @@ const goHome = () => {
   router.push('/')
 }
 
-onMounted(appStore.resumeSelectedConversationStream)
+onMounted(chatStore.resumeSelectedConversationStream)
 </script>
 
 <template>
@@ -54,22 +62,22 @@ onMounted(appStore.resumeSelectedConversationStream)
       :selected-conversation-id="selectedConversationId"
       :show-archived="showArchived"
       :theme="theme"
-      @archive="appStore.archiveChat"
-      @create="appStore.handleCreateConversation"
+      @archive="chatStore.archiveChat"
+      @create="chatStore.handleCreateConversation"
       @home="goHome"
-      @delete="appStore.deleteChat"
-      @restore="appStore.restoreChat"
-      @select="appStore.selectConversation"
-      @toggle-archived="appStore.toggleArchived"
-      @toggle-collapse="appStore.toggleSidebarCollapsed"
-      @toggle-theme="appStore.toggleTheme"
+      @delete="chatStore.deleteChat"
+      @restore="chatStore.restoreChat"
+      @select="chatStore.selectConversation"
+      @toggle-archived="conversationStore.toggleArchived"
+      @toggle-collapse="uiStore.toggleSidebarCollapsed"
+      @toggle-theme="uiStore.toggleTheme"
     />
     <button
       v-if="!isSidebarCollapsed"
       class="mobile-sidebar-backdrop"
       type="button"
       aria-label="Close sidebar"
-      @click="appStore.toggleSidebarCollapsed"
+      @click="uiStore.toggleSidebarCollapsed"
     />
 
     <section class="chat-panel">
@@ -82,19 +90,19 @@ onMounted(appStore.resumeSelectedConversationStream)
         :selected-conversation-id="selectedConversationId"
         :title="selectedConversation?.title ?? DEFAULT_CONVERSATION_TITLE"
         :token-count="conversationTokenCount"
-        :max-token-count="appStore.maxConversationTokenCount"
-        @archive="appStore.archiveSelectedConversation"
-        @begin-edit="appStore.beginConversationTitleEdit"
-        @cancel-edit="appStore.cancelConversationTitleEdit"
-        @save-title="appStore.saveConversationTitle"
-        @suggest-title="appStore.suggestConversationTitleWithLLM"
+        :max-token-count="chatStore.maxConversationTokenCount"
+        @archive="chatStore.archiveSelectedConversation"
+        @begin-edit="conversationStore.beginConversationTitleEdit"
+        @cancel-edit="conversationStore.cancelConversationTitleEdit"
+        @save-title="conversationStore.saveConversationTitle"
+        @suggest-title="conversationStore.suggestConversationTitleWithLLM"
       />
       <MessageList
         :messages="messages"
         :pending-assistant="shouldShowPendingAssistantPlaceholder"
         :requeue-disabled="isSending"
         :theme="theme"
-        @requeue="appStore.handleRequeueMessage"
+        @requeue="chatStore.handleRequeueMessage"
       />
       <p v-if="streamError" class="error">{{ streamError }}</p>
       <EmptyChatGreeting
@@ -106,11 +114,11 @@ onMounted(appStore.resumeSelectedConversationStream)
         :is-sending="isSending"
         :token-limit-reached="isConversationTokenCapReached"
         :selected-files="selectedFiles"
-        @remove-file="appStore.removeSelectedFile"
-        @send="appStore.sendMessage"
-        @stop="appStore.stopGeneration"
-        @update-draft="appStore.setDraft"
-        @update-files="appStore.handleSelectedFiles"
+        @remove-file="chatStore.removeSelectedFile"
+        @send="chatStore.sendMessage"
+        @stop="chatStore.stopGeneration"
+        @update-draft="chatStore.setDraft"
+        @update-files="chatStore.handleSelectedFiles"
       />
     </section>
   </div>

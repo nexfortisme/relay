@@ -2,10 +2,10 @@
 import { storeToRefs } from 'pinia'
 import AppSidebar from '../components/AppSidebar.vue'
 import PageNavTabs from '../components/PageNavTabs.vue'
-import { useAppStore } from '../stores/appStore'
+import { useUiStore } from '../stores/uiStore'
 
-const appStore = useAppStore()
-const { isSidebarCollapsed } = storeToRefs(appStore)
+const uiStore = useUiStore()
+const { isSidebarCollapsed } = storeToRefs(uiStore)
 </script>
 
 <template>
@@ -19,7 +19,7 @@ const { isSidebarCollapsed } = storeToRefs(appStore)
       class="mobile-sidebar-backdrop"
       type="button"
       aria-label="Close sidebar"
-      @click="appStore.toggleSidebarCollapsed"
+      @click="uiStore.toggleSidebarCollapsed"
     />
     <section class="placeholder-panel">
       <PageNavTabs />

@@ -19,31 +19,13 @@ import (
 )
 
 const (
-	defaultMaxFileBytes  = 50 * 1024 * 1024
-	defaultMaxImageBytes = 15 * 1024 * 1024
-	inlineCharBudget     = 12000
-	chunkSizeRunes       = 1200
-	chunkOverlapRunes    = chunkSizeRunes / 10
-	maxReturnedChunks    = 20
+	defaultMaxFileBytes  = 50 * 1024 * 1024 	// 50MB
+	defaultMaxImageBytes = 15 * 1024 * 1024 	// 15MB
+	inlineCharBudget     = 12000            	// 12000 characters
+	chunkSizeRunes       = 1200             	// 1200 characters
+	chunkOverlapRunes    = chunkSizeRunes / 10 	// 120 characters
+	maxReturnedChunks    = 20               	// 20 chunks
 )
-
-type UploadedFile struct {
-	Name        string
-	ContentType string
-	Data        []byte
-}
-
-type chunk struct {
-	Source string
-	Index  int
-	Text   string
-	Score  int
-}
-
-type PromptOptions struct {
-	MaxFileBytes  int
-	MaxImageBytes int
-}
 
 func (o PromptOptions) withDefaults() PromptOptions {
 	if o.MaxFileBytes <= 0 {

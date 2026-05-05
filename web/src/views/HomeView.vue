@@ -5,21 +5,23 @@ import { useRouter } from 'vue-router'
 import AppIcon from '../components/AppIcon.vue'
 import AppSidebar from '../components/AppSidebar.vue'
 import PrismLogo from '../components/PrismLogo.vue'
-import { useAppStore } from '../stores/appStore'
+import { useUiStore } from '../stores/uiStore'
+import { useChatStore } from '../stores/chatStore'
 
-const appStore = useAppStore()
+const uiStore = useUiStore()
+const chatStore = useChatStore()
 const router = useRouter()
-const { isSidebarCollapsed, theme } = storeToRefs(appStore)
+const { isSidebarCollapsed, theme } = storeToRefs(uiStore)
 
 const launcherDraft = ref('')
 
 async function startNewChat() {
   const trimmed = launcherDraft.value.trim()
   if (trimmed) {
-    await appStore.handleCreateConversation()
-    appStore.setDraft(launcherDraft.value)
+    await chatStore.handleCreateConversation()
+    chatStore.setDraft(launcherDraft.value)
   } else {
-    await appStore.goHome()
+    await chatStore.goHome()
   }
   router.push('/chat')
 }
@@ -37,7 +39,7 @@ async function startNewChat() {
       class="mobile-sidebar-backdrop"
       type="button"
       aria-label="Close sidebar"
-      @click="appStore.toggleSidebarCollapsed"
+      @click="uiStore.toggleSidebarCollapsed"
     />
 
     <main class="home-main">
@@ -54,7 +56,7 @@ async function startNewChat() {
           class="expand-sidebar-btn"
           title="Expand sidebar"
           aria-label="Expand sidebar"
-          @click="appStore.toggleSidebarCollapsed"
+          @click="uiStore.toggleSidebarCollapsed"
         >
           <AppIcon name="chevron-right" />
         </button>

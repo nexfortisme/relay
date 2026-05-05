@@ -1,18 +1,18 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink, useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import PrismLogo from './PrismLogo.vue'
 import UserMenu from './UserMenu.vue'
-import { useAppStore } from '../stores/appStore'
+import { useConversationStore } from '../stores/conversationStore'
+import { useChatStore } from '../stores/chatStore'
+import { useUiStore } from '../stores/uiStore'
 
-const appStore = useAppStore()
+const conversationStore = useConversationStore()
+const chatStore = useChatStore()
+const uiStore = useUiStore()
 const router = useRouter()
-const { conversations } = storeToRefs(appStore)
-const activeConversations = computed(() =>
-  conversations.value.filter((conversation) => !conversation.archived),
-)
+const { activeConversations } = storeToRefs(conversationStore)
 
 type NavItem = {
   to: string
@@ -31,12 +31,12 @@ const navItems: NavItem[] = [
 ]
 
 async function startNewChat() {
-  await appStore.goHome()
+  await chatStore.goHome()
   router.push('/chat')
 }
 
 function selectConversation(conversationId: string) {
-  appStore.selectConversation(conversationId)
+  chatStore.selectConversation(conversationId)
   router.push('/chat')
 }
 </script>
@@ -57,7 +57,7 @@ function selectConversation(conversationId: string) {
           class="collapse-btn"
           title="Collapse sidebar"
           aria-label="Collapse sidebar"
-          @click="appStore.toggleSidebarCollapsed"
+          @click="uiStore.toggleSidebarCollapsed"
         >
           <AppIcon name="chevron-left" />
         </button>
