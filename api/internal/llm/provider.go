@@ -17,22 +17,8 @@ import (
 	"github.com/nexfortisme/relay/internal/tools"
 )
 
-type ContentPart struct {
-	Type     string        `json:"type"`
-	Text     string        `json:"text,omitempty"`
-	ImageURL *ImageURLData `json:"image_url,omitempty"`
-}
-
-type ImageURLData struct {
-	URL string `json:"url"`
-}
-
-type ChatMessage struct {
-	Role       string      `json:"role"`
-	Content    interface{} `json:"content"`
-	ToolCallID string      `json:"tool_call_id,omitempty"`
-	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`
-}
+// imageDataURLRe matches markdown image syntax with data URLs: ![alt](data:...)
+var imageDataURLRe = regexp.MustCompile(`!\[[^\]]*\]\((data:[^)]+)\)`)
 
 func (m ChatMessage) ContentString() string {
 	if s, ok := m.Content.(string); ok {
@@ -40,9 +26,6 @@ func (m ChatMessage) ContentString() string {
 	}
 	return ""
 }
-
-// imageDataURLRe matches markdown image syntax with data URLs: ![alt](data:...)
-var imageDataURLRe = regexp.MustCompile(`!\[[^\]]*\]\((data:[^)]+)\)`)
 
 // ParseContent converts a prompt string into either a plain string or a []ContentPart
 // slice for multimodal LLM requests when image data URLs are present.
@@ -69,59 +52,6 @@ func ParseContent(content string) interface{} {
 		}
 	}
 	return parts
-}
-
-type TokenEvent struct {
-	Token    string
-	Thinking string
-	Usage    *TokenUsage
-	Done     bool
-	Err      error
-}
-
-type TokenUsage struct {
-	InputTokens     int `json:"inputTokens,omitempty"`
-	OutputTokens    int `json:"outputTokens,omitempty"`
-	ReasoningTokens int `json:"reasoningTokens,omitempty"`
-	TotalTokens     int `json:"totalTokens,omitempty"`
-}
-
-func (u TokenUsage) IsZero() bool {
-	return u.InputTokens == 0 && u.OutputTokens == 0 && u.ReasoningTokens == 0 && u.TotalTokens == 0
-}
-
-func (u *TokenUsage) Add(other TokenUsage) {
-	if other.IsZero() {
-		return
-	}
-	u.InputTokens += other.InputTokens
-	u.OutputTokens += other.OutputTokens
-	u.ReasoningTokens += other.ReasoningTokens
-	u.TotalTokens += other.TotalTokens
-}
-
-type ToolCall struct {
-	ID       string       `json:"id"`
-	Type     string       `json:"type"`
-	Function ToolFunction `json:"function"`
-}
-
-type ToolFunction struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
-}
-
-type Provider interface {
-	GenerateStream(ctx context.Context, messages []ChatMessage, runtime tools.Runtime) <-chan TokenEvent
-}
-
-type HTTPProvider struct {
-	baseURL         string
-	model           string
-	apiKey          string
-	reasoningEffort string
-	client          *http.Client
-	responseTimeout time.Duration
 }
 
 func NewHTTPProvider(baseURL string, model string, apiKey string, responseTimeout time.Duration) *HTTPProvider {
@@ -615,38 +545,6 @@ func extractChunk(raw string) (string, string, []toolCallDelta, *TokenUsage, boo
 	return "", "", nil, nil, false
 }
 
-type apiUsage struct {
-	PromptTokens            int `json:"prompt_tokens"`
-	CompletionTokens        int `json:"completion_tokens"`
-	TotalTokens             int `json:"total_tokens"`
-	CompletionTokensDetails struct {
-		ReasoningTokens int `json:"reasoning_tokens"`
-	} `json:"completion_tokens_details"`
-}
-
-func (u apiUsage) tokenUsagePtr() *TokenUsage {
-	usage := u.tokenUsage()
-	if usage.IsZero() {
-		return nil
-	}
-	return &usage
-}
-
-func (u apiUsage) tokenUsage() TokenUsage {
-	reasoningTokens := max(0, u.CompletionTokensDetails.ReasoningTokens)
-	outputTokens := max(0, u.CompletionTokens-reasoningTokens)
-	totalTokens := u.PromptTokens + outputTokens
-	if totalTokens == 0 && u.TotalTokens > 0 {
-		totalTokens = max(0, u.TotalTokens-reasoningTokens)
-	}
-	return TokenUsage{
-		InputTokens:     max(0, u.PromptTokens),
-		OutputTokens:    outputTokens,
-		ReasoningTokens: reasoningTokens,
-		TotalTokens:     totalTokens,
-	}
-}
-
 type toolCallDelta struct {
 	Index     int
 	ID        string
@@ -728,88 +626,7 @@ func trimTrailingEmptyAssistant(messages []ChatMessage) []ChatMessage {
 	return trimmed
 }
 
-type repetitionDetector struct {
-	tail string
-}
 
-const (
-	repetitionWindowRunes       = 12000
-	repetitionWindowWords       = 900
-	repetitionShortMinUnitWords = 6
-	repetitionShortMaxUnitWords = 80
-	repetitionShortRepeatCount  = 3
-	repetitionShortMinUnitChars = 30
-	repetitionLongMinUnitWords  = 40
-	repetitionLongMaxUnitWords  = 300
-	repetitionLongRepeatCount   = 2
-	repetitionLongMinUnitChars  = 240
-)
-
-func (d *repetitionDetector) Accept(next string) bool {
-	if next == "" {
-		return true
-	}
-	candidate := d.tail + next
-	if hasRepeatedSuffix(candidate) {
-		return false
-	}
-	d.tail = tailRunes(candidate, repetitionWindowRunes)
-	return true
-}
-
-func hasRepeatedSuffix(text string) bool {
-	words := repetitionWords(text)
-	if len(words) > repetitionWindowWords {
-		words = words[len(words)-repetitionWindowWords:]
-	}
-
-	return hasRepeatedWordSuffix(words, repetitionShortMinUnitWords, repetitionShortMaxUnitWords, repetitionShortRepeatCount, repetitionShortMinUnitChars) ||
-		hasRepeatedWordSuffix(words, repetitionLongMinUnitWords, repetitionLongMaxUnitWords, repetitionLongRepeatCount, repetitionLongMinUnitChars)
-}
-
-func hasRepeatedWordSuffix(words []string, minUnitWords int, maxUnitWords int, repeatCount int, minUnitChars int) bool {
-	if len(words) < minUnitWords*repeatCount {
-		return false
-	}
-
-	maxUnitWords = min(maxUnitWords, len(words)/repeatCount)
-	for unitWords := minUnitWords; unitWords <= maxUnitWords; unitWords++ {
-		if !repeatedWordSuffix(words, unitWords, repeatCount) {
-			continue
-		}
-		unitText := strings.Join(words[len(words)-unitWords:], " ")
-		if len(unitText) >= minUnitChars {
-			return true
-		}
-	}
-	return false
-}
-
-func repetitionWords(text string) []string {
-	return strings.Fields(strings.ToLower(text))
-}
-
-func repeatedWordSuffix(words []string, unitWords int, repeatCount int) bool {
-	end := len(words)
-	baseStart := end - unitWords
-	for repeat := 2; repeat <= repeatCount; repeat++ {
-		start := end - unitWords*repeat
-		for offset := 0; offset < unitWords; offset++ {
-			if words[start+offset] != words[baseStart+offset] {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func tailRunes(text string, maxRunes int) string {
-	runes := []rune(text)
-	if len(runes) <= maxRunes {
-		return text
-	}
-	return string(runes[len(runes)-maxRunes:])
-}
 
 func sendUnableToFind(ctx context.Context, out chan<- TokenEvent) error {
 	msg, _ := prompts.Load(prompts.UnableToFind)

@@ -122,84 +122,103 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) migrate(ctx context.Context) error {
-	const schema = `
+
+	usersTable := `
 		CREATE TABLE IF NOT EXISTS users (
-		id TEXT PRIMARY KEY,
-		username TEXT NOT NULL UNIQUE,
-		password_hash TEXT NOT NULL,
-		created_at DATETIME NOT NULL
+			id TEXT PRIMARY KEY,
+			username TEXT NOT NULL UNIQUE,
+			password_hash TEXT NOT NULL,
+			created_at DATETIME NOT NULL
 		);
-
+	`
+	
+	sessionsTable := `
 		CREATE TABLE IF NOT EXISTS sessions (
-		id TEXT PRIMARY KEY,
-		user_id TEXT NOT NULL,
-		refresh_token_hash TEXT NOT NULL UNIQUE,
-		expires_at DATETIME NOT NULL,
-		remember_me INTEGER NOT NULL DEFAULT 0,
-		created_at DATETIME NOT NULL,
-		revoked_at DATETIME,
-		FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			refresh_token_hash TEXT NOT NULL UNIQUE,
+			expires_at DATETIME NOT NULL,
+			remember_me INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL,
+			revoked_at DATETIME,
+			FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 		);
+	`
 
+	sessionsIndcies := `
 		CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 		CREATE INDEX IF NOT EXISTS idx_sessions_refresh ON sessions(refresh_token_hash);
+	`
 
+	conversationsTable := `
 		CREATE TABLE IF NOT EXISTS conversations (
-		id TEXT PRIMARY KEY,
-		user_id TEXT NOT NULL DEFAULT '',
-		title TEXT NOT NULL DEFAULT 'New chat',
-		archived_at DATETIME,
-		created_at DATETIME NOT NULL,
-		updated_at DATETIME NOT NULL
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL DEFAULT '',
+			title TEXT NOT NULL DEFAULT 'New chat',
+			archived_at DATETIME,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL
 		);
+	`
 
+	messagesTable := `
 		CREATE TABLE IF NOT EXISTS messages (
-		id TEXT PRIMARY KEY,
-		conversation_id TEXT NOT NULL,
-		role TEXT NOT NULL,
-		content TEXT NOT NULL DEFAULT '',
-		user_content TEXT NOT NULL DEFAULT '',
-		llm_content TEXT NOT NULL DEFAULT '',
-		attachments_json TEXT NOT NULL DEFAULT '[]',
-		thinking TEXT NOT NULL DEFAULT '',
-		has_error INTEGER NOT NULL DEFAULT 0,
-		elapsed_ms INTEGER NOT NULL DEFAULT 0,
-		input_tokens INTEGER NOT NULL DEFAULT 0,
-		output_tokens INTEGER NOT NULL DEFAULT 0,
-		reasoning_tokens INTEGER NOT NULL DEFAULT 0,
-		total_tokens INTEGER NOT NULL DEFAULT 0,
-		created_at DATETIME NOT NULL,
-		FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+			id TEXT PRIMARY KEY,
+			conversation_id TEXT NOT NULL,
+			role TEXT NOT NULL,
+			content TEXT NOT NULL DEFAULT '',
+			user_content TEXT NOT NULL DEFAULT '',
+			llm_content TEXT NOT NULL DEFAULT '',
+			attachments_json TEXT NOT NULL DEFAULT '[]',
+			thinking TEXT NOT NULL DEFAULT '',
+			has_error INTEGER NOT NULL DEFAULT 0,
+			elapsed_ms INTEGER NOT NULL DEFAULT 0,
+			input_tokens INTEGER NOT NULL DEFAULT 0,
+			output_tokens INTEGER NOT NULL DEFAULT 0,
+			reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+			total_tokens INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL,
+			FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 		);
+	`
 
+	messageIndcies := `
 		CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
 		ON messages(conversation_id, created_at);
+	`
 
+	filesTable := `
 		CREATE TABLE IF NOT EXISTS files (
-		id TEXT PRIMARY KEY,
-		user_id TEXT NOT NULL DEFAULT '',
-		name TEXT NOT NULL,
-		content_type TEXT NOT NULL DEFAULT '',
-		size_bytes INTEGER NOT NULL,
-		data BLOB NOT NULL,
-		created_at DATETIME NOT NULL
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL DEFAULT '',
+			name TEXT NOT NULL,
+			content_type TEXT NOT NULL DEFAULT '',
+			size_bytes INTEGER NOT NULL,
+			data BLOB NOT NULL,
+			created_at DATETIME NOT NULL
 		);
+	`
 
+	messageFilesTable := `
 		CREATE TABLE IF NOT EXISTS message_files (
-		message_id TEXT NOT NULL,
-		file_id TEXT NOT NULL,
-		position INTEGER NOT NULL,
-		PRIMARY KEY(message_id, file_id),
-		FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
-		FOREIGN KEY(file_id) REFERENCES files(id) ON DELETE CASCADE
+			message_id TEXT NOT NULL,
+			file_id TEXT NOT NULL,
+			position INTEGER NOT NULL,
+			PRIMARY KEY(message_id, file_id),
+			FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
+			FOREIGN KEY(file_id) REFERENCES files(id) ON DELETE CASCADE
 		);
+	`
 
+	messageFilesIndcies := `
 		CREATE INDEX IF NOT EXISTS idx_message_files_message
 		ON message_files(message_id, position);
 
 		CREATE INDEX IF NOT EXISTS idx_message_files_file
 		ON message_files(file_id);
+	`
 
+	settingsTable := `
 		CREATE TABLE IF NOT EXISTS settings (
 		user_id TEXT NOT NULL DEFAULT '',
 		key TEXT NOT NULL,
@@ -207,56 +226,64 @@ func (s *Store) migrate(ctx context.Context) error {
 		updated_at DATETIME NOT NULL,
 		PRIMARY KEY(user_id, key)
 		);
+	`
 
+	feedsTable := `
 		CREATE TABLE IF NOT EXISTS feeds (
-		id TEXT PRIMARY KEY,
-		user_id TEXT NOT NULL,
-		url TEXT NOT NULL,
-		title TEXT NOT NULL,
-		site_url TEXT NOT NULL DEFAULT '',
-		description TEXT NOT NULL DEFAULT '',
-		polling_interval_minutes INTEGER NOT NULL DEFAULT 30,
-		auto_summarize INTEGER NOT NULL DEFAULT 0,
-		auto_add_to_notebook INTEGER NOT NULL DEFAULT 0,
-		notebook_id TEXT NOT NULL DEFAULT '',
-		last_checked_at DATETIME,
-		next_check_at DATETIME NOT NULL,
-		last_error TEXT NOT NULL DEFAULT '',
-		created_at DATETIME NOT NULL,
-		updated_at DATETIME NOT NULL,
-		UNIQUE(user_id, url)
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			url TEXT NOT NULL,
+			title TEXT NOT NULL,
+			site_url TEXT NOT NULL DEFAULT '',
+			description TEXT NOT NULL DEFAULT '',
+			polling_interval_minutes INTEGER NOT NULL DEFAULT 30,
+			auto_summarize INTEGER NOT NULL DEFAULT 0,
+			auto_add_to_notebook INTEGER NOT NULL DEFAULT 0,
+			notebook_id TEXT NOT NULL DEFAULT '',
+			last_checked_at DATETIME,
+			next_check_at DATETIME NOT NULL,
+			last_error TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			UNIQUE(user_id, url)
 		);
+	`
 
+	feedsIndcies := `
 		CREATE INDEX IF NOT EXISTS idx_feeds_user
 		ON feeds(user_id, title);
 
 		CREATE INDEX IF NOT EXISTS idx_feeds_due
 		ON feeds(next_check_at);
+	`
 
+	feedItemsTable := `
 		CREATE TABLE IF NOT EXISTS feed_items (
-		id TEXT PRIMARY KEY,
-		user_id TEXT NOT NULL,
-		feed_id TEXT NOT NULL,
-		external_id TEXT NOT NULL,
-		title TEXT NOT NULL,
-		url TEXT NOT NULL DEFAULT '',
-		author TEXT NOT NULL DEFAULT '',
-		published_at DATETIME,
-		preview TEXT NOT NULL DEFAULT '',
-		content TEXT NOT NULL DEFAULT '',
-		media_type TEXT NOT NULL DEFAULT '',
-		media_url TEXT NOT NULL DEFAULT '',
-		summary TEXT NOT NULL DEFAULT '',
-		summary_status TEXT NOT NULL DEFAULT '',
-		summary_error TEXT NOT NULL DEFAULT '',
-		read INTEGER NOT NULL DEFAULT 0,
-		starred INTEGER NOT NULL DEFAULT 0,
-		created_at DATETIME NOT NULL,
-		updated_at DATETIME NOT NULL,
-		FOREIGN KEY(feed_id) REFERENCES feeds(id) ON DELETE CASCADE,
-		UNIQUE(feed_id, external_id)
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			feed_id TEXT NOT NULL,
+			external_id TEXT NOT NULL,
+			title TEXT NOT NULL,
+			url TEXT NOT NULL DEFAULT '',
+			author TEXT NOT NULL DEFAULT '',
+			published_at DATETIME,
+			preview TEXT NOT NULL DEFAULT '',
+			content TEXT NOT NULL DEFAULT '',
+			media_type TEXT NOT NULL DEFAULT '',
+			media_url TEXT NOT NULL DEFAULT '',
+			summary TEXT NOT NULL DEFAULT '',
+			summary_status TEXT NOT NULL DEFAULT '',
+			summary_error TEXT NOT NULL DEFAULT '',
+			read INTEGER NOT NULL DEFAULT 0,
+			starred INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			FOREIGN KEY(feed_id) REFERENCES feeds(id) ON DELETE CASCADE,
+			UNIQUE(feed_id, external_id)
 		);
+	`
 
+	feedItemsIndcies := `
 		CREATE INDEX IF NOT EXISTS idx_feed_items_user_read
 		ON feed_items(user_id, read, published_at DESC, created_at DESC);
 
@@ -267,217 +294,32 @@ func (s *Store) migrate(ctx context.Context) error {
 		ON feed_items(feed_id, published_at DESC, created_at DESC);
 	`
 
-	if _, err := s.db.ExecContext(ctx, schema); err != nil {
-		return fmt.Errorf("migrate sqlite schema: %w", err)
+	tables := []string {
+		usersTable,
+		sessionsTable,
+		sessionsIndcies,
+		conversationsTable,
+		messagesTable,
+		messageIndcies,
+		filesTable,
+		messageFilesTable,
+		messageFilesIndcies,
+		settingsTable,
+		feedsTable,
+		feedsIndcies,
+		feedItemsTable,
+		feedItemsIndcies,
 	}
 
-	// Older databases may carry these columns/tables; the ALTERs below are
-	// best-effort and idempotent so a fresh start always succeeds.
-	_, _ = s.db.ExecContext(ctx, `ALTER TABLE conversations ADD COLUMN archived_at DATETIME`)
-	_, _ = s.db.ExecContext(ctx, `ALTER TABLE conversations ADD COLUMN user_id TEXT NOT NULL DEFAULT ''`)
-	_, _ = s.db.ExecContext(ctx, `ALTER TABLE files ADD COLUMN user_id TEXT NOT NULL DEFAULT ''`)
-	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN thinking TEXT NOT NULL DEFAULT ''`)
-	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN user_content TEXT NOT NULL DEFAULT ''`)
-	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN llm_content TEXT NOT NULL DEFAULT ''`)
-	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'`)
-	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN has_error INTEGER NOT NULL DEFAULT 0`)
-	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN elapsed_ms INTEGER NOT NULL DEFAULT 0`)
-	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0`)
-	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0`)
-	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0`)
-	_, _ = s.db.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0`)
-	_, _ = s.db.ExecContext(ctx, `ALTER TABLE feed_items ADD COLUMN media_type TEXT NOT NULL DEFAULT ''`)
-	_, _ = s.db.ExecContext(ctx, `ALTER TABLE feed_items ADD COLUMN media_url TEXT NOT NULL DEFAULT ''`)
-
-	// The old per-message attachments table has been replaced by the
-	// dedicated files + message_files tables. Drop it on first run; any
-	// blobs it held are intentionally discarded (callers were warned).
-	if _, err := s.db.ExecContext(ctx, `DROP TABLE IF EXISTS message_attachments`); err != nil {
-		return fmt.Errorf("drop legacy message_attachments: %w", err)
+	for _, table := range tables {
+		if _, err := s.db.ExecContext(ctx, table); err != nil {
+			return fmt.Errorf("create table %s: %w", table, err)
+		}
 	}
 
-	_, _ = s.db.ExecContext(ctx, `UPDATE messages SET user_content = content WHERE user_content = '' AND role = 'user'`)
-	_, _ = s.db.ExecContext(ctx, `UPDATE messages SET llm_content = content WHERE llm_content = ''`)
 	return nil
 }
 
-func (s *Store) CreateConversation(ctx context.Context, id string, userID string, title string, now time.Time) (Conversation, error) {
-	if title == "" {
-		title = "New chat"
-	}
-
-	_, err := s.db.ExecContext(
-		ctx,
-		`INSERT INTO conversations(id, user_id, title, created_at, updated_at) VALUES(?, ?, ?, ?, ?)`,
-		id, userID, title, now.UTC(), now.UTC(),
-	)
-	if err != nil {
-		return Conversation{}, fmt.Errorf("insert conversation: %w", err)
-	}
-
-	return Conversation{ID: id, Title: title, CreatedAt: now.UTC(), UpdatedAt: now.UTC()}, nil
-}
-
-func (s *Store) ListConversations(ctx context.Context, userID string, includeArchived bool) ([]Conversation, error) {
-	query := `
-		SELECT id, title, archived_at, created_at, updated_at
-		FROM conversations
-		WHERE user_id = ?
-	`
-	if !includeArchived {
-		query += "\nAND archived_at IS NULL"
-	}
-	query += "\nORDER BY updated_at DESC"
-
-	rows, err := s.db.QueryContext(ctx, query, userID)
-	if err != nil {
-		return nil, fmt.Errorf("list conversations: %w", err)
-	}
-	defer rows.Close()
-
-	conversations := make([]Conversation, 0)
-	for rows.Next() {
-		var c Conversation
-		var archivedAt sql.NullTime
-		if err := rows.Scan(&c.ID, &c.Title, &archivedAt, &c.CreatedAt, &c.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan conversation: %w", err)
-		}
-		c.Archived = archivedAt.Valid
-		conversations = append(conversations, c)
-	}
-	return conversations, rows.Err()
-}
-
-// GetConversationOwner returns the user that owns the conversation. Used by
-// service-layer ownership checks before performing any conversation-scoped
-// action so that one user cannot read another's data via a guessed ID.
-func (s *Store) GetConversationOwner(ctx context.Context, conversationID string) (string, error) {
-	var userID string
-	err := s.db.QueryRowContext(ctx, `SELECT user_id FROM conversations WHERE id = ?`, conversationID).Scan(&userID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", ErrNotFound
-	}
-	if err != nil {
-		return "", fmt.Errorf("get conversation owner: %w", err)
-	}
-	return userID, nil
-}
-
-func (s *Store) GetConversation(ctx context.Context, conversationID string) (Conversation, error) {
-	row := s.db.QueryRowContext(ctx, `
-SELECT id, title, archived_at, created_at, updated_at
-FROM conversations
-WHERE id = ?`, conversationID)
-
-	var c Conversation
-	var archivedAt sql.NullTime
-	if err := row.Scan(&c.ID, &c.Title, &archivedAt, &c.CreatedAt, &c.UpdatedAt); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return Conversation{}, fmt.Errorf("conversation not found")
-		}
-		return Conversation{}, fmt.Errorf("get conversation: %w", err)
-	}
-	c.Archived = archivedAt.Valid
-	return c, nil
-}
-
-func (s *Store) GetMessages(ctx context.Context, conversationID string) ([]Message, error) {
-	rows, err := s.db.QueryContext(ctx, `
-SELECT id, conversation_id, role, content, user_content, llm_content, attachments_json, thinking, has_error, elapsed_ms, input_tokens, output_tokens, reasoning_tokens, total_tokens, created_at
-FROM messages
-WHERE conversation_id = ?
-ORDER BY created_at ASC`, conversationID)
-	if err != nil {
-		return nil, fmt.Errorf("list messages: %w", err)
-	}
-	defer rows.Close()
-
-	messages := make([]Message, 0)
-	messageIDs := make([]string, 0)
-	fallbackNames := make(map[string][]string)
-	for rows.Next() {
-		var m Message
-		var fallbackJSON string
-		if err := rows.Scan(
-			&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.UserContent, &m.LLMContent, &fallbackJSON, &m.Thinking, &m.HasError, &m.ElapsedMs, &m.InputTokens, &m.OutputTokens, &m.ReasoningTokens, &m.TotalTokens, &m.CreatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan message: %w", err)
-		}
-		fallbackNames[m.ID] = decodeFallbackAttachmentNames(fallbackJSON)
-		if m.Role == "user" && strings.TrimSpace(m.UserContent) != "" {
-			m.Content = m.UserContent
-		}
-		if m.LLMContent == "" {
-			m.LLMContent = m.Content
-		}
-		messageIDs = append(messageIDs, m.ID)
-		messages = append(messages, m)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	attached, err := s.attachmentsForMessages(ctx, messageIDs)
-	if err != nil {
-		return nil, err
-	}
-	for i := range messages {
-		if files, ok := attached[messages[i].ID]; ok && len(files) > 0 {
-			messages[i].Attachments = files
-			continue
-		}
-		if names := fallbackNames[messages[i].ID]; len(names) > 0 {
-			messages[i].Attachments = namesToMessageFiles(names)
-		}
-	}
-
-	return messages, nil
-}
-
-func (s *Store) GetMessage(ctx context.Context, conversationID string, messageID string) (Message, error) {
-	row := s.db.QueryRowContext(ctx, `
-SELECT id, conversation_id, role, content, user_content, llm_content, attachments_json, thinking, has_error, elapsed_ms, input_tokens, output_tokens, reasoning_tokens, total_tokens, created_at
-FROM messages
-WHERE conversation_id = ? AND id = ?
-`, conversationID, messageID)
-
-	var message Message
-	var fallbackJSON string
-	if err := row.Scan(
-		&message.ID,
-		&message.ConversationID,
-		&message.Role,
-		&message.Content,
-		&message.UserContent,
-		&message.LLMContent,
-		&fallbackJSON,
-		&message.Thinking,
-		&message.HasError,
-		&message.ElapsedMs,
-		&message.InputTokens,
-		&message.OutputTokens,
-		&message.ReasoningTokens,
-		&message.TotalTokens,
-		&message.CreatedAt,
-	); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return Message{}, fmt.Errorf("message not found")
-		}
-		return Message{}, fmt.Errorf("get message: %w", err)
-	}
-
-	attached, err := s.attachmentsForMessages(ctx, []string{message.ID})
-	if err != nil {
-		return Message{}, err
-	}
-	if files, ok := attached[message.ID]; ok && len(files) > 0 {
-		message.Attachments = files
-	} else if names := decodeFallbackAttachmentNames(fallbackJSON); len(names) > 0 {
-		message.Attachments = namesToMessageFiles(names)
-	}
-
-	return message, nil
-}
 
 func (s *Store) AppendMessage(ctx context.Context, m Message) error {
 	return s.AppendMessageWithFiles(ctx, m, nil, nil)
@@ -859,107 +701,6 @@ func (s *Store) GetAllSettings(ctx context.Context, userID string) (map[string]s
 	return result, rows.Err()
 }
 
-// User and session helpers.
-
-func (s *Store) CreateUser(ctx context.Context, id, username, passwordHash string, now time.Time) (User, error) {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO users(id, username, password_hash, created_at) VALUES(?, ?, ?, ?)`,
-		id, username, passwordHash, now.UTC(),
-	)
-	if err != nil {
-		return User{}, fmt.Errorf("insert user: %w", err)
-	}
-	return User{ID: id, Username: username, PasswordHash: passwordHash, CreatedAt: now.UTC()}, nil
-}
-
-func (s *Store) GetUserByUsername(ctx context.Context, username string) (User, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, username, password_hash, created_at FROM users WHERE username = ?`, username)
-	var u User
-	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.CreatedAt); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return User{}, ErrNotFound
-		}
-		return User{}, fmt.Errorf("get user: %w", err)
-	}
-	return u, nil
-}
-
-func (s *Store) GetUser(ctx context.Context, id string) (User, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, username, password_hash, created_at FROM users WHERE id = ?`, id)
-	var u User
-	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.CreatedAt); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return User{}, ErrNotFound
-		}
-		return User{}, fmt.Errorf("get user: %w", err)
-	}
-	return u, nil
-}
-
-func (s *Store) UpdateUserPassword(ctx context.Context, id, passwordHash string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, id)
-	if err != nil {
-		return fmt.Errorf("update user password: %w", err)
-	}
-	return nil
-}
-
-func (s *Store) CreateSession(ctx context.Context, id, userID, refreshHash string, expiresAt time.Time, rememberMe bool, now time.Time) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at, remember_me, created_at) VALUES(?, ?, ?, ?, ?, ?)`,
-		id, userID, refreshHash, expiresAt.UTC(), rememberMe, now.UTC(),
-	)
-	if err != nil {
-		return fmt.Errorf("insert session: %w", err)
-	}
-	return nil
-}
-
-func (s *Store) GetSessionByRefreshHash(ctx context.Context, refreshHash string) (Session, error) {
-	row := s.db.QueryRowContext(ctx, `
-SELECT id, user_id, refresh_token_hash, expires_at, remember_me, created_at, revoked_at
-FROM sessions WHERE refresh_token_hash = ?`, refreshHash)
-	var sess Session
-	var revoked sql.NullTime
-	if err := row.Scan(&sess.ID, &sess.UserID, &sess.RefreshTokenHash, &sess.ExpiresAt, &sess.RememberMe, &sess.CreatedAt, &revoked); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return Session{}, ErrNotFound
-		}
-		return Session{}, fmt.Errorf("get session: %w", err)
-	}
-	if revoked.Valid {
-		sess.RevokedAt = &revoked.Time
-	}
-	return sess, nil
-}
-
-func (s *Store) RotateSession(ctx context.Context, id, newRefreshHash string, expiresAt time.Time) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE sessions SET refresh_token_hash = ?, expires_at = ? WHERE id = ?`,
-		newRefreshHash, expiresAt.UTC(), id,
-	)
-	if err != nil {
-		return fmt.Errorf("rotate session: %w", err)
-	}
-	return nil
-}
-
-func (s *Store) RevokeSession(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET revoked_at = ? WHERE id = ?`, time.Now().UTC(), id)
-	if err != nil {
-		return fmt.Errorf("revoke session: %w", err)
-	}
-	return nil
-}
-
-func (s *Store) RevokeUserSessions(ctx context.Context, userID string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`, time.Now().UTC(), userID)
-	if err != nil {
-		return fmt.Errorf("revoke user sessions: %w", err)
-	}
-	return nil
-}
-
 // CopyDefaultSettings seeds a per-user copy of the default global settings on
 // registration, so each new user starts with a private settings row they can
 // edit independently.
@@ -976,7 +717,7 @@ func (s *Store) CopyDefaultSettings(ctx context.Context, userID string, defaults
 			 ON CONFLICT(user_id, key) DO NOTHING`,
 			userID, k, v, now,
 		); err != nil {
-			return fmt.Errorf("seed setting %s: %w", k, err)
+			return fmt.Errorf("Error Seeding Setting %s: %w", k, err)
 		}
 	}
 	return tx.Commit()
