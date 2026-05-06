@@ -64,6 +64,11 @@ type FeedItemFilter struct {
 	FeedID string
 }
 
+type FeedItemCursor struct {
+	ExternalID  string
+	PublishedAt *time.Time
+}
+
 func (s *Store) CreateFeed(ctx context.Context, feed Feed) (Feed, error) {
 	now := feed.CreatedAt
 	if now.IsZero() {
@@ -275,6 +280,29 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	return inserted, nil
 }
 
+func (s *Store) LatestFeedItemCursor(ctx context.Context, userID, feedID string) (FeedItemCursor, error) {
+	row := s.db.QueryRowContext(ctx, `
+SELECT external_id, published_at
+FROM feed_items
+WHERE user_id = ? AND feed_id = ?
+ORDER BY COALESCE(published_at, created_at) DESC, created_at DESC
+LIMIT 1
+`, userID, feedID)
+	var cursor FeedItemCursor
+	var published sql.NullTime
+	if err := row.Scan(&cursor.ExternalID, &published); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return FeedItemCursor{}, ErrNotFound
+		}
+		return FeedItemCursor{}, fmt.Errorf("latest feed item cursor: %w", err)
+	}
+	if published.Valid {
+		t := published.Time
+		cursor.PublishedAt = &t
+	}
+	return cursor, nil
+}
+
 func (s *Store) ListFeedItems(ctx context.Context, userID string, filter FeedItemFilter) ([]FeedItem, error) {
 	where := []string{"i.user_id = ?"}
 	args := []any{userID}
@@ -350,6 +378,22 @@ WHERE user_id = ? AND id = ?
 		return FeedItem{}, fmt.Errorf("update feed item flags: %w", err)
 	}
 	return s.GetFeedItem(ctx, userID, itemID)
+}
+
+func (s *Store) MarkFeedItemsRead(ctx context.Context, userID, feedID string) (int, error) {
+	if _, err := s.GetFeed(ctx, userID, feedID); err != nil {
+		return 0, err
+	}
+	result, err := s.db.ExecContext(ctx, `
+UPDATE feed_items
+SET read = 1, updated_at = ?
+WHERE user_id = ? AND feed_id = ? AND read = 0
+`, time.Now().UTC(), userID, feedID)
+	if err != nil {
+		return 0, fmt.Errorf("mark feed items read: %w", err)
+	}
+	affected, _ := result.RowsAffected()
+	return int(affected), nil
 }
 
 func (s *Store) SetFeedItemSummaryStatus(ctx context.Context, userID, itemID, status, errText string) error {

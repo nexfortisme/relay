@@ -53,6 +53,7 @@ func TestFeedHandlersCreateListPatchAndIsolateUsers(t *testing.T) {
 	router.GET("/feeds", handlers.ListFeeds)
 	router.GET("/feeds/items", handlers.ListFeedItems)
 	router.PATCH("/feeds/items/:id", handlers.UpdateFeedItem)
+	router.POST("/feeds/:id/mark-read", handlers.MarkFeedRead)
 	router.DELETE("/feeds/:id", handlers.DeleteFeed)
 
 	createBody := strings.NewReader(`{"url":"` + feedServer.URL + `/rss.xml","backfill":{"mode":"latest","limit":1},"pollingIntervalMinutes":30}`)
@@ -106,6 +107,31 @@ func TestFeedHandlersCreateListPatchAndIsolateUsers(t *testing.T) {
 	}
 	if len(otherUserPayload.Items) != 0 {
 		t.Fatalf("expected user isolation, got %#v", otherUserPayload.Items)
+	}
+
+	otherUserMarkReq := httptest.NewRequest(http.MethodPost, "/feeds/"+listFeedsPayload.Items[0].ID+"/mark-read", nil)
+	otherUserMarkReq.Header.Set("X-User-ID", "user-2")
+	otherUserMarkRes := httptest.NewRecorder()
+	router.ServeHTTP(otherUserMarkRes, otherUserMarkReq)
+	if otherUserMarkRes.Code != http.StatusNotFound {
+		t.Fatalf("other user mark read status=%d body=%s", otherUserMarkRes.Code, otherUserMarkRes.Body.String())
+	}
+
+	markReq := httptest.NewRequest(http.MethodPost, "/feeds/"+listFeedsPayload.Items[0].ID+"/mark-read", nil)
+	markRes := httptest.NewRecorder()
+	router.ServeHTTP(markRes, markReq)
+	if markRes.Code != http.StatusOK {
+		t.Fatalf("mark read status=%d body=%s", markRes.Code, markRes.Body.String())
+	}
+	var markPayload struct {
+		Feed         store.Feed `json:"feed"`
+		UpdatedCount int        `json:"updatedCount"`
+	}
+	if err := json.Unmarshal(markRes.Body.Bytes(), &markPayload); err != nil {
+		t.Fatalf("decode mark read response: %v", err)
+	}
+	if markPayload.UpdatedCount != 1 || markPayload.Feed.UnreadCount != 0 {
+		t.Fatalf("unexpected mark read payload: %#v", markPayload)
 	}
 
 	patchReq := httptest.NewRequest(http.MethodPatch, "/feeds/items/"+itemID, strings.NewReader(`{"read":true}`))

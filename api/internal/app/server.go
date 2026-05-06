@@ -136,6 +136,7 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 		authed.GET("/feeds/items/:id", handlers.GetFeedItem)
 		authed.PATCH("/feeds/items/:id", handlers.UpdateFeedItem)
 		authed.POST("/feeds/items/:id/summarize", handlers.SummarizeFeedItem)
+		authed.POST("/feeds/:id/mark-read", handlers.MarkFeedRead)
 		authed.PATCH("/feeds/:id", handlers.UpdateFeed)
 		authed.DELETE("/feeds/:id", handlers.DeleteFeed)
 	}
