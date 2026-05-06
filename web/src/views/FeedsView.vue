@@ -11,6 +11,7 @@ import {
   getFeedItem,
   listFeedItems,
   listFeeds,
+  markFeedRead,
   summarizeFeedItem,
   updateFeed,
   updateFeedItem,
@@ -39,6 +40,7 @@ const feedSearch = ref('')
 const feedsLoading = ref(false)
 const itemsLoading = ref(false)
 const manualRefreshLoading = ref(false)
+const markAllReadLoading = ref(false)
 const feedError = ref('')
 const itemError = ref('')
 const summarizingMode = ref<SummaryMode | null>(null)
@@ -85,6 +87,13 @@ const filteredFeeds = computed(() => {
 const activeFeed = computed(() => feeds.value.find((feed) => feed.id === selectedFeedId.value))
 const selectedFeedShowsAll = computed(
   () => selectedFeedId.value !== null && activeView.value === 'all',
+)
+const canMarkSelectedFeedRead = computed(
+  () =>
+    activeView.value === 'unread' &&
+    (activeFeed.value?.unreadCount ?? 0) > 0 &&
+    !itemsLoading.value &&
+    !markAllReadLoading.value,
 )
 const itemListTitle = computed(() => {
   if (activeFeed.value) {
@@ -169,6 +178,30 @@ async function refreshItemsWithFeedback() {
     }
   } finally {
     manualRefreshLoading.value = false
+  }
+}
+
+async function markSelectedFeedRead() {
+  const feedId = selectedFeedId.value
+  if (!feedId || activeView.value !== 'unread' || markAllReadLoading.value) {
+    return
+  }
+  markAllReadLoading.value = true
+  itemError.value = ''
+  clearReadTimer()
+  pendingReadRemovalId.value = null
+  selectedItem.value = null
+  selectedItemId.value = null
+  try {
+    const result = await markFeedRead(feedId)
+    feeds.value = feeds.value.map((feed) => (feed.id === result.feed.id ? result.feed : feed))
+    await refreshFeeds()
+    await refreshItems()
+    showSnackbar(markReadResultMessage(result.updatedCount))
+  } catch (error) {
+    itemError.value = error instanceof Error ? error.message : 'Failed to mark feed read'
+  } finally {
+    markAllReadLoading.value = false
   }
 }
 
@@ -275,6 +308,16 @@ function refreshResultMessage(count: number): string {
     return '1 item found.'
   }
   return `${count} items found.`
+}
+
+function markReadResultMessage(count: number): string {
+  if (count === 0) {
+    return 'Nothing to mark as read.'
+  }
+  if (count === 1) {
+    return 'Marked 1 item read.'
+  }
+  return `Marked ${count} items read.`
 }
 
 function showSnackbar(message: string) {
@@ -737,17 +780,29 @@ function vimeoEmbedUrl(rawUrl: string): string {
               <h2>{{ itemListTitle }}</h2>
               <p>{{ items.length }} items</p>
             </div>
-            <label v-if="activeFeed" class="feed-view-toggle">
-              <span>Show all</span>
-              <input
-                type="checkbox"
-                :checked="selectedFeedShowsAll"
-                @change="toggleSelectedFeedAll"
-              />
-              <span class="toggle-track" aria-hidden="true">
-                <span class="toggle-thumb" />
-              </span>
-            </label>
+            <div v-if="activeFeed" class="item-list-actions">
+              <button
+                v-if="activeView === 'unread'"
+                class="secondary-action mark-read-action"
+                type="button"
+                :disabled="!canMarkSelectedFeedRead"
+                @click="markSelectedFeedRead"
+              >
+                <AppIcon name="check" :size="15" />
+                {{ markAllReadLoading ? 'Marking' : 'Mark all read' }}
+              </button>
+              <label class="feed-view-toggle">
+                <span>Show all</span>
+                <input
+                  type="checkbox"
+                  :checked="selectedFeedShowsAll"
+                  @change="toggleSelectedFeedAll"
+                />
+                <span class="toggle-track" aria-hidden="true">
+                  <span class="toggle-thumb" />
+                </span>
+              </label>
+            </div>
           </div>
           <p v-if="itemError" class="inline-error">{{ itemError }}</p>
           <div class="item-list">
@@ -1450,6 +1505,24 @@ function vimeoEmbedUrl(rawUrl: string): string {
 
 .item-list-header > div {
   min-width: 0;
+}
+
+.item-list-actions {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.mark-read-action {
+  min-height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  white-space: nowrap;
 }
 
 .feed-view-toggle {

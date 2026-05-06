@@ -210,6 +210,20 @@ func (h *Handlers) UpdateFeedItem(c *gin.Context) {
 	c.JSON(http.StatusOK, item)
 }
 
+func (h *Handlers) MarkFeedRead(c *gin.Context) {
+	userID, ok := userIDFromGin(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	feed, updatedCount, err := h.feeds.MarkFeedRead(c.Request.Context(), userID, c.Param("id"))
+	if err != nil {
+		writeFeedError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"feed": feed, "updatedCount": updatedCount})
+}
+
 func (h *Handlers) SummarizeFeedItem(c *gin.Context) {
 	userID, ok := userIDFromGin(c)
 	if !ok {

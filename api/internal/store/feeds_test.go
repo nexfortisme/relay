@@ -157,6 +157,94 @@ func TestStoreDueFeedsAndCheckState(t *testing.T) {
 	}
 }
 
+func TestStoreMarkFeedItemsReadScopesFeedAndUser(t *testing.T) {
+	st, err := New(":memory:")
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	feeds := []Feed{
+		{
+			ID:                     "feed-1",
+			UserID:                 "user-1",
+			URL:                    "https://example.com/rss.xml",
+			Title:                  "Primary",
+			PollingIntervalMinutes: 30,
+			NextCheckAt:            now.Add(30 * time.Minute),
+			CreatedAt:              now,
+			UpdatedAt:              now,
+		},
+		{
+			ID:                     "feed-2",
+			UserID:                 "user-1",
+			URL:                    "https://example.com/other.xml",
+			Title:                  "Other",
+			PollingIntervalMinutes: 30,
+			NextCheckAt:            now.Add(30 * time.Minute),
+			CreatedAt:              now,
+			UpdatedAt:              now,
+		},
+		{
+			ID:                     "feed-3",
+			UserID:                 "user-2",
+			URL:                    "https://example.net/rss.xml",
+			Title:                  "Other User",
+			PollingIntervalMinutes: 30,
+			NextCheckAt:            now.Add(30 * time.Minute),
+			CreatedAt:              now,
+			UpdatedAt:              now,
+		},
+	}
+	for _, feed := range feeds {
+		if _, err := st.CreateFeed(ctx, feed); err != nil {
+			t.Fatalf("create feed %s: %v", feed.ID, err)
+		}
+	}
+	if _, err := st.CreateFeedItems(ctx, []FeedItem{
+		{ID: "item-1", UserID: "user-1", FeedID: "feed-1", ExternalID: "guid-1", Title: "First", CreatedAt: now, UpdatedAt: now},
+		{ID: "item-2", UserID: "user-1", FeedID: "feed-1", ExternalID: "guid-2", Title: "Second", CreatedAt: now, UpdatedAt: now},
+		{ID: "item-3", UserID: "user-1", FeedID: "feed-2", ExternalID: "guid-3", Title: "Third", CreatedAt: now, UpdatedAt: now},
+		{ID: "item-4", UserID: "user-2", FeedID: "feed-3", ExternalID: "guid-4", Title: "Fourth", CreatedAt: now, UpdatedAt: now},
+	}); err != nil {
+		t.Fatalf("create feed items: %v", err)
+	}
+
+	updated, err := st.MarkFeedItemsRead(ctx, "user-1", "feed-1")
+	if err != nil {
+		t.Fatalf("mark feed items read: %v", err)
+	}
+	if updated != 2 {
+		t.Fatalf("expected two updated rows, got %d", updated)
+	}
+	feed1, err := st.GetFeed(ctx, "user-1", "feed-1")
+	if err != nil {
+		t.Fatalf("get feed 1: %v", err)
+	}
+	if feed1.UnreadCount != 0 {
+		t.Fatalf("expected feed 1 unread count 0, got %d", feed1.UnreadCount)
+	}
+	feed2, err := st.GetFeed(ctx, "user-1", "feed-2")
+	if err != nil {
+		t.Fatalf("get feed 2: %v", err)
+	}
+	if feed2.UnreadCount != 1 {
+		t.Fatalf("expected feed 2 unread count untouched, got %d", feed2.UnreadCount)
+	}
+	feed3, err := st.GetFeed(ctx, "user-2", "feed-3")
+	if err != nil {
+		t.Fatalf("get feed 3: %v", err)
+	}
+	if feed3.UnreadCount != 1 {
+		t.Fatalf("expected other user feed unread count untouched, got %d", feed3.UnreadCount)
+	}
+	if _, err := st.MarkFeedItemsRead(ctx, "user-2", "feed-1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected not found for other user's feed, got %v", err)
+	}
+}
+
 func TestStoreDeleteFeedCascadesItemsAndScopesUser(t *testing.T) {
 	st, err := New(":memory:")
 	if err != nil {

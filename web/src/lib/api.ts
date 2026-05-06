@@ -487,6 +487,16 @@ export async function deleteFeed(feedId: string): Promise<void> {
   await fetchNoContent(`/feeds/${feedId}`, { method: "DELETE" }, "Failed to delete feed");
 }
 
+export async function markFeedRead(
+  feedId: string,
+): Promise<{ feed: Feed; updatedCount: number }> {
+  return fetchJson<{ feed: Feed; updatedCount: number }>(
+    `/feeds/${feedId}/mark-read`,
+    { method: "POST" },
+    "Failed to mark feed read",
+  );
+}
+
 export async function listFeedItems(
   view: FeedItemView,
   feedId?: string | null,

@@ -8,6 +8,7 @@ import {
   getFeedItem,
   listFeedItems,
   listFeeds,
+  markFeedRead,
   summarizeFeedItem,
   updateFeedItem,
   type Feed,
@@ -24,6 +25,7 @@ vi.mock('../lib/api', async (importOriginal) => {
     getFeedItem: vi.fn<typeof actual.getFeedItem>(),
     listFeedItems: vi.fn<typeof actual.listFeedItems>(),
     listFeeds: vi.fn<typeof actual.listFeeds>(),
+    markFeedRead: vi.fn<typeof actual.markFeedRead>(),
     summarizeFeedItem: vi.fn<typeof actual.summarizeFeedItem>(),
     updateFeed: vi.fn<typeof actual.updateFeed>(),
     updateFeedItem: vi.fn<typeof actual.updateFeedItem>(),
@@ -77,6 +79,7 @@ function mockApi() {
   })
   vi.mocked(getFeedItem).mockResolvedValue(item)
   vi.mocked(updateFeedItem).mockResolvedValue({ ...item, read: true })
+  vi.mocked(markFeedRead).mockResolvedValue({ feed: { ...feed, unreadCount: 0 }, updatedCount: 1 })
   vi.mocked(deleteFeed).mockResolvedValue(undefined)
   vi.mocked(checkFeed).mockResolvedValue({
     url: feed.url,
@@ -226,6 +229,25 @@ describe('FeedsView', () => {
     await flushPromises()
 
     expect(listFeedItems).toHaveBeenLastCalledWith('all', 'feed-1')
+  })
+
+  it('marks all unread items for an individual feed as read', async () => {
+    const wrapper = mountFeeds()
+    await flushPromises()
+
+    vi.mocked(listFeedItems).mockClear()
+    await wrapper.find('.feed-main').trigger('click')
+    await flushPromises()
+
+    const markButton = wrapper.find('.mark-read-action')
+    expect(markButton.exists()).toBe(true)
+
+    await markButton.trigger('click')
+    await flushPromises()
+
+    expect(markFeedRead).toHaveBeenCalledWith('feed-1')
+    expect(listFeedItems).toHaveBeenLastCalledWith('unread', 'feed-1')
+    expect(wrapper.find('.feed-snackbar').text()).toBe('Marked 1 item read.')
   })
 
   it('confirms before deleting a feed and refreshes the inbox', async () => {

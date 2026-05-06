@@ -201,6 +201,18 @@ func (s *Service) PatchItem(ctx context.Context, userID, itemID string, patch It
 	return s.store.UpdateFeedItemFlags(ctx, userID, itemID, patch.Read, patch.Starred)
 }
 
+func (s *Service) MarkFeedRead(ctx context.Context, userID, feedID string) (store.Feed, int, error) {
+	updatedCount, err := s.store.MarkFeedItemsRead(ctx, userID, feedID)
+	if err != nil {
+		return store.Feed{}, 0, err
+	}
+	feed, err := s.store.GetFeed(ctx, userID, feedID)
+	if err != nil {
+		return store.Feed{}, 0, err
+	}
+	return feed, updatedCount, nil
+}
+
 func (s *Service) SummarizeItem(ctx context.Context, userID, itemID, mode string, targetCharacters ...int) (store.FeedItem, error) {
 	mode = normalizeSummaryMode(mode)
 	item, err := s.store.GetFeedItem(ctx, userID, itemID)
@@ -261,7 +273,12 @@ func (s *Service) pollFeed(ctx context.Context, feed store.Feed) {
 		_ = s.store.UpdateFeedCheckState(context.Background(), feed.ID, now, nextCheck, err.Error())
 		return
 	}
-	items := s.storeItems(feed.UserID, feed.ID, parsed.Items, now)
+	items, err := s.itemsForPoll(ctx, feed, parsed.Items, now)
+	if err != nil {
+		s.logger.Warn("failed to prepare feed items", "feed_id", feed.ID, "error", err)
+		_ = s.store.UpdateFeedCheckState(context.Background(), feed.ID, now, nextCheck, err.Error())
+		return
+	}
 	inserted, err := s.store.CreateFeedItems(ctx, items)
 	if err != nil {
 		s.logger.Warn("failed to store feed items", "feed_id", feed.ID, "error", err)
@@ -334,18 +351,55 @@ func (s *Service) itemsForBackfill(userID, feedID string, parsed []ParsedItem, b
 	return s.storeItems(userID, feedID, selected, now)
 }
 
+func (s *Service) itemsForPoll(ctx context.Context, feed store.Feed, parsed []ParsedItem, now time.Time) ([]store.FeedItem, error) {
+	cursor, err := s.store.LatestFeedItemCursor(ctx, feed.UserID, feed.ID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return s.storeItems(feed.UserID, feed.ID, parsedItemsAfterLastCheck(parsed, feed.LastCheckedAt), now), nil
+		}
+		return nil, err
+	}
+	return s.storeItems(feed.UserID, feed.ID, parsedItemsAfterCursor(parsed, cursor), now), nil
+}
+
+func parsedItemsAfterCursor(parsed []ParsedItem, cursor store.FeedItemCursor) []ParsedItem {
+	selected := make([]ParsedItem, 0, len(parsed))
+	for _, item := range parsed {
+		if cursor.ExternalID != "" && parsedItemExternalID(item) == cursor.ExternalID {
+			break
+		}
+		if cursor.PublishedAt != nil {
+			if item.PublishedAt != nil && item.PublishedAt.After(*cursor.PublishedAt) {
+				selected = append(selected, item)
+			}
+			continue
+		}
+		selected = append(selected, item)
+	}
+	return selected
+}
+
+func parsedItemsAfterLastCheck(parsed []ParsedItem, lastCheckedAt *time.Time) []ParsedItem {
+	if lastCheckedAt == nil || lastCheckedAt.IsZero() {
+		return parsed
+	}
+	selected := make([]ParsedItem, 0, len(parsed))
+	for _, item := range parsed {
+		if item.PublishedAt != nil && item.PublishedAt.After(*lastCheckedAt) {
+			selected = append(selected, item)
+		}
+	}
+	return selected
+}
+
 func (s *Service) storeItems(userID, feedID string, parsed []ParsedItem, now time.Time) []store.FeedItem {
 	items := make([]store.FeedItem, 0, len(parsed))
 	for _, item := range parsed {
-		externalID := strings.TrimSpace(item.ExternalID)
-		if externalID == "" {
-			externalID = stableExternalID(item.URL, item.Title, item.PublishedAt)
-		}
 		items = append(items, store.FeedItem{
 			ID:          uuid.NewString(),
 			UserID:      userID,
 			FeedID:      feedID,
-			ExternalID:  externalID,
+			ExternalID:  parsedItemExternalID(item),
 			Title:       item.Title,
 			URL:         item.URL,
 			Author:      item.Author,
@@ -361,6 +415,14 @@ func (s *Service) storeItems(userID, feedID string, parsed []ParsedItem, now tim
 		})
 	}
 	return items
+}
+
+func parsedItemExternalID(item ParsedItem) string {
+	externalID := strings.TrimSpace(item.ExternalID)
+	if externalID == "" {
+		externalID = stableExternalID(item.URL, item.Title, item.PublishedAt)
+	}
+	return externalID
 }
 
 func (s *Service) enqueueSummaries(items []store.FeedItem) {
