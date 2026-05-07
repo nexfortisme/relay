@@ -36,6 +36,7 @@ const messagesEl = ref<HTMLElement | null>(null);
 const thinkingBodyEls = new Map<string, HTMLElement>();
 const copiedMessageId = ref<string | null>(null);
 let copiedResetTimer: ReturnType<typeof setTimeout> | null = null;
+const codeCopyTimers = new Map<HTMLButtonElement, ReturnType<typeof setTimeout>>();
 
 const preview = ref<FilePreviewState | null>(null);
 let previewRequestId = 0;
@@ -73,9 +74,38 @@ function closePreview() {
 
 function handleMarkdownClick(event: MouseEvent) {
   const target = event.target;
+  if (target instanceof Element) {
+    const copyButton = target.closest(".code-copy-button");
+    if (copyButton instanceof HTMLButtonElement) {
+      void copyCodeBlock(copyButton);
+      return;
+    }
+  }
   if (!(target instanceof HTMLImageElement)) return;
   event.preventDefault();
   openImagePreview(target.src, target.alt || "image");
+}
+
+async function copyCodeBlock(button: HTMLButtonElement) {
+  const container = button.closest(".code-block");
+  const code = container?.querySelector("pre > code");
+  const text = code?.textContent ?? "";
+  if (!text) {
+    return;
+  }
+  await writeClipboardText(text);
+  button.textContent = "Copied";
+  button.setAttribute("aria-label", "Copied");
+  const existingTimer = codeCopyTimers.get(button);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+  const resetTimer = setTimeout(() => {
+    button.textContent = "Copy";
+    button.setAttribute("aria-label", "Copy code");
+    codeCopyTimers.delete(button);
+  }, 1600);
+  codeCopyTimers.set(button, resetTimer);
 }
 
 function setThinkingBodyRef(messageId: string, el: Element | ComponentPublicInstance | null) {
@@ -291,6 +321,10 @@ onUnmounted(() => {
   if (copiedResetTimer) {
     clearTimeout(copiedResetTimer);
   }
+  for (const timer of codeCopyTimers.values()) {
+    clearTimeout(timer);
+  }
+  codeCopyTimers.clear();
   closePreview();
 });
 
@@ -311,7 +345,11 @@ defineExpose({ scrollToBottom });
         @click="handleThinkingPanelClick"
       >
         <summary>Thinking</summary>
-        <div :ref="(el) => setThinkingBodyRef(message.id, el)" class="message-thinking-body">
+        <div
+          :ref="(el) => setThinkingBodyRef(message.id, el)"
+          class="message-thinking-body"
+          @click="handleMarkdownClick"
+        >
           <div class="message-markdown" v-html="renderMarkdown(message.thinking)" />
         </div>
       </details>
@@ -648,6 +686,29 @@ defineExpose({ scrollToBottom });
   padding: 0.72rem;
   border-radius: 0.5rem;
   background: var(--surface-soft);
+}
+
+.message-markdown :deep(.code-block) {
+  position: relative;
+}
+
+.message-markdown :deep(.code-copy-button) {
+  position: absolute;
+  top: 0.38rem;
+  right: 0.38rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  color: inherit;
+  font-size: 0.72rem;
+  line-height: 1;
+  padding: 0.24rem 0.42rem;
+  cursor: pointer;
+}
+
+.message-markdown :deep(.code-copy-button:hover),
+.message-markdown :deep(.code-copy-button:focus-visible) {
+  border-color: color-mix(in srgb, var(--primary) 56%, var(--border));
 }
 
 .message-markdown :deep(code) {

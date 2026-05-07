@@ -30,6 +30,16 @@ function userMessage(
   }
 }
 
+function assistantMessage(content: string): DisplayMessage {
+  return {
+    id: 'msg-assistant-1',
+    conversationId: 'conv-1',
+    role: 'assistant',
+    content,
+    createdAt: '2026-04-25T12:00:01.000Z',
+  }
+}
+
 describe('MessageList attachment preview', () => {
   afterEach(() => {
     document.body.innerHTML = ''
@@ -103,6 +113,32 @@ describe('MessageList attachment preview', () => {
     wrapper.unmount()
   })
 
+})
+
+describe('MessageList code block copy', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('copies fenced code block content from assistant markdown', async () => {
+    const writeText = vi.fn(async () => {})
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+
+    const wrapper = mount(MessageList, {
+      attachTo: document.body,
+      props: {
+        messages: [assistantMessage('```ts\nconst value = 42;\n```')],
+        pendingAssistant: false,
+      },
+    })
+
+    await wrapper.find('.code-copy-button').trigger('click')
+
+    expect(writeText).toHaveBeenCalledWith('const value = 42;')
+
+    wrapper.unmount()
+  })
 })
 
 describe('MessageList scrolling', () => {
