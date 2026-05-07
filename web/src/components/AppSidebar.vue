@@ -17,12 +17,12 @@ const { activeConversations } = storeToRefs(conversationStore)
 type NavItem = {
   to: string
   label: string
-  icon: 'sparkles' | 'file' | 'clock' | 'archive' | 'send'
+  icon: 'house' | 'sparkles' | 'file' | 'clock' | 'archive' | 'send'
   enabled: boolean
 }
 
 const navItems: NavItem[] = [
-  { to: '/home', label: 'Home', icon: 'sparkles', enabled: true },
+  { to: '/home', label: 'Home', icon: 'house', enabled: true },
   { to: '/chat', label: 'Chat', icon: 'sparkles', enabled: true },
   { to: '/notebooks', label: 'Notebooks', icon: 'file', enabled: false },
   { to: '/scheduled', label: 'Scheduled', icon: 'clock', enabled: false },

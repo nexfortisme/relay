@@ -3,6 +3,7 @@ defineProps<{
   name:
     | 'archive'
     | 'book'
+    | 'house'
     | 'chevron-left'
     | 'chevron-right'
     | 'check'
@@ -84,6 +85,11 @@ defineProps<{
     <template v-else-if="name === 'file'">
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
       <path d="M14 2v6h6" />
+    </template>
+    <template v-else-if="name === 'house'">
+      <path d="m3 10.5 9-7 9 7" />
+      <path d="M5 9.5V20h14V9.5" />
+      <path d="M10 20v-6h4v6" />
     </template>
     <template v-else-if="name === 'inbox'">
       <path d="M22 12h-6l-2 3h-4l-2-3H2" />
