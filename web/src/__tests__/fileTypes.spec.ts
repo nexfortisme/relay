@@ -12,7 +12,7 @@ describe('fileTypes', () => {
     expect(attachmentPreviewKind('readme.md')).toBe('markdown')
     expect(attachmentPreviewKind('readme.markdown')).toBe('markdown')
     expect(attachmentPreviewKind('data.json')).toBe('text')
-    expect(attachmentPreviewKind('rows.csv')).toBe('text')
+    expect(attachmentPreviewKind('rows.csv')).toBe('csv')
     expect(attachmentPreviewKind('payload.xml')).toBe('text')
     expect(attachmentPreviewKind('config.yaml')).toBe('text')
     expect(attachmentPreviewKind('config.yml')).toBe('text')
