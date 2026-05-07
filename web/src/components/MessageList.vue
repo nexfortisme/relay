@@ -113,7 +113,7 @@ async function handleAttachmentPreviewClick(event: MouseEvent, attachment: Messa
   });
 
   try {
-    const response = await fetch(src);
+    const response = await fetch(src, { credentials: "include" });
     if (!response.ok) {
       throw new Error("Preview request failed");
     }
