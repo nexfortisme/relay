@@ -80,19 +80,25 @@ watch(unauthorizedAt, (value) => {
   </main>
 </template>
 
-<style scoped>
-:global(html, body, #app) {
+<style>
+html,
+body,
+#app {
   margin: 0;
+  padding: 0;
+  width: 100%;
   height: 100%;
   overflow: hidden;
 }
 
-:global(*),
-:global(*::before),
-:global(*::after) {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
+</style>
 
+<style scoped>
 .layout {
   height: 100dvh;
   overflow: hidden;
