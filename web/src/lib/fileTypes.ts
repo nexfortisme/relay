@@ -1,11 +1,12 @@
 export const ACCEPTED_FILE_TYPES = 'image/*,.pdf,.txt,.md,.markdown,.json,.csv,.xml,.yaml,.yml'
 
-export type AttachmentPreviewKind = 'image' | 'pdf' | 'text' | 'markdown'
+export type AttachmentPreviewKind = 'image' | 'pdf' | 'text' | 'markdown' | 'csv'
 
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif|tiff?)$/i
 const MARKDOWN_EXTENSIONS = /\.(md|markdown)$/i
 const PDF_EXTENSION = /\.pdf$/i
-const TEXT_EXTENSIONS = /\.(txt|json|csv|xml|ya?ml)$/i
+const CSV_EXTENSION = /\.csv$/i
+const TEXT_EXTENSIONS = /\.(txt|json|xml|ya?ml)$/i
 const JSON_EXTENSION = /\.json$/i
 
 export function isImageFile(name: string): boolean {
@@ -21,6 +22,9 @@ export function attachmentPreviewKind(name: string): AttachmentPreviewKind | nul
   }
   if (MARKDOWN_EXTENSIONS.test(name)) {
     return 'markdown'
+  }
+  if (CSV_EXTENSION.test(name)) {
+    return 'csv'
   }
   if (TEXT_EXTENSIONS.test(name)) {
     return 'text'

@@ -1,13 +1,47 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from "vue";
+import { computed, onMounted, onUnmounted } from "vue";
+import { columnLetter, parseCsvRows } from "../lib/csvParse";
 import { renderMarkdown } from "../lib/markdown";
 import type { FilePreviewState } from "../types";
 import AppIcon from "./AppIcon.vue";
 
-defineProps<{
+const props = defineProps<{
   preview: FilePreviewState;
   theme: "dark" | "light";
 }>();
+
+const CSV_PREVIEW_MAX_ROWS = 5000;
+
+const csvGrid = computed(() => {
+  if (props.preview.kind !== "csv" || props.preview.isLoading || props.preview.error) {
+    return null;
+  }
+  const { rows, truncated } = parseCsvRows(props.preview.text, CSV_PREVIEW_MAX_ROWS);
+  if (rows.length === 0) {
+    return { colLabels: [] as string[], header: [] as string[], body: [] as string[][], truncated };
+  }
+  const header = rows[0] ?? [];
+  const body = rows.slice(1);
+  const maxCols = Math.max(
+    1,
+    header.length,
+    ...body.map((r) => r.length),
+  );
+  const pad = (cells: string[]) => {
+    const next = cells.slice(0, maxCols);
+    while (next.length < maxCols) {
+      next.push("");
+    }
+    return next;
+  };
+  const colLabels = Array.from({ length: maxCols }, (_, i) => columnLetter(i));
+  return {
+    colLabels,
+    header: pad(header),
+    body: body.map(pad),
+    truncated,
+  };
+});
 
 const emit = defineEmits<{
   close: [];
@@ -66,7 +100,9 @@ onUnmounted(() => {
           :class="{
             'file-preview-body--image': preview.kind === 'image',
             'file-preview-body--pdf': preview.kind === 'pdf',
-            'file-preview-body--text': preview.kind === 'text' || preview.kind === 'markdown',
+            'file-preview-body--text':
+              preview.kind === 'text' || preview.kind === 'markdown',
+            'file-preview-body--csv': preview.kind === 'csv',
           }"
         >
           <p v-if="preview.isLoading" class="file-preview-status">Loading preview...</p>
@@ -88,6 +124,57 @@ onUnmounted(() => {
             class="file-preview-text file-preview-markdown"
             v-html="renderMarkdown(preview.text)"
           />
+          <div v-else-if="preview.kind === 'csv' && csvGrid" class="file-preview-csv-shell">
+            <p v-if="!csvGrid.header.length && !csvGrid.body.length" class="file-preview-status">
+              This CSV has no rows to display.
+            </p>
+            <template v-else>
+              <p v-if="csvGrid.truncated" class="file-preview-csv-truncation">
+                Showing the first {{ CSV_PREVIEW_MAX_ROWS.toLocaleString() }} rows. Download the
+                file to see the full data.
+              </p>
+              <div class="file-preview-csv-scroll">
+                <table class="file-preview-csv-table" role="grid">
+                  <thead>
+                    <tr class="file-preview-csv-letters">
+                      <th class="file-preview-csv-corner" scope="col" />
+                      <th
+                        v-for="(label, ci) in csvGrid.colLabels"
+                        :key="`col-${ci}`"
+                        class="file-preview-csv-col-label"
+                        scope="col"
+                      >
+                        {{ label }}
+                      </th>
+                    </tr>
+                    <tr class="file-preview-csv-sheet-header">
+                      <th class="file-preview-csv-row-label" scope="row">1</th>
+                      <th
+                        v-for="(cell, ci) in csvGrid.header"
+                        :key="`h-${ci}`"
+                        class="file-preview-csv-cell file-preview-csv-cell--header"
+                        scope="col"
+                      >
+                        {{ cell }}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(row, ri) in csvGrid.body" :key="`r-${ri}`">
+                      <th class="file-preview-csv-row-label" scope="row">{{ ri + 2 }}</th>
+                      <td
+                        v-for="(cell, ci) in row"
+                        :key="`d-${ri}-${ci}`"
+                        class="file-preview-csv-cell"
+                      >
+                        {{ cell }}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </template>
+          </div>
           <pre v-else-if="preview.kind === 'text'" class="file-preview-text">{{
             preview.text
           }}</pre>
@@ -156,6 +243,11 @@ onUnmounted(() => {
   width: min(90vw, 1000px);
 }
 
+.file-preview-dialog--csv {
+  width: min(96vw, 1280px);
+  max-width: min(96vw, 1280px);
+}
+
 .file-preview-toolbar {
   display: flex;
   align-items: center;
@@ -217,10 +309,172 @@ onUnmounted(() => {
   height: min(78vh, 760px);
 }
 
-.file-preview-body--text {
+.file-preview-body--text,
+.file-preview-body--csv {
   align-items: stretch;
   justify-content: stretch;
   padding: 0;
+}
+
+.file-preview-csv-shell {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.file-preview-csv-truncation {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-soft) 88%, var(--surface));
+}
+
+.file-preview-csv-scroll {
+  --csv-letters-height: 1.75rem;
+  overflow: auto;
+  max-height: calc(90vh - 5.25rem);
+  background: var(--surface-soft);
+}
+
+.file-preview-csv-table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  min-width: 100%;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
+    sans-serif;
+}
+
+.file-preview-csv-table th,
+.file-preview-csv-table td {
+  box-sizing: border-box;
+}
+
+.file-preview-csv-corner {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  width: 2.35rem;
+  min-width: 2.35rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-top: none;
+  border-left: none;
+  background: color-mix(in srgb, var(--surface-soft) 70%, var(--border));
+}
+
+.file-preview-csv-letters .file-preview-csv-corner {
+  top: 0;
+}
+
+.file-preview-csv-col-label {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  min-width: 6.5rem;
+  padding: 0.28rem 0.42rem;
+  text-align: center;
+  font-weight: 650;
+  font-size: 0.72rem;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-top: none;
+  background: color-mix(in srgb, var(--surface-soft) 55%, var(--selected));
+}
+
+.file-preview-csv-row-label {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  width: 2.35rem;
+  min-width: 2.35rem;
+  padding: 0.32rem 0.28rem;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.72rem;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-left: none;
+  background: color-mix(in srgb, var(--surface-soft) 70%, var(--border));
+}
+
+.file-preview-csv-sheet-header .file-preview-csv-row-label {
+  top: var(--csv-letters-height);
+}
+
+.file-preview-csv-sheet-header .file-preview-csv-cell--header {
+  position: sticky;
+  top: var(--csv-letters-height);
+  z-index: 2;
+}
+
+.file-preview-csv-cell {
+  min-width: 6.5rem;
+  max-width: 22rem;
+  padding: 0.32rem 0.48rem;
+  border: 1px solid var(--border);
+  color: var(--text);
+  background: var(--surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: top;
+}
+
+.file-preview-csv-cell--header {
+  font-weight: 650;
+  background: color-mix(in srgb, var(--surface) 76%, var(--selected));
+}
+
+.file-preview-csv-table tbody tr:nth-child(even) .file-preview-csv-cell {
+  background: color-mix(in srgb, var(--surface) 94%, var(--surface-soft));
+}
+
+.file-preview-overlay[data-theme="light"] .file-preview-csv-corner,
+.file-preview-overlay[data-theme="light"] .file-preview-csv-row-label {
+  background: #e9ecef;
+}
+
+.file-preview-overlay[data-theme="light"] .file-preview-csv-col-label {
+  background: #dee6ef;
+}
+
+.file-preview-overlay[data-theme="light"] .file-preview-csv-cell {
+  background: #ffffff;
+}
+
+.file-preview-overlay[data-theme="light"] .file-preview-csv-cell--header {
+  background: #dae8f5;
+}
+
+.file-preview-overlay[data-theme="light"] .file-preview-csv-table tbody tr:nth-child(even) .file-preview-csv-cell {
+  background: #f7f9fb;
+}
+
+.file-preview-overlay[data-theme="dark"] .file-preview-csv-corner,
+.file-preview-overlay[data-theme="dark"] .file-preview-csv-row-label {
+  background: #252d3d;
+}
+
+.file-preview-overlay[data-theme="dark"] .file-preview-csv-col-label {
+  background: #2c3548;
+}
+
+.file-preview-overlay[data-theme="dark"] .file-preview-csv-cell {
+  background: #1b2130;
+}
+
+.file-preview-overlay[data-theme="dark"] .file-preview-csv-cell--header {
+  background: #243049;
+}
+
+.file-preview-overlay[data-theme="dark"] .file-preview-csv-table tbody tr:nth-child(even) .file-preview-csv-cell {
+  background: #151a26;
 }
 
 .file-preview-img {
@@ -298,7 +552,8 @@ onUnmounted(() => {
 
   .file-preview-dialog--pdf,
   .file-preview-dialog--text,
-  .file-preview-dialog--markdown {
+  .file-preview-dialog--markdown,
+  .file-preview-dialog--csv {
     width: 100%;
   }
 
@@ -307,8 +562,13 @@ onUnmounted(() => {
   }
 
   .file-preview-body--pdf,
-  .file-preview-body--text {
+  .file-preview-body--text,
+  .file-preview-body--csv {
     padding: 0;
+  }
+
+  .file-preview-csv-scroll {
+    max-height: calc(100dvh - 5.85rem);
   }
 
   .file-preview-body--pdf {
