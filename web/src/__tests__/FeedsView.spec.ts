@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import FeedsView from '../views/FeedsView.vue'
 import {
@@ -90,16 +91,24 @@ function mockApi() {
   })
 }
 
-function mountFeeds() {
-  return mount(FeedsView, {
+async function mountFeeds(options?: { query?: Record<string, string> }) {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/feeds', name: 'feeds', component: { template: '<div />' } }],
+  })
+  await router.push({ path: '/feeds', query: options?.query ?? {} })
+  await router.isReady()
+  const wrapper = mount(FeedsView, {
     global: {
-      plugins: [createPinia()],
+      plugins: [createPinia(), router],
       stubs: {
         AppSidebar: true,
         PageNavTabs: true,
       },
     },
   })
+  await flushPromises()
+  return wrapper
 }
 
 describe('FeedsView', () => {
@@ -113,7 +122,7 @@ describe('FeedsView', () => {
   })
 
   it('keeps the add dialog open when the backdrop is clicked', async () => {
-    const wrapper = mountFeeds()
+    const wrapper = await mountFeeds()
     await flushPromises()
 
     await wrapper.find('.primary-action').trigger('click')
@@ -124,7 +133,7 @@ describe('FeedsView', () => {
   })
 
   it('checks a pasted feed URL and fills the detected name', async () => {
-    const wrapper = mountFeeds()
+    const wrapper = await mountFeeds()
     await flushPromises()
 
     await wrapper.find('.primary-action').trigger('click')
@@ -137,7 +146,7 @@ describe('FeedsView', () => {
   })
 
   it('shows progress and a count after manually refreshing feed items', async () => {
-    const wrapper = mountFeeds()
+    const wrapper = await mountFeeds()
     await flushPromises()
 
     let resolveRefresh: (items: FeedItem[]) => void = () => {}
@@ -164,7 +173,7 @@ describe('FeedsView', () => {
   })
 
   it('says nothing was found after a manual refresh returns no feed items', async () => {
-    const wrapper = mountFeeds()
+    const wrapper = await mountFeeds()
     await flushPromises()
 
     vi.mocked(listFeedItems).mockResolvedValueOnce([])
@@ -179,7 +188,7 @@ describe('FeedsView', () => {
 
   it('marks an opened unread item as read after five seconds', async () => {
     vi.useFakeTimers()
-    const wrapper = mountFeeds()
+    const wrapper = await mountFeeds()
     await flushPromises()
 
     await wrapper.find('.item-row').trigger('click')
@@ -199,7 +208,7 @@ describe('FeedsView', () => {
           setTimeout(() => resolve(item), 4000)
         }),
     )
-    const wrapper = mountFeeds()
+    const wrapper = await mountFeeds()
     await flushPromises()
 
     await wrapper.find('.item-row').trigger('click')
@@ -217,7 +226,7 @@ describe('FeedsView', () => {
   })
 
   it('can show all items for an individual feed', async () => {
-    const wrapper = mountFeeds()
+    const wrapper = await mountFeeds()
     await flushPromises()
 
     vi.mocked(listFeedItems).mockClear()
@@ -232,7 +241,7 @@ describe('FeedsView', () => {
   })
 
   it('marks all unread items for an individual feed as read', async () => {
-    const wrapper = mountFeeds()
+    const wrapper = await mountFeeds()
     await flushPromises()
 
     vi.mocked(listFeedItems).mockClear()
@@ -251,7 +260,7 @@ describe('FeedsView', () => {
   })
 
   it('confirms before deleting a feed and refreshes the inbox', async () => {
-    const wrapper = mountFeeds()
+    const wrapper = await mountFeeds()
     await flushPromises()
 
     await wrapper.find('.feed-settings').trigger('click')
@@ -273,7 +282,7 @@ describe('FeedsView', () => {
 
   it('shows an active yellow filled star after starring an item', async () => {
     vi.mocked(updateFeedItem).mockResolvedValueOnce({ ...item, starred: true })
-    const wrapper = mountFeeds()
+    const wrapper = await mountFeeds()
     await flushPromises()
 
     await wrapper.find('.item-row').trigger('click')
@@ -295,7 +304,7 @@ describe('FeedsView', () => {
           resolveSummary = resolve
         }),
     )
-    const wrapper = mountFeeds()
+    const wrapper = await mountFeeds()
     await flushPromises()
 
     await wrapper.find('.item-row').trigger('click')
@@ -321,7 +330,7 @@ describe('FeedsView', () => {
       mediaType: 'youtube',
       mediaUrl: 'https://www.youtube.com/watch?v=abc123',
     })
-    const wrapper = mountFeeds()
+    const wrapper = await mountFeeds()
     await flushPromises()
 
     await wrapper.find('.item-row').trigger('click')
@@ -332,5 +341,22 @@ describe('FeedsView', () => {
     expect((summarizeButton.element as HTMLButtonElement).disabled).toBe(true)
     await summarizeButton.trigger('click')
     expect(summarizeFeedItem).not.toHaveBeenCalled()
+  })
+
+  it('selects the feed from the URL query on load', async () => {
+    const wrapper = await mountFeeds({ query: { feedId: 'feed-1' } })
+
+    expect(wrapper.find('.feed-row--active').exists()).toBe(true)
+    expect(wrapper.find('.feed-row--active .feed-row-title').text()).toBe('Example Feed')
+    expect(listFeedItems).toHaveBeenCalledWith('unread', 'feed-1')
+  })
+
+  it('opens the item from postId query on load', async () => {
+    const wrapper = await mountFeeds({
+      query: { feedId: 'feed-1', postId: 'item-1' },
+    })
+
+    expect(wrapper.find('.item-row--selected').exists()).toBe(true)
+    expect(wrapper.find('.panel-header h2').text()).toBe('First post')
   })
 })
