@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
+import { useRoute, useRouter } from 'vue-router'
 import AppIcon from '../components/AppIcon.vue'
 import AppSidebar from '../components/AppSidebar.vue'
 import PageNavTabs from '../components/PageNavTabs.vue'
@@ -26,6 +27,11 @@ import { useUiStore } from '../stores/uiStore'
 type BackfillMode = 'latest' | 'since' | 'all'
 type SummaryMode = 'summary' | 'resummary' | 'expanded'
 
+const FEED_QUERY_KEY = 'feedId'
+const POST_QUERY_KEY = 'postId'
+
+const route = useRoute()
+const router = useRouter()
 const uiStore = useUiStore()
 const { isSidebarCollapsed } = storeToRefs(uiStore)
 
@@ -115,9 +121,19 @@ const canSaveFeed = computed(
 
 onMounted(async () => {
   await refreshFeeds()
-  await refreshItems()
+  await hydrateFromRoute()
   startSummaryTargetObserver()
 })
+
+watch(
+  () => ({ feedId: route.query[FEED_QUERY_KEY], postId: route.query[POST_QUERY_KEY] }),
+  async () => {
+    if (routeQueryMatchesState()) {
+      return
+    }
+    await hydrateFromRoute()
+  },
+)
 
 onBeforeUnmount(() => {
   clearReadTimer()
@@ -147,23 +163,111 @@ async function refreshStarredCount() {
   }
 }
 
-async function refreshItems(): Promise<FeedItem[] | null> {
+function buildQueryFromState(): Record<string, string> {
+  const q: Record<string, string> = {}
+  if (selectedFeedId.value) {
+    q[FEED_QUERY_KEY] = selectedFeedId.value
+  }
+  if (selectedItemId.value) {
+    q[POST_QUERY_KEY] = selectedItemId.value
+  }
+  return q
+}
+
+function routeQueryMatchesState(): boolean {
+  const q = route.query
+  const routeFeed = typeof q[FEED_QUERY_KEY] === 'string' ? q[FEED_QUERY_KEY] : ''
+  const routePost = typeof q[POST_QUERY_KEY] === 'string' ? q[POST_QUERY_KEY] : ''
+  const stateFeed = selectedFeedId.value ?? ''
+  const statePost = selectedItemId.value ?? ''
+  return routeFeed === stateFeed && routePost === statePost
+}
+
+async function syncRouterQueryFromState() {
+  const next = buildQueryFromState()
+  const q = route.query
+  const curFeed = typeof q[FEED_QUERY_KEY] === 'string' ? q[FEED_QUERY_KEY] : ''
+  const curPost = typeof q[POST_QUERY_KEY] === 'string' ? q[POST_QUERY_KEY] : ''
+  const nextFeed = next[FEED_QUERY_KEY] ?? ''
+  const nextPost = next[POST_QUERY_KEY] ?? ''
+  if (curFeed === nextFeed && curPost === nextPost) {
+    return
+  }
+  await router.replace({ path: route.path, query: next })
+}
+
+function applyFeedSelectionFromQuery() {
+  const raw = route.query[FEED_QUERY_KEY]
+  const fid = typeof raw === 'string' && raw.trim() ? raw : null
+  if (fid && feeds.value.some((f) => f.id === fid)) {
+    activeView.value = 'unread'
+    selectedFeedId.value = fid
+    return
+  }
+  selectedFeedId.value = null
+}
+
+async function applyPostSelectionFromQuery() {
+  const raw = route.query[POST_QUERY_KEY]
+  const postId = typeof raw === 'string' && raw.trim() ? raw : null
+  if (!postId) {
+    return
+  }
+  let row = items.value.find((item) => item.id === postId)
+  if (row) {
+    await selectItem(row)
+    return
+  }
+  try {
+    const detail = await getFeedItem(postId)
+    if (selectedFeedId.value !== detail.feedId) {
+      selectedFeedId.value = detail.feedId
+    }
+    if (activeView.value === 'unread' && detail.read) {
+      activeView.value = 'all'
+    }
+    await refreshItems({ syncUrl: false })
+    row = items.value.find((item) => item.id === postId)
+    if (row) {
+      await selectItem(row)
+    } else {
+      await selectItem(detail)
+    }
+  } catch (error) {
+    itemError.value = error instanceof Error ? error.message : 'Failed to load feed item'
+  }
+}
+
+async function hydrateFromRoute() {
+  applyFeedSelectionFromQuery()
+  await refreshItems({ syncUrl: false })
+  await applyPostSelectionFromQuery()
+  await syncRouterQueryFromState()
+}
+
+async function refreshItems(options?: { syncUrl?: boolean }): Promise<FeedItem[] | null> {
+  const syncUrl = options?.syncUrl !== false
   commitPendingReadRemoval()
   clearReadTimer()
   selectedItem.value = null
   selectedItemId.value = null
   itemsLoading.value = true
   itemError.value = ''
+  let result: FeedItem[] | null = null
   try {
     const refreshedItems = await listFeedItems(activeView.value, selectedFeedId.value)
     items.value = refreshedItems
-    return refreshedItems
+    result = refreshedItems
   } catch (error) {
     itemError.value = error instanceof Error ? error.message : 'Failed to load feed items'
-    return null
+    result = null
   } finally {
     itemsLoading.value = false
   }
+  if (syncUrl) {
+    await syncRouterQueryFromState()
+  }
+  return result
 }
 
 async function refreshItemsWithFeedback() {
@@ -227,6 +331,7 @@ async function toggleSelectedFeedAll() {
 
 async function selectItem(item: FeedItem) {
   if (selectedItemId.value === item.id) {
+    await syncRouterQueryFromState()
     return
   }
   commitPendingReadRemoval(item.id)
@@ -249,6 +354,7 @@ async function selectItem(item: FeedItem) {
     } else if (item.read) {
       scheduleReadTimer(detail.id)
     }
+    await syncRouterQueryFromState()
   } catch (error) {
     if (selectedItemId.value === item.id) {
       clearReadTimer()

@@ -143,7 +143,12 @@ async function startNewChat() {
           </div>
           <div v-if="feedsLoading" class="muted feed-loading">Loading…</div>
           <ul v-else-if="recentFeeds.length > 0" class="feed-list">
-            <li v-for="feed in recentFeeds" :key="feed.id" class="feed-list-item" @click="router.push('/feeds')">
+            <li
+              v-for="feed in recentFeeds"
+              :key="feed.id"
+              class="feed-list-item"
+              @click="router.push({ name: 'feeds', query: { feedId: feed.id } })"
+            >
               <span class="feed-list-title">{{ feed.title }}</span>
               <span :class="feed.unreadCount > 0 ? 'feed-unread-count' : 'muted'">
                 {{ feed.unreadCount }} new
