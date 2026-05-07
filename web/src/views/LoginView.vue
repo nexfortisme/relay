@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import PrismLogo from '../components/PrismLogo.vue'
+import LogoIcon from '../components/LogoIcon.vue'
 import { useAuthStore } from '../stores/authStore'
 
 const auth = useAuthStore()
@@ -35,7 +35,7 @@ async function submit() {
     <section class="auth-card">
       <aside class="auth-pitch">
         <header class="auth-pitch-header">
-          <PrismLogo />
+          <LogoIcon :size="22" />
           <span>Relay</span>
         </header>
         <div class="auth-pitch-body">
@@ -144,12 +144,6 @@ async function submit() {
   align-items: center;
   gap: 0.5rem;
   font-weight: 700;
-}
-
-.auth-pitch-header :deep(.prism-logo) {
-  --logo-size: 1.4rem;
-  --logo-face-w: 0.32rem;
-  --logo-face-h: 0.66rem;
 }
 
 .auth-pitch-body {

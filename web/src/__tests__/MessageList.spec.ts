@@ -65,7 +65,10 @@ describe('MessageList attachment preview', () => {
     await wrapper.find('button[title="Preview data.json"]').trigger('click')
     await flushPromises()
 
-    expect(fetchMock).toHaveBeenCalledWith('http://localhost:8091/api/files/file-json/download')
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8091/api/files/file-json/download',
+      expect.objectContaining({ credentials: 'include' }),
+    )
     expect(document.body.textContent).toContain('"b": 2')
     expect(document.body.textContent).toContain('"a": 1')
     expect(document.body.querySelector('.file-preview-overlay')?.getAttribute('data-theme')).toBe(
@@ -122,7 +125,7 @@ describe('MessageList code block copy', () => {
   })
 
   it('copies fenced code block content from assistant markdown', async () => {
-    const writeText = vi.fn(async () => {})
+    const writeText = vi.fn<() => Promise<void>>(async () => {})
     vi.stubGlobal('navigator', { clipboard: { writeText } })
 
     const wrapper = mount(MessageList, {

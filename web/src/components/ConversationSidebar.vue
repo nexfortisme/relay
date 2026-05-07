@@ -2,7 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import type { Conversation } from "../lib/api";
 import AppIcon from "./AppIcon.vue";
-import PrismLogo from "./PrismLogo.vue";
+import LogoIcon from "./LogoIcon.vue";
+import { brandLogoPalette } from "../lib/logoPalette";
 import UserMenu from "./UserMenu.vue";
 
 const props = defineProps<{
@@ -66,7 +67,7 @@ onBeforeUnmount(() => {
   <aside class="sidebar">
     <div class="sidebar-actions">
       <button class="brand-row" title="Home" aria-label="Home" @click="$emit('home')">
-        <PrismLogo />
+        <LogoIcon :size="24" :palette="brandLogoPalette" />
         <span class="brand-label">Relay</span>
       </button>
       <div class="primary-actions">
@@ -194,12 +195,6 @@ onBeforeUnmount(() => {
   cursor: pointer;
   padding: 0.25rem 0.1rem;
   text-align: left;
-}
-
-.brand-row :deep(.prism-logo) {
-  --logo-size: 1.45rem;
-  --logo-face-w: 0.34rem;
-  --logo-face-h: 0.7rem;
 }
 
 .brand-label {

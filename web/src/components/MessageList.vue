@@ -19,7 +19,8 @@ import { renderMarkdown } from "../lib/markdown";
 import type { DisplayMessage, FilePreviewState } from "../types";
 import AppIcon from "./AppIcon.vue";
 import FilePreview from "./FilePreview.vue";
-import LoaderPrism from "./LoaderPrism.vue";
+import LogoLoader from "./LogoLoader.vue";
+import { loaderPalette } from "../lib/logoPalette";
 
 const props = defineProps<{
   messages: DisplayMessage[];
@@ -457,7 +458,7 @@ defineExpose({ scrollToBottom });
     </article>
     <article v-if="pendingAssistant" class="message assistant pending-response">
       <strong class="message-role">assistant</strong>
-      <LoaderPrism :size="120" :spin-duration="2.4" color="#0e7490" />
+      <LogoLoader :size="120" duration="2.4s" :palette="loaderPalette" />
     </article>
   </div>
 

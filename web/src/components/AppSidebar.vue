@@ -2,7 +2,8 @@
 import { storeToRefs } from 'pinia'
 import { RouterLink, useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
-import PrismLogo from './PrismLogo.vue'
+import LogoIcon from './LogoIcon.vue'
+import { brandLogoPalette } from '../lib/logoPalette'
 import UserMenu from './UserMenu.vue'
 import { useConversationStore } from '../stores/conversationStore'
 import { useChatStore } from '../stores/chatStore'
@@ -45,7 +46,7 @@ function selectConversation(conversationId: string) {
   <aside class="home-sidebar">
     <div class="home-sidebar-header">
       <button class="home-logo" @click="router.push('/home')">
-        <PrismLogo />
+        <LogoIcon :size="24" :palette="brandLogoPalette" />
         <span>Relay</span>
       </button>
       <div class="primary-row">
@@ -129,12 +130,6 @@ function selectConversation(conversationId: string) {
   font-size: 1rem;
   cursor: pointer;
   padding: 0.25rem 0.1rem;
-}
-
-.home-logo :deep(.prism-logo) {
-  --logo-size: 1.45rem;
-  --logo-face-w: 0.34rem;
-  --logo-face-h: 0.7rem;
 }
 
 .primary-row {

@@ -2,7 +2,8 @@
 import { storeToRefs } from 'pinia'
 import { RouterLink, useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
-import PrismLogo from './PrismLogo.vue'
+import LogoIcon from './LogoIcon.vue'
+import { brandLogoPalette } from '../lib/logoPalette'
 import { useUiStore } from '../stores/uiStore'
 
 const tabs = [
@@ -27,7 +28,7 @@ const { isSidebarCollapsed } = storeToRefs(uiStore)
         aria-label="Go home"
         @click="router.push('/home')"
       >
-        <PrismLogo />
+        <LogoIcon :size="18" :palette="brandLogoPalette" />
       </button>
       <button
         class="expand-sidebar-btn"
@@ -118,12 +119,6 @@ const { isSidebarCollapsed } = storeToRefs(uiStore)
   color: var(--primary);
   padding: 0;
   margin-right: 0.15rem;
-}
-
-.header-logo-btn :deep(.prism-logo) {
-  --logo-size: 1.1rem;
-  --logo-face-w: 0.26rem;
-  --logo-face-h: 0.52rem;
 }
 
 @media (max-width: 760px) {

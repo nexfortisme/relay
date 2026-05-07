@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AppIcon from '../components/AppIcon.vue'
-import PrismLogo from '../components/PrismLogo.vue'
+import LogoIcon from '../components/LogoIcon.vue'
 import screenshotChatSrc from '../assets/landing/relay-chat.png'
 import screenshotFeedsSrc from '../assets/landing/relay-feeds.png'
 import screenshotHomeSrc from '../assets/landing/relay-home.png'
@@ -60,7 +60,7 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
   <div class="landing-view">
     <header class="landing-nav">
       <RouterLink class="brand-link" to="/" aria-label="Relay landing page">
-        <PrismLogo />
+        <LogoIcon :size="26" />
         <span>Relay</span>
       </RouterLink>
 
@@ -94,7 +94,7 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
 
         <div class="hero-copy">
           <div class="hero-mark">
-            <PrismLogo />
+            <LogoIcon :size="28" />
             <span>AI chat for your own working context</span>
           </div>
           <h1 id="landing-title">Relay</h1>
@@ -202,7 +202,7 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
 
     <footer class="landing-footer">
       <RouterLink class="footer-brand" to="/">
-        <PrismLogo />
+        <LogoIcon :size="26" />
         <span>Relay</span>
       </RouterLink>
       <span>Built for private, context-rich AI work.</span>
@@ -243,13 +243,6 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
   color: inherit;
   font-weight: 760;
   text-decoration: none;
-}
-
-.brand-link :deep(.prism-logo),
-.footer-brand :deep(.prism-logo) {
-  --logo-size: 1.55rem;
-  --logo-face-w: 0.35rem;
-  --logo-face-h: 0.7rem;
 }
 
 .nav-links {
@@ -442,12 +435,6 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
   color: #d6dce7;
   font-size: 0.94rem;
   font-weight: 720;
-}
-
-.hero-mark :deep(.prism-logo) {
-  --logo-size: 1.65rem;
-  --logo-face-w: 0.37rem;
-  --logo-face-h: 0.76rem;
 }
 
 .hero-copy h1 {

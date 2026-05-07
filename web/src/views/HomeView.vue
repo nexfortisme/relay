@@ -4,7 +4,8 @@ import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import AppIcon from '../components/AppIcon.vue'
 import AppSidebar from '../components/AppSidebar.vue'
-import PrismLogo from '../components/PrismLogo.vue'
+import LogoIcon from '../components/LogoIcon.vue'
+import { brandLogoPalette } from '../lib/logoPalette'
 import { useUiStore } from '../stores/uiStore'
 import { useChatStore } from '../stores/chatStore'
 import { listFeeds, type Feed } from '../lib/api'
@@ -68,7 +69,7 @@ async function startNewChat() {
           aria-label="Go home"
           @click="router.push('/home')"
         >
-          <PrismLogo />
+          <LogoIcon :size="18" :palette="brandLogoPalette" />
         </button>
         <button
           class="expand-sidebar-btn"
@@ -217,12 +218,6 @@ async function startNewChat() {
   background: color-mix(in srgb, var(--surface) 45%, var(--primary) 12%);
   color: var(--primary);
   padding: 0;
-}
-
-.header-logo-btn :deep(.prism-logo) {
-  --logo-size: 1.1rem;
-  --logo-face-w: 0.26rem;
-  --logo-face-h: 0.52rem;
 }
 
 .home-header {
