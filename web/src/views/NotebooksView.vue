@@ -354,8 +354,8 @@ function stopElapsedTimer() {
 
           <!-- Chats mode -->
           <template v-else>
-            <div class="pane-header">
-              <div>
+            <div class="pane-header pane-header--chats">
+              <div class="pane-header-copy">
                 <h2 class="pane-title">{{ selectedNotebook?.name ?? 'Chats' }}</h2>
                 <p v-if="selectedNotebook?.description" class="pane-subtitle">
                   {{ selectedNotebook.description }}
@@ -433,7 +433,7 @@ function stopElapsedTimer() {
             />
           </template>
 
-          <div v-else class="panel-empty">
+          <div v-else class="panel-empty panel-empty--unselected">
             <AppIcon name="sparkles" :size="28" />
             <p>Select or create a chat</p>
           </div>
@@ -497,6 +497,19 @@ function stopElapsedTimer() {
   padding: 0.75rem 0.9rem;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+}
+
+.pane-header--chats {
+  align-items: center;
+}
+
+.pane-header-copy {
+  min-width: 0;
+}
+
+.pane-header--chats .pane-header-copy {
+  flex: 1;
+  text-align: center;
 }
 
 .pane-title {
@@ -783,6 +796,13 @@ function stopElapsedTimer() {
   height: 100%;
   color: color-mix(in srgb, var(--muted) 65%, transparent);
   font-size: 0.875rem;
+}
+
+.panel-empty--unselected {
+  grid-row: 1 / -1;
+  justify-content: flex-start;
+  padding-top: clamp(2rem, 8vh, 4.5rem);
+  box-sizing: border-box;
 }
 
 .panel-empty p {
