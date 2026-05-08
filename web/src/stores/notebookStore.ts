@@ -122,6 +122,7 @@ export const useNotebookStore = defineStore('notebook', () => {
     name: string
     description?: string
     systemPrompt?: string
+    skillPrompt?: string
   }): Promise<Notebook> {
     const nb = await createNotebook(payload)
     notebooks.value = [nb, ...notebooks.value]
@@ -130,7 +131,7 @@ export const useNotebookStore = defineStore('notebook', () => {
 
   async function updateExistingNotebook(
     id: string,
-    patch: Partial<{ name: string; description: string; systemPrompt: string }>,
+    patch: Partial<{ name: string; description: string; systemPrompt: string; skillPrompt: string }>,
   ): Promise<void> {
     const nb = await updateNotebook(id, patch)
     const idx = notebooks.value.findIndex((n) => n.id === id)

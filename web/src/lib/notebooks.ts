@@ -7,6 +7,7 @@ export type Notebook = {
   name: string
   description: string
   systemPrompt: string
+  skillPrompt: string
   pendingJobs: number
   createdAt: string
   updatedAt: string
@@ -21,6 +22,8 @@ export type NotebookFile = {
   fileKind: 'document' | 'csv' | 'image'
   status: 'pending' | 'processing' | 'ready' | 'error'
   error?: string
+  pageCount: number
+  pagesIndexed: number
   createdAt: string
   updatedAt: string
 }
@@ -82,6 +85,7 @@ export async function createNotebook(payload: {
   name: string
   description?: string
   systemPrompt?: string
+  skillPrompt?: string
 }): Promise<Notebook> {
   return fetchJson<Notebook>(
     '/notebooks',
@@ -96,7 +100,7 @@ export async function getNotebook(id: string): Promise<Notebook> {
 
 export async function updateNotebook(
   id: string,
-  patch: Partial<{ name: string; description: string; systemPrompt: string }>,
+  patch: Partial<{ name: string; description: string; systemPrompt: string; skillPrompt: string }>,
 ): Promise<Notebook> {
   return fetchJson<Notebook>(
     `/notebooks/${id}`,

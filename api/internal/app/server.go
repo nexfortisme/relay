@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/nexfortisme/relay/internal/attachments"
@@ -84,6 +83,10 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 
 	chatService.WithNotebooks(nbService, nbRegistry)
 
+	// Seed the notebook service with deployment defaults; per-user settings from
+	// the DB override these at job processing time.
+	nbService.WithLLMDefaults(cfg.LLMURL, cfg.LLMModel)
+
 	nbCtx, stopNotebooks := context.WithCancel(context.Background())
 	nbService.Start(nbCtx)
 
@@ -151,6 +154,7 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 		authed.GET("/notebooks/:notebookId/files", handlers.ListNotebookFiles)
 		authed.DELETE("/notebooks/:notebookId/files/:fileId", handlers.DeleteNotebookFile)
 		authed.GET("/notebooks/:notebookId/files/:fileId/download", handlers.DownloadNotebookFile)
+		authed.GET("/notebooks/:notebookId/files/:fileId/pages/:pageNum/image", handlers.GetNotebookPageImage)
 		authed.GET("/notebooks/:notebookId/jobs/count", handlers.GetPendingJobCount)
 		authed.GET("/notebooks/:notebookId/conversations", handlers.ListNotebookConversations)
 		authed.POST("/notebooks/:notebookId/conversations", handlers.CreateNotebookConversation)

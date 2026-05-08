@@ -1,6 +1,7 @@
 package notebooks
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"path/filepath"
@@ -48,6 +49,10 @@ func (r *Registry) Open(userID, notebookID string) (*sql.DB, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("apply notebook schema: %w", err)
 	}
+	if err := migrateSchema(context.Background(), db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate notebook schema: %w", err)
+	}
 
 	r.dbs[key] = db
 	return db, nil
@@ -78,6 +83,22 @@ func (r *Registry) CloseAll() {
 // DBPath returns the filesystem path for a user+notebook pair.
 func (r *Registry) DBPath(userID, notebookID string) string {
 	return filepath.Join(r.dir, userID+"_"+notebookID+".db")
+}
+
+// migrateSchema adds columns introduced after initial schema deployment.
+// It is idempotent: each ALTER runs only if the column is absent.
+func migrateSchema(ctx context.Context, db *sql.DB) error {
+	var count int
+	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('pages') WHERE name='image_data'`).Scan(&count)
+	if count == 0 {
+		if _, err := db.ExecContext(ctx, `ALTER TABLE pages ADD COLUMN image_data BLOB`); err != nil {
+			return fmt.Errorf("add pages.image_data: %w", err)
+		}
+		if _, err := db.ExecContext(ctx, `ALTER TABLE pages ADD COLUMN image_type TEXT`); err != nil {
+			return fmt.Errorf("add pages.image_type: %w", err)
+		}
+	}
+	return nil
 }
 
 func applySchema(db *sql.DB) error {
