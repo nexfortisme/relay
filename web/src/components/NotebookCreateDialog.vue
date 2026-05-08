@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { formatBytes } from '../lib/notebookFiles'
 import AppIcon from './AppIcon.vue'
 
 const emit = defineEmits<{
@@ -35,12 +36,6 @@ function onFilesSelected(e: Event) {
 
 function removeFile(index: number) {
   selectedFiles.value.splice(index, 1)
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
 function submit() {

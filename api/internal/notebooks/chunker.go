@@ -8,7 +8,6 @@ import (
 	"image/jpeg"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/gen2brain/go-fitz"
 	"github.com/google/uuid"
@@ -200,26 +199,5 @@ func splitText(text string, size, overlap int) []string {
 			break
 		}
 	}
-	return out
-}
-
-// tokenSet builds a set of lowercase tokens (3+ chars) from s for scoring.
-func tokenSet(s string) map[string]struct{} {
-	out := make(map[string]struct{})
-	var tok strings.Builder
-	flush := func() {
-		if tok.Len() >= 3 {
-			out[strings.ToLower(tok.String())] = struct{}{}
-		}
-		tok.Reset()
-	}
-	for _, r := range s {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			tok.WriteRune(r)
-		} else {
-			flush()
-		}
-	}
-	flush()
 	return out
 }

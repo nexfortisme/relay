@@ -18,20 +18,20 @@ import (
 )
 
 const (
-	schedulerInterval  = 10 * time.Second
-	workerConcurrency  = 3
-	maxSnapshots       = 5
+	schedulerInterval = 10 * time.Second
+	workerConcurrency = 3
+	maxSnapshots      = 5
 )
 
 // Service manages notebooks: background job processing and CRUD operations.
 type Service struct {
-	mainStore      *store.Store
-	registry       *Registry
-	defaultLLMURL  string
+	mainStore       *store.Store
+	registry        *Registry
+	defaultLLMURL   string
 	defaultLLMModel string
-	snapshotDir    func(notebookID string) string
-	logger         *slog.Logger
-	sem            chan struct{}
+	snapshotDir     func(notebookID string) string
+	logger          *slog.Logger
+	sem             chan struct{}
 }
 
 func NewService(
@@ -245,6 +245,10 @@ func (s *Service) DeleteNotebook(ctx context.Context, userID, notebookID string)
 
 // UploadFile reads r, stores the data as a blob, and enqueues a processing job.
 func (s *Service) UploadFile(ctx context.Context, userID, notebookID, name, contentType string, r io.Reader) (store.NotebookFile, error) {
+	if _, err := s.mainStore.GetNotebook(ctx, userID, notebookID); err != nil {
+		return store.NotebookFile{}, err
+	}
+
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return store.NotebookFile{}, fmt.Errorf("read file: %w", err)
@@ -267,6 +271,7 @@ func (s *Service) UploadFile(ctx context.Context, userID, notebookID, name, cont
 	}
 
 	if _, err := s.mainStore.EnqueueNotebookJob(ctx, notebookID, created.ID, userID); err != nil {
+		_ = s.mainStore.DeleteNotebookFile(ctx, notebookID, created.ID)
 		return store.NotebookFile{}, fmt.Errorf("enqueue job: %w", err)
 	}
 
@@ -284,14 +289,27 @@ func (s *Service) ListFiles(ctx context.Context, userID, notebookID string) ([]s
 
 // DeleteFile removes a notebook file and its data from the per-notebook DB.
 func (s *Service) DeleteFile(ctx context.Context, userID, notebookID, fileID string) error {
-	f, err := s.mainStore.GetNotebookFile(ctx, notebookID, fileID)
-	if err != nil {
+	if _, err := s.mainStore.GetNotebook(ctx, userID, notebookID); err != nil {
 		return err
 	}
-	if f.UserID != userID {
-		return store.ErrNotFound
+	if _, err := s.mainStore.GetNotebookFile(ctx, notebookID, fileID); err != nil {
+		return err
+	}
+	if err := s.purgeIndexedFileData(ctx, userID, notebookID, fileID); err != nil {
+		return err
 	}
 	return s.mainStore.DeleteNotebookFile(ctx, notebookID, fileID)
+}
+
+func (s *Service) purgeIndexedFileData(ctx context.Context, userID, notebookID, fileID string) error {
+	db, err := s.registry.Open(userID, notebookID)
+	if err != nil {
+		return fmt.Errorf("open notebook db: %w", err)
+	}
+	if err := NewNotebookStore(db).PurgeFileData(ctx, fileID); err != nil {
+		return fmt.Errorf("purge indexed file data: %w", err)
+	}
+	return nil
 }
 
 // GetPageImage returns the rendered JPEG bytes (and content-type) for a single PDF page.
@@ -324,12 +342,12 @@ func (s *Service) PendingJobCount(ctx context.Context, notebookID string) (int, 
 
 // GetFileData returns the raw bytes for a notebook file (for download).
 func (s *Service) GetFileData(ctx context.Context, userID, notebookID, fileID string) ([]byte, string, string, error) {
+	if _, err := s.mainStore.GetNotebook(ctx, userID, notebookID); err != nil {
+		return nil, "", "", err
+	}
 	f, err := s.mainStore.GetNotebookFile(ctx, notebookID, fileID)
 	if err != nil {
 		return nil, "", "", err
-	}
-	if f.UserID != userID {
-		return nil, "", "", store.ErrNotFound
 	}
 	data, err := s.mainStore.GetNotebookFileData(ctx, fileID)
 	if err != nil {
@@ -395,6 +413,17 @@ func (s *Service) RAGContext(ctx context.Context, userID, notebookID, query stri
 
 // GetCSVTableData returns all columns and rows for the inline viewer.
 func (s *Service) GetCSVTableData(ctx context.Context, userID, notebookID, fileID string) (columns []string, rows [][]string, err error) {
+	if _, err := s.mainStore.GetNotebook(ctx, userID, notebookID); err != nil {
+		return nil, nil, err
+	}
+	f, err := s.mainStore.GetNotebookFile(ctx, notebookID, fileID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if f.FileKind != "csv" {
+		return nil, nil, store.ErrNotFound
+	}
+
 	db, err := s.registry.Open(userID, notebookID)
 	if err != nil {
 		return nil, nil, err
