@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import ChatView from '../views/ChatView.vue'
+import CsvTableViewer from '../components/CsvTableViewer.vue'
 import FeedsView from '../views/FeedsView.vue'
 import HomeView from '../views/HomeView.vue'
 import LandingView from '../views/LandingView.vue'
@@ -25,6 +26,16 @@ export const router = createRouter({
     { path: '/home', name: 'home', component: HomeView },
     { path: '/chat', name: 'chat', component: ChatView },
     { path: '/notebooks', name: 'notebooks', component: NotebooksView },
+    {
+      path: '/my-data/notebooks/:notebookId/:fileId',
+      name: 'notebook-csv',
+      component: CsvTableViewer,
+      props: (route) => ({
+        notebookId: route.params.notebookId,
+        fileId: route.params.fileId,
+        fileName: typeof route.query.name === 'string' ? route.query.name : '',
+      }),
+    },
     { path: '/scheduled', name: 'scheduled', component: ScheduledView },
     { path: '/my-data', name: 'my-data', component: MyDataView },
     { path: '/feeds', name: 'feeds', component: FeedsView },

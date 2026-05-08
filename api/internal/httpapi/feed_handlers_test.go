@@ -39,7 +39,7 @@ func TestFeedHandlersCreateListPatchAndIsolateUsers(t *testing.T) {
 	defer st.Close()
 
 	service := feeds.NewService(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	handlers := NewHandlers(nil, service, slog.New(slog.NewTextHandler(io.Discard, nil)), 0)
+	handlers := NewHandlers(nil, service, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), 0)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		userID := c.GetHeader("X-User-ID")

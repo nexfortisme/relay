@@ -15,6 +15,7 @@ import (
 	"github.com/nexfortisme/relay/internal/attachments"
 	"github.com/nexfortisme/relay/internal/chat"
 	"github.com/nexfortisme/relay/internal/feeds"
+	"github.com/nexfortisme/relay/internal/notebooks"
 	"github.com/nexfortisme/relay/internal/store"
 )
 
@@ -23,6 +24,7 @@ const maxSingleFileBytes = 50 << 20
 type Handlers struct {
 	chat                     *chat.Service
 	feeds                    *feeds.Service
+	notebooks                *notebooks.Service
 	logger                   *slog.Logger
 	maxMultipartPayloadBytes int64
 	maxMultipartPayloadLabel string
@@ -38,13 +40,14 @@ type requestError struct {
 	message string
 }
 
-func NewHandlers(chatService *chat.Service, feedsService *feeds.Service, logger *slog.Logger, maxMultipartPayloadBytes int64) *Handlers {
+func NewHandlers(chatService *chat.Service, feedsService *feeds.Service, notebooksService *notebooks.Service, logger *slog.Logger, maxMultipartPayloadBytes int64) *Handlers {
 	if maxMultipartPayloadBytes <= 0 {
 		maxMultipartPayloadBytes = 30 << 20 // 30MB
 	}
 	return &Handlers{
 		chat:                     chatService,
 		feeds:                    feedsService,
+		notebooks:                notebooksService,
 		logger:                   logger,
 		maxMultipartPayloadBytes: maxMultipartPayloadBytes,
 		maxMultipartPayloadLabel: bytesLabel(maxMultipartPayloadBytes),

@@ -10,6 +10,7 @@ import (
 
 	"github.com/nexfortisme/relay/internal/attachments"
 	"github.com/nexfortisme/relay/internal/llm"
+	"github.com/nexfortisme/relay/internal/notebooks"
 	"github.com/nexfortisme/relay/internal/prompts"
 	"github.com/nexfortisme/relay/internal/store"
 	"github.com/nexfortisme/relay/internal/tools"
@@ -27,6 +28,8 @@ type Service struct {
 	maxTokenCount     int
 	cancelMu          sync.Mutex
 	cancels           map[string]context.CancelFunc
+	notebookSvc       *notebooks.Service
+	notebookRegistry  *notebooks.Registry
 }
 
 const maxConversationTitleLength = 40
@@ -73,10 +76,12 @@ func (s *Service) settingOrDefault(ctx context.Context, userID, key, defaultVal 
 }
 
 type RuntimeSettings struct {
-	LLMURL       string
-	LLMModel     string
-	LLMAPIKey    string
-	SystemPrompt string
+	LLMURL         string
+	LLMModel       string
+	LLMAPIKey      string
+	SystemPrompt   string
+	NotebookID     string
+	NotebookPrompt string // non-empty: replaces SystemPrompt for notebook chats
 }
 
 func (s *Service) LoadRuntimeSettings(ctx context.Context, userID string) RuntimeSettings {
@@ -86,6 +91,32 @@ func (s *Service) LoadRuntimeSettings(ctx context.Context, userID string) Runtim
 		LLMAPIKey:    s.settingOrDefault(ctx, userID, "llm_api_key", ""),
 		SystemPrompt: s.settingOrDefault(ctx, userID, "system_prompt", ""),
 	}
+}
+
+// LoadRuntimeSettingsForConversation extends LoadRuntimeSettings with notebook context.
+func (s *Service) LoadRuntimeSettingsForConversation(ctx context.Context, userID, conversationID string) RuntimeSettings {
+	settings := s.LoadRuntimeSettings(ctx, userID)
+	if s.notebookSvc == nil {
+		return settings
+	}
+	notebookID, err := s.store.GetConversationNotebookID(ctx, conversationID)
+	if err != nil || notebookID == "" {
+		return settings
+	}
+	nb, err := s.notebookSvc.GetNotebook(ctx, userID, notebookID)
+	if err != nil {
+		return settings
+	}
+	settings.NotebookID = notebookID
+	settings.NotebookPrompt = nb.SystemPrompt
+	return settings
+}
+
+// WithNotebooks injects the notebook service and registry after construction
+// to avoid a circular dependency between chat and notebooks packages.
+func (s *Service) WithNotebooks(svc *notebooks.Service, reg *notebooks.Registry) {
+	s.notebookSvc = svc
+	s.notebookRegistry = reg
 }
 
 // DefaultSettings returns the values a freshly-registered user gets seeded
@@ -165,6 +196,26 @@ func toLLMMessages(messages []store.Message, systemPrompts ...string) []llm.Chat
 		})
 	}
 	return out
+}
+
+// activeSystemPrompt returns the effective system prompt for a request,
+// using the notebook prompt when set (replaces the global prompt).
+func (s *Service) activeSystemPrompt(settings RuntimeSettings) string {
+	if strings.TrimSpace(settings.NotebookPrompt) != "" {
+		return settings.NotebookPrompt
+	}
+	return settings.SystemPrompt
+}
+
+// notebookToolRuntime returns a composite runtime extended with notebook tools
+// when the conversation is linked to a notebook.
+func (s *Service) notebookToolRuntime(userID, notebookID string) tools.Runtime {
+	if notebookID == "" || s.notebookSvc == nil || s.notebookRegistry == nil {
+		return s.tools
+	}
+	nbRuntime := notebooks.NewToolRuntime(s.notebookSvc, s.notebookRegistry, userID, notebookID)
+	// Notebook tools first so the LLM prefers uploaded-document search over web search.
+	return tools.NewCompositeRuntime(nbRuntime, s.tools)
 }
 
 func errorsIsContextDone(err error) bool {

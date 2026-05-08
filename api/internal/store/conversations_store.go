@@ -31,7 +31,7 @@ func (s *Store) CreateConversation(
 
 func (s *Store) ListConversations(ctx context.Context, userID string, includeArchived bool) ([]Conversation, error) {
 	query := `
-		SELECT id, title, archived_at, created_at, updated_at
+		SELECT id, title, archived_at, notebook_id, created_at, updated_at
 		FROM conversations
 		WHERE user_id = ?
 	`
@@ -50,7 +50,7 @@ func (s *Store) ListConversations(ctx context.Context, userID string, includeArc
 	for rows.Next() {
 		var c Conversation
 		var archivedAt sql.NullTime
-		if err := rows.Scan(&c.ID, &c.Title, &archivedAt, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.Title, &archivedAt, &c.NotebookID, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan conversation: %w", err)
 		}
 		c.Archived = archivedAt.Valid
@@ -58,6 +58,33 @@ func (s *Store) ListConversations(ctx context.Context, userID string, includeArc
 	}
 
 	return conversations, rows.Err()
+}
+
+// ListNotebookConversations returns non-archived conversations linked to a notebook,
+// newest first.
+func (s *Store) ListNotebookConversations(ctx context.Context, userID, notebookID string) ([]Conversation, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, title, archived_at, notebook_id, created_at, updated_at
+		FROM conversations
+		WHERE user_id = ? AND notebook_id = ? AND archived_at IS NULL
+		ORDER BY updated_at DESC
+	`, userID, notebookID)
+	if err != nil {
+		return nil, fmt.Errorf("list notebook conversations: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]Conversation, 0)
+	for rows.Next() {
+		var c Conversation
+		var archivedAt sql.NullTime
+		if err := rows.Scan(&c.ID, &c.Title, &archivedAt, &c.NotebookID, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan conversation: %w", err)
+		}
+		c.Archived = archivedAt.Valid
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }
 
 // GetConversationOwner returns the user that owns the conversation. Used by
