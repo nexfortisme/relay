@@ -43,6 +43,10 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 		return nil, nil, fmt.Errorf("create notebooks dir: %w", err)
 	}
 
+	if err := os.MkdirAll(filepath.Dir(cfg.SQLitePath), 0755); err != nil {
+		return nil, nil, fmt.Errorf("create data dir: %w", err)
+	}
+
 	st, err := store.New(cfg.SQLitePath)
 	if err != nil {
 		return nil, nil, err
