@@ -25,7 +25,7 @@ type NavItem = {
 const navItems: NavItem[] = [
   { to: '/home', label: 'Home', icon: 'house', enabled: true },
   { to: '/chat', label: 'Chat', icon: 'sparkles', enabled: true },
-  { to: '/notebooks', label: 'Notebooks', icon: 'file', enabled: false },
+  { to: '/notebooks', label: 'Notebooks', icon: 'file', enabled: true },
   { to: '/scheduled', label: 'Scheduled', icon: 'clock', enabled: false },
   { to: '/my-data', label: 'My Data', icon: 'archive', enabled: false },
   { to: '/feeds', label: 'Feeds', icon: 'send', enabled: true },

@@ -6,11 +6,12 @@ import (
 )
 
 type Conversation struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Archived  bool      `json:"archived"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID         string    `json:"id"`
+	Title      string    `json:"title"`
+	Archived   bool      `json:"archived"`
+	NotebookID string    `json:"notebookId,omitempty"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
 type Message struct {

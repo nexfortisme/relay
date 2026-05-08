@@ -6,6 +6,7 @@ export type Conversation = {
   id: string;
   title: string;
   archived: boolean;
+  notebookId?: string;
   createdAt: string;
   updatedAt: string;
 };

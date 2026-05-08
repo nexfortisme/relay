@@ -16,6 +16,7 @@ type Config struct {
 	LLMURL            string
 	LLMModel          string
 	SQLitePath        string
+	DataDir           string
 	WebOrigin         string
 	MCPServerAddr     string
 	MCPURL            string
@@ -52,6 +53,7 @@ func Load() (Config, error) {
 		WebOrigin:      envOrDefault("WEB_ORIGIN", "http://localhost:5173"),
 		MCPServerAddr:  envOrDefault("MCP_SERVER_ADDRESS", ":8090"),
 		MCPURL:         envOrDefault("MCP_URL", "http://localhost:8090/mcp"),
+		DataDir:        envOrDefault("DATA_DIR", "data"),
 		MaxUploadBytes: envInt64OrDefault("VITE_MAX_UPLOAD_BYTES", 50<<20),
 		MaxImageBytes:  envIntOrDefault("VITE_MAX_IMAGE_BYTES", 15*1024*1024),
 		MaxTokenCount:    envIntOrDefault("VITE_MAX_TOKEN_COUNT", 0),
@@ -85,6 +87,14 @@ func envBoolOrDefault(key string, fallback bool) bool {
 
 func (c Config) ListenAddr() string {
 	return fmt.Sprintf(":%s", c.Port)
+}
+
+func (c Config) NotebooksDir() string {
+	return filepath.Join(c.DataDir, "notebooks")
+}
+
+func (c Config) SnapshotsDir(notebookID string) string {
+	return filepath.Join(c.DataDir, "snapshots", notebookID)
 }
 
 func envOrDefault(key string, fallback string) string {

@@ -194,8 +194,22 @@ func (s *Service) addUserMessageAndGenerate(
 		return store.Message{}, err
 	}
 
-	settings := s.LoadRuntimeSettings(ctx, userID)
-	go s.generateAssistant(userID, conversationID, assistantMsg.ID, toLLMMessages(history, settings.SystemPrompt, citeSourcesDirective), settings)
+	settings := s.LoadRuntimeSettingsForConversation(ctx, userID, conversationID)
+
+	// Inject notebook RAG context as a system prompt when the conversation
+	// is linked to a notebook.
+	var ragContext string
+	if settings.NotebookID != "" && s.notebookSvc != nil {
+		if rc, err := s.notebookSvc.RAGContext(ctx, userID, settings.NotebookID, displayContent); err == nil {
+			ragContext = rc
+		}
+	}
+
+	activePrompt := s.activeSystemPrompt(settings)
+	llmMessages := toLLMMessages(history, activePrompt, ragContext, citeSourcesDirective)
+
+	toolRuntime := s.notebookToolRuntime(userID, settings.NotebookID)
+	go s.generateAssistantWithRuntime(userID, conversationID, assistantMsg.ID, llmMessages, settings, toolRuntime)
 	return assistantMsg, nil
 }
 

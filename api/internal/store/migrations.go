@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -177,6 +178,63 @@ func (s *Store) migrate(ctx context.Context) error {
 		ON feed_items(feed_id, published_at DESC, created_at DESC);
 	`
 
+	notebooksTable := `
+		CREATE TABLE IF NOT EXISTS notebooks (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			description TEXT NOT NULL DEFAULT '',
+			system_prompt TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_notebooks_user ON notebooks(user_id, created_at DESC);
+	`
+
+	notebookFilesTable := `
+		CREATE TABLE IF NOT EXISTS notebook_files (
+			id TEXT PRIMARY KEY,
+			notebook_id TEXT NOT NULL,
+			user_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			content_type TEXT NOT NULL DEFAULT '',
+			size_bytes INTEGER NOT NULL DEFAULT 0,
+			file_kind TEXT NOT NULL DEFAULT 'document',
+			status TEXT NOT NULL DEFAULT 'pending',
+			error_text TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			FOREIGN KEY(notebook_id) REFERENCES notebooks(id) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_notebook_files_notebook ON notebook_files(notebook_id, created_at);
+	`
+
+	notebookFileDataTable := `
+		CREATE TABLE IF NOT EXISTS notebook_file_data (
+			file_id TEXT PRIMARY KEY,
+			data BLOB NOT NULL,
+			FOREIGN KEY(file_id) REFERENCES notebook_files(id) ON DELETE CASCADE
+		);
+	`
+
+	notebookJobsTable := `
+		CREATE TABLE IF NOT EXISTS notebook_jobs (
+			id TEXT PRIMARY KEY,
+			notebook_id TEXT NOT NULL,
+			file_id TEXT NOT NULL,
+			user_id TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			error_text TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL,
+			started_at DATETIME,
+			finished_at DATETIME,
+			FOREIGN KEY(notebook_id) REFERENCES notebooks(id) ON DELETE CASCADE,
+			FOREIGN KEY(file_id) REFERENCES notebook_files(id) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_notebook_jobs_status ON notebook_jobs(status, created_at);
+	`
+
 	tables := []string{
 		usersTable,
 		sessionsTable,
@@ -192,6 +250,10 @@ func (s *Store) migrate(ctx context.Context) error {
 		feedsIndcies,
 		feedItemsTable,
 		feedItemsIndcies,
+		notebooksTable,
+		notebookFilesTable,
+		notebookFileDataTable,
+		notebookJobsTable,
 	}
 
 	for _, table := range tables {
@@ -200,5 +262,18 @@ func (s *Store) migrate(ctx context.Context) error {
 		}
 	}
 
+	if err := s.migrateAlterConversations(ctx); err != nil {
+		return fmt.Errorf("alter conversations: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Store) migrateAlterConversations(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx,
+		`ALTER TABLE conversations ADD COLUMN notebook_id TEXT NOT NULL DEFAULT ''`)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return err
+	}
 	return nil
 }

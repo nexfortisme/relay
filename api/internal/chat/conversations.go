@@ -69,3 +69,13 @@ func (s *Service) authorizeConversation(ctx context.Context, userID, conversatio
 func (s *Service) AuthorizeConversation(ctx context.Context, userID, conversationID string) error {
 	return s.authorizeConversation(ctx, userID, conversationID)
 }
+
+// SetConversationNotebookID links a conversation to a notebook.
+func (s *Service) SetConversationNotebookID(ctx context.Context, conversationID, notebookID string) error {
+	return s.store.SetConversationNotebookID(ctx, conversationID, notebookID)
+}
+
+// ListNotebookConversations returns active conversations linked to a notebook.
+func (s *Service) ListNotebookConversations(ctx context.Context, userID, notebookID string) ([]store.Conversation, error) {
+	return s.store.ListNotebookConversations(ctx, userID, notebookID)
+}

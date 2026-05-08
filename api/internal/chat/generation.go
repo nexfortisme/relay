@@ -13,6 +13,10 @@ import (
 )
 
 func (s *Service) generateAssistant(userID string, conversationID string, assistantMessageID string, messages []llm.ChatMessage, settings RuntimeSettings) {
+	s.generateAssistantWithRuntime(userID, conversationID, assistantMessageID, messages, settings, s.tools)
+}
+
+func (s *Service) generateAssistantWithRuntime(userID string, conversationID string, assistantMessageID string, messages []llm.ChatMessage, settings RuntimeSettings, toolRuntime tools.Runtime) {
 	ctx, cancel := context.WithCancel(auth.ContextWithUserID(context.Background(), userID))
 	defer cancel()
 	s.registerCancel(conversationID, cancel)
@@ -20,7 +24,7 @@ func (s *Service) generateAssistant(userID string, conversationID string, assist
 
 	startTime := time.Now()
 	provider := llm.NewHTTPProvider(settings.LLMURL, settings.LLMModel, settings.LLMAPIKey, s.responseTimeout)
-	stream := provider.GenerateStream(ctx, messages, s.tools)
+	stream := provider.GenerateStream(ctx, messages, toolRuntime)
 	accumulator := assistantAccumulator{}
 
 	for event := range stream {

@@ -17,6 +17,7 @@ import (
 	"github.com/nexfortisme/relay/internal/config"
 	"github.com/nexfortisme/relay/internal/feeds"
 	"github.com/nexfortisme/relay/internal/httpapi"
+	"github.com/nexfortisme/relay/internal/notebooks"
 	"github.com/nexfortisme/relay/internal/store"
 	"github.com/nexfortisme/relay/internal/tools"
 )
@@ -39,10 +40,17 @@ func NewServer(logger *slog.Logger) (*Server, func(), error) {
 }
 
 func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(), error) {
+	if err := os.MkdirAll(cfg.NotebooksDir(), 0755); err != nil {
+		return nil, nil, fmt.Errorf("create notebooks dir: %w", err)
+	}
+
 	st, err := store.New(cfg.SQLitePath)
 	if err != nil {
 		return nil, nil, err
 	}
+
+	nbRegistry := notebooks.NewRegistry(cfg.NotebooksDir())
+	nbService := notebooks.NewService(st, nbRegistry, cfg.SnapshotsDir, logger)
 
 	var chatService *chat.Service
 	feedService := feeds.NewService(st, func(ctx context.Context, userID string) feeds.LLMSettings {
@@ -74,7 +82,12 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 	feedCtx, stopFeeds := context.WithCancel(context.Background())
 	feedService.Start(feedCtx)
 
-	handlers := httpapi.NewHandlers(chatService, feedService, logger, cfg.MaxUploadBytes)
+	chatService.WithNotebooks(nbService, nbRegistry)
+
+	nbCtx, stopNotebooks := context.WithCancel(context.Background())
+	nbService.Start(nbCtx)
+
+	handlers := httpapi.NewHandlers(chatService, feedService, nbService, logger, cfg.MaxUploadBytes)
 
 	authSvc := auth.NewService(cfg.JWTSecret, cfg.JWTRefreshSecret)
 	rootUserID, err := httpapi.EnsureRootUser(context.Background(), st, authSvc, chatService, cfg.RootUsername, cfg.RootPassword, logger)
@@ -129,6 +142,19 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 		authed.POST("/conversations/:id/messages/:messageId/requeue", handlers.RequeueMessage)
 		authed.GET("/files/:id/download", handlers.DownloadFile)
 		authed.GET("/conversations/:id/stream", handlers.StreamConversation)
+		authed.POST("/notebooks", handlers.CreateNotebook)
+		authed.GET("/notebooks", handlers.ListNotebooks)
+		authed.GET("/notebooks/:notebookId", handlers.GetNotebook)
+		authed.PATCH("/notebooks/:notebookId", handlers.UpdateNotebook)
+		authed.DELETE("/notebooks/:notebookId", handlers.DeleteNotebook)
+		authed.POST("/notebooks/:notebookId/files", handlers.UploadNotebookFile)
+		authed.GET("/notebooks/:notebookId/files", handlers.ListNotebookFiles)
+		authed.DELETE("/notebooks/:notebookId/files/:fileId", handlers.DeleteNotebookFile)
+		authed.GET("/notebooks/:notebookId/files/:fileId/download", handlers.DownloadNotebookFile)
+		authed.GET("/notebooks/:notebookId/jobs/count", handlers.GetPendingJobCount)
+		authed.GET("/notebooks/:notebookId/conversations", handlers.ListNotebookConversations)
+		authed.POST("/notebooks/:notebookId/conversations", handlers.CreateNotebookConversation)
+		authed.GET("/notebooks/:notebookId/csv/:fileId", handlers.GetCSVTableData)
 		authed.GET("/feeds", handlers.ListFeeds)
 		authed.POST("/feeds/check", handlers.CheckFeed)
 		authed.POST("/feeds", handlers.CreateFeed)
@@ -145,6 +171,8 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 
 	cleanup := func() {
 		stopFeeds()
+		stopNotebooks()
+		nbRegistry.CloseAll()
 		_ = st.Close()
 	}
 
