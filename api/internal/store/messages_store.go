@@ -63,8 +63,8 @@ func (s *Store) AppendMessageWithFiles(ctx context.Context, m Message, files []F
 
 	_, err = tx.ExecContext(
 		ctx,
-		`INSERT INTO messages(id, conversation_id, role, content, user_content, llm_content, attachments_json, thinking, has_error, elapsed_ms, input_tokens, output_tokens, reasoning_tokens, total_tokens, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.ConversationID, m.Role, m.Content, userContent, llmContent, fallbackJSON, m.Thinking, m.HasError, m.ElapsedMs, m.InputTokens, m.OutputTokens, m.ReasoningTokens, m.TotalTokens, m.CreatedAt.UTC(),
+		`INSERT INTO messages(id, conversation_id, role, content, user_content, llm_content, attachments_json, thinking, model, has_error, elapsed_ms, input_tokens, output_tokens, reasoning_tokens, total_tokens, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.ConversationID, m.Role, m.Content, userContent, llmContent, fallbackJSON, m.Thinking, m.Model, m.HasError, m.ElapsedMs, m.InputTokens, m.OutputTokens, m.ReasoningTokens, m.TotalTokens, m.CreatedAt.UTC(),
 	)
 	if err != nil {
 		return fmt.Errorf("insert message: %w", err)
@@ -197,6 +197,14 @@ func (s *Store) SetMessageThinking(ctx context.Context, messageID string, thinki
 	return nil
 }
 
+func (s *Store) SetMessageModel(ctx context.Context, messageID string, model string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE messages SET model = ? WHERE id = ?`, model, messageID)
+	if err != nil {
+		return fmt.Errorf("update message model: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) SetLatestUserMessageError(ctx context.Context, conversationID string, hasError bool) error {
 	_, err := s.db.ExecContext(
 		ctx,
@@ -228,6 +236,7 @@ func (s *Store) GetMessages(ctx context.Context, conversationID string) ([]Messa
 				llm_content,
 				attachments_json,
 				thinking,
+				model,
 				has_error,
 				elapsed_ms,
 				input_tokens,
@@ -261,6 +270,7 @@ func (s *Store) GetMessages(ctx context.Context, conversationID string) ([]Messa
 			&m.LLMContent,
 			&fallbackJSON,
 			&m.Thinking,
+			&m.Model,
 			&m.HasError,
 			&m.ElapsedMs,
 			&m.InputTokens,
@@ -316,6 +326,7 @@ func (s *Store) GetMessage(ctx context.Context, conversationID string, messageID
 			llm_content,
 			attachments_json,
 			thinking,
+			model,
 			has_error,
 			elapsed_ms,
 			input_tokens,
@@ -340,6 +351,7 @@ func (s *Store) GetMessage(ctx context.Context, conversationID string, messageID
 		&message.LLMContent,
 		&fallbackJSON,
 		&message.Thinking,
+		&message.Model,
 		&message.HasError,
 		&message.ElapsedMs,
 		&message.InputTokens,

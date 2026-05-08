@@ -9,10 +9,24 @@ const props = defineProps<{
   renameDraft: string
   selectedConversationId: string | null
   title: string
+  models?: string[]
   tokenCount?: number
   maxTokenCount?: number
 }>()
 
+const headerModels = computed(() => {
+  const seen = new Set<string>()
+  const models: string[] = []
+  for (const model of props.models ?? []) {
+    const normalized = model.trim()
+    if (!normalized || seen.has(normalized)) {
+      continue
+    }
+    seen.add(normalized)
+    models.push(normalized)
+  }
+  return models
+})
 const hasTokenCap = computed(
   () => typeof props.maxTokenCount === 'number' && props.maxTokenCount > 0,
 )
@@ -89,6 +103,16 @@ watch(
         </button>
       </div>
       <div class="header-trailing">
+        <div v-if="headerModels.length" class="chat-model-list" aria-label="Models used in chat">
+          <span
+            v-for="model in headerModels"
+            :key="model"
+            class="chat-model-bubble"
+            :title="`Model: ${model}`"
+          >
+            {{ model }}
+          </span>
+        </div>
         <div
           v-if="typeof tokenCount === 'number'"
           class="conversation-token-meter"
@@ -171,7 +195,38 @@ watch(
   display: inline-flex;
   align-items: center;
   gap: 0.6rem;
-  flex: 0 0 auto;
+  justify-content: flex-end;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.chat-model-list {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.36rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: min(34rem, 42vw);
+  flex-wrap: wrap;
+}
+
+.chat-model-bubble {
+  display: inline-block;
+  max-width: 13rem;
+  min-height: 1.45rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 9%, transparent);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 720;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .conversation-token-meter {
@@ -345,6 +400,13 @@ watch(
     width: 100%;
     min-width: 0;
     justify-content: space-between;
+  }
+
+  .chat-model-list {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: flex-start;
+    max-width: none;
   }
 
   .conversation-token-meter {

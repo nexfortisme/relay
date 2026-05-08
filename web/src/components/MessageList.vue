@@ -354,7 +354,16 @@ defineExpose({ scrollToBottom });
           <div class="message-markdown" v-html="renderMarkdown(message.thinking)" />
         </div>
       </details>
-      <strong class="message-role">{{ message.role }}</strong>
+      <div class="message-header">
+        <strong class="message-role">{{ message.role }}</strong>
+        <span
+          v-if="message.role === 'assistant' && message.model"
+          class="message-model"
+          :title="`Model: ${message.model}`"
+        >
+          {{ message.model }}
+        </span>
+      </div>
       <template v-if="message.role !== 'assistant'">
         <p>{{ displayUserMessage(message) }}</p>
         <div v-if="message.attachments?.length" class="message-attachments">
@@ -457,7 +466,9 @@ defineExpose({ scrollToBottom });
       </div>
     </article>
     <article v-if="pendingAssistant" class="message assistant pending-response">
-      <strong class="message-role">assistant</strong>
+      <div class="message-header">
+        <strong class="message-role">assistant</strong>
+      </div>
       <LogoLoader :size="120" duration="2.4s" :palette="loaderPalette" />
     </article>
   </div>
@@ -523,13 +534,37 @@ defineExpose({ scrollToBottom });
   min-width: 4.8rem;
 }
 
+.message-header {
+  display: flex;
+  align-items: center;
+  gap: 0.36rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.24rem;
+}
+
 .message-role {
-  display: block;
+  display: inline-flex;
   font-size: 0.67rem;
   text-transform: uppercase;
   opacity: 0.72;
-  margin-bottom: 0.24rem;
   font-weight: 800;
+}
+
+.message-model {
+  display: inline-block;
+  min-height: 1.1rem;
+  max-width: min(16rem, 100%);
+  padding: 0.08rem 0.38rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 9%, transparent);
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .message p {
@@ -765,7 +800,8 @@ defineExpose({ scrollToBottom });
     padding: 0.55rem 0.66rem;
   }
 
-  .message-role {
+  .message-role,
+  .message-model {
     font-size: 0.63rem;
   }
 

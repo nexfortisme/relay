@@ -8,6 +8,7 @@ type Event struct {
 	Token           string `json:"token,omitempty"`
 	Content         string `json:"content,omitempty"`
 	Thinking        string `json:"thinking,omitempty"`
+	Model           string `json:"model,omitempty"`
 	Error           string `json:"error,omitempty"`
 	ElapsedMs       int64  `json:"elapsedMs,omitempty"`
 	InputTokens     int    `json:"inputTokens,omitempty"`

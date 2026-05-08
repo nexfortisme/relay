@@ -24,6 +24,7 @@ func TestStoreConversationAndMessages(t *testing.T) {
 		ConversationID: conversation.ID,
 		Role:           "user",
 		Content:        "hello",
+		Model:          "initial-model",
 		CreatedAt:      time.Now(),
 	}
 	if err := st.AppendMessage(ctx, msg); err != nil {
@@ -32,6 +33,9 @@ func TestStoreConversationAndMessages(t *testing.T) {
 
 	if err := st.SetMessageContent(ctx, msg.ID, "updated"); err != nil {
 		t.Fatalf("set message content: %v", err)
+	}
+	if err := st.SetMessageModel(ctx, msg.ID, "updated-model"); err != nil {
+		t.Fatalf("set message model: %v", err)
 	}
 
 	messages, err := st.GetMessages(ctx, conversation.ID)
@@ -43,6 +47,9 @@ func TestStoreConversationAndMessages(t *testing.T) {
 	}
 	if messages[0].Content != "updated" {
 		t.Fatalf("expected updated content, got %q", messages[0].Content)
+	}
+	if messages[0].Model != "updated-model" {
+		t.Fatalf("expected updated model, got %q", messages[0].Model)
 	}
 
 	if err := st.SetMessageTokenUsage(ctx, msg.ID, 10, 5, 3, 15); err != nil {

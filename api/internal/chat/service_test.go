@@ -63,6 +63,7 @@ func TestPublishAssistantFinalEventIncludesFinalContentAndThinking(t *testing.T)
 	service.publishAssistantFinalEvent("conv-1", "msg-1", "done", assistantFinalState{
 		content:   "final answer",
 		thinking:  "final reasoning",
+		model:     "test-model",
 		elapsedMs: 123,
 		usage: llm.TokenUsage{
 			InputTokens:     10,
@@ -82,6 +83,9 @@ func TestPublishAssistantFinalEventIncludesFinalContentAndThinking(t *testing.T)
 		}
 		if event.Thinking != "final reasoning" {
 			t.Fatalf("expected final thinking, got %q", event.Thinking)
+		}
+		if event.Model != "test-model" {
+			t.Fatalf("expected model, got %q", event.Model)
 		}
 		if event.ElapsedMs != 123 || event.InputTokens != 10 || event.OutputTokens != 5 || event.ReasoningTokens != 3 || event.TotalTokens != 15 {
 			t.Fatalf("unexpected terminal metadata: %#v", event)
@@ -150,6 +154,9 @@ func TestGenerateAssistantPassesUserContextToToolRuntime(t *testing.T) {
 	}
 	if len(messages) != 1 || messages[0].Content != "done" {
 		t.Fatalf("expected final assistant content to persist, got %#v", messages)
+	}
+	if messages[0].Model != "test-model" {
+		t.Fatalf("expected assistant model to persist, got %q", messages[0].Model)
 	}
 }
 
