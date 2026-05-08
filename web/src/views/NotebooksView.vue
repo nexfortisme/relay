@@ -77,7 +77,6 @@ async function handleCreate(payload: {
   name: string
   description: string
   systemPrompt: string
-  skillPrompt: string
   files: File[]
 }) {
   showCreateDialog.value = false
@@ -85,7 +84,6 @@ async function handleCreate(payload: {
     name: payload.name,
     description: payload.description || undefined,
     systemPrompt: payload.systemPrompt || undefined,
-    skillPrompt: payload.skillPrompt || undefined,
   })
   await notebookStore.selectNotebook(nb.id)
   for (const file of payload.files) {
