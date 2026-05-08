@@ -177,11 +177,13 @@ func (s *Service) addUserMessageAndGenerate(
 		s.logger.Warn("failed to auto-title conversation", "conversation_id", conversationID, "error", err)
 	}
 
+	settings := s.LoadRuntimeSettings(ctx, userID)
 	assistantMsg := store.Message{
 		ID:             uuid.NewString(),
 		ConversationID: conversationID,
 		Role:           "assistant",
 		Content:        "",
+		Model:          settings.LLMModel,
 		CreatedAt:      now.Add(time.Millisecond),
 	}
 
@@ -194,7 +196,6 @@ func (s *Service) addUserMessageAndGenerate(
 		return store.Message{}, err
 	}
 
-	settings := s.LoadRuntimeSettings(ctx, userID)
 	go s.generateAssistant(userID, conversationID, assistantMsg.ID, toLLMMessages(history, settings.SystemPrompt, citeSourcesDirective), settings)
 	return assistantMsg, nil
 }
