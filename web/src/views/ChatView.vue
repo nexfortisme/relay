@@ -45,6 +45,22 @@ const { isSidebarCollapsed, theme } = storeToRefs(uiStore)
 const shouldShowEmptyGreeting = computed(
   () => messages.value.length === 0 && !shouldShowPendingAssistantPlaceholder.value,
 )
+const chatModels = computed(() => {
+  const seen = new Set<string>()
+  const models: string[] = []
+  for (const message of messages.value) {
+    if (message.role !== 'assistant') {
+      continue
+    }
+    const model = message.model?.trim()
+    if (!model || seen.has(model)) {
+      continue
+    }
+    seen.add(model)
+    models.push(model)
+  }
+  return models
+})
 
 const goHome = () => {
   router.push('/home')
@@ -87,6 +103,7 @@ onMounted(chatStore.resumeSelectedConversationStream)
         :is-suggesting-title="isSuggestingTitle"
         :selected-conversation-id="selectedConversationId"
         :title="selectedConversation?.title ?? DEFAULT_CONVERSATION_TITLE"
+        :models="chatModels"
         :token-count="conversationTokenCount"
         :max-token-count="chatStore.maxConversationTokenCount"
         @archive="chatStore.archiveSelectedConversation"

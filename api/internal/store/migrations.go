@@ -2,8 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
-	"strings"
 )
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -55,6 +55,7 @@ func (s *Store) migrate(ctx context.Context) error {
 			llm_content TEXT NOT NULL DEFAULT '',
 			attachments_json TEXT NOT NULL DEFAULT '[]',
 			thinking TEXT NOT NULL DEFAULT '',
+			model TEXT NOT NULL DEFAULT '',
 			has_error INTEGER NOT NULL DEFAULT 0,
 			elapsed_ms INTEGER NOT NULL DEFAULT 0,
 			input_tokens INTEGER NOT NULL DEFAULT 0,
@@ -262,18 +263,43 @@ func (s *Store) migrate(ctx context.Context) error {
 		}
 	}
 
-	if err := s.migrateAlterConversations(ctx); err != nil {
-		return fmt.Errorf("alter conversations: %w", err)
+	if err := s.ensureColumn(ctx, "messages", "model", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn(ctx, "conversations", "notebook_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
 	}
 
 	return nil
 }
 
-func (s *Store) migrateAlterConversations(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx,
-		`ALTER TABLE conversations ADD COLUMN notebook_id TEXT NOT NULL DEFAULT ''`)
-	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
-		return err
+func (s *Store) ensureColumn(ctx context.Context, table string, column string, definition string) error {
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return fmt.Errorf("inspect %s columns: %w", table, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name string
+		var columnType string
+		var notNull int
+		var defaultValue sql.NullString
+		var primaryKey int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return fmt.Errorf("scan %s column info: %w", table, err)
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read %s columns: %w", table, err)
+	}
+
+	if _, err := s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition)); err != nil {
+		return fmt.Errorf("add %s.%s column: %w", table, column, err)
 	}
 	return nil
 }

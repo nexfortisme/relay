@@ -86,7 +86,7 @@ describe('appStore streaming', () => {
       throw new Error('expected stream websocket to be created')
     }
 
-    emit(socket, { type: 'token', messageId: 'msg-1', token: 'Hel' })
+    emit(socket, { type: 'token', messageId: 'msg-1', token: 'Hel', model: 'gpt-test-model' })
     emit(socket, { type: 'token', messageId: 'msg-1', token: 'lo' })
     emit(socket, { type: 'thinking', messageId: 'msg-1', thinking: 'Plan' })
     emit(socket, { type: 'thinking', messageId: 'msg-1', thinking: 'ning' })
@@ -103,6 +103,7 @@ describe('appStore streaming', () => {
         role: 'assistant',
         content: 'Hello',
         thinking: 'Planning',
+        model: 'gpt-test-model',
       },
     ])
   })
@@ -140,6 +141,7 @@ describe('appStore streaming', () => {
       messageId: 'msg-1',
       content: 'Final answer',
       thinking: 'Final reasoning',
+      model: 'gpt-test-model',
       elapsedMs: 84,
     })
 
@@ -150,6 +152,7 @@ describe('appStore streaming', () => {
         role: 'assistant',
         content: 'Final answer',
         thinking: 'Final reasoning',
+        model: 'gpt-test-model',
         elapsedMs: 84,
       },
     ])

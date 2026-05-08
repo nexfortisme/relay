@@ -40,6 +40,7 @@ type StreamPayload = {
   token?: string
   content?: string
   thinking?: string
+  model?: string
   error?: string
   elapsedMs?: number
   inputTokens?: number
@@ -53,6 +54,7 @@ type QueuedStreamDelta = {
   messageId: string
   token: string
   thinking: string
+  model?: string
 }
 
 function cloneMessages(items: DisplayMessage[]): DisplayMessage[] {
@@ -82,6 +84,7 @@ function mergeMessagesPreservingStreamState(
       ...message,
       content: pickLongestOrPrefix(local.content, message.content),
       thinking: pickLongestOrPrefix(local.thinking ?? '', message.thinking ?? '') || undefined,
+      model: message.model || local.model,
       inputTokens: Math.max(local.inputTokens ?? 0, message.inputTokens ?? 0) || undefined,
       outputTokens: Math.max(local.outputTokens ?? 0, message.outputTokens ?? 0) || undefined,
       reasoningTokens:
@@ -314,6 +317,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!payload.messageId) return
     const token = payload.type === 'token' ? (payload.token ?? '') : ''
     const thinking = payload.type === 'thinking' ? (payload.thinking ?? '') : ''
+    const model = payload.model
     if (!token && !thinking) return
 
     clearAssistantWaitFor(conversationId)
@@ -323,8 +327,15 @@ export const useChatStore = defineStore('chat', () => {
     if (existing) {
       existing.token += token
       existing.thinking += thinking
+      if (model) existing.model = model
     } else {
-      pendingStreamDeltas.set(key, { conversationId, messageId: payload.messageId, token, thinking })
+      pendingStreamDeltas.set(key, {
+        conversationId,
+        messageId: payload.messageId,
+        token,
+        thinking,
+        model,
+      })
     }
     scheduleStreamDeltaFlush()
   }
@@ -358,8 +369,12 @@ export const useChatStore = defineStore('chat', () => {
     const queuedDeltas = [...pendingStreamDeltas.values()]
     pendingStreamDeltas.clear()
     for (const delta of queuedDeltas) {
-      if (delta.token) upsertAssistantMessage(delta.conversationId, delta.messageId, delta.token)
-      if (delta.thinking) upsertAssistantThinking(delta.conversationId, delta.messageId, delta.thinking)
+      if (delta.token) {
+        upsertAssistantMessage(delta.conversationId, delta.messageId, delta.token, delta.model)
+      }
+      if (delta.thinking) {
+        upsertAssistantThinking(delta.conversationId, delta.messageId, delta.thinking, delta.model)
+      }
     }
   }
 
@@ -384,12 +399,17 @@ export const useChatStore = defineStore('chat', () => {
       case 'token':
         if (!payload.messageId) return
         clearAssistantWaitFor(conversationId)
-        upsertAssistantMessage(conversationId, payload.messageId, payload.token ?? '')
+        upsertAssistantMessage(conversationId, payload.messageId, payload.token ?? '', payload.model)
         return
       case 'thinking':
         if (!payload.messageId) return
         clearAssistantWaitFor(conversationId)
-        upsertAssistantThinking(conversationId, payload.messageId, payload.thinking ?? '')
+        upsertAssistantThinking(
+          conversationId,
+          payload.messageId,
+          payload.thinking ?? '',
+          payload.model,
+        )
         return
       case 'done':
       case 'stopped':
@@ -421,11 +441,17 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function upsertAssistantMessage(conversationId: string, messageId: string, token: string) {
+  function upsertAssistantMessage(
+    conversationId: string,
+    messageId: string,
+    token: string,
+    model?: string,
+  ) {
     const targetMessages = ensureConversationMessages(conversationId)
     const existing = targetMessages.find((m) => m.id === messageId)
     if (existing) {
       existing.content += token
+      if (model) existing.model = model
       syncVisibleMessagesFromConversation(conversationId)
       return
     }
@@ -434,17 +460,24 @@ export const useChatStore = defineStore('chat', () => {
       conversationId,
       role: 'assistant',
       content: token,
+      model,
       createdAt: new Date().toISOString(),
     })
     syncVisibleMessagesFromConversation(conversationId)
   }
 
-  function upsertAssistantThinking(conversationId: string, messageId: string, thinking: string) {
+  function upsertAssistantThinking(
+    conversationId: string,
+    messageId: string,
+    thinking: string,
+    model?: string,
+  ) {
     if (!thinking) return
     const targetMessages = ensureConversationMessages(conversationId)
     const existing = targetMessages.find((m) => m.id === messageId)
     if (existing) {
       existing.thinking = (existing.thinking ?? '') + thinking
+      if (model) existing.model = model
       syncVisibleMessagesFromConversation(conversationId)
       return
     }
@@ -454,6 +487,7 @@ export const useChatStore = defineStore('chat', () => {
       role: 'assistant',
       content: '',
       thinking,
+      model,
       createdAt: new Date().toISOString(),
     })
     syncVisibleMessagesFromConversation(conversationId)
@@ -473,6 +507,7 @@ export const useChatStore = defineStore('chat', () => {
         role: 'assistant',
         content: payload.content ?? payload.token ?? '',
         thinking: payload.thinking || undefined,
+        model: payload.model || undefined,
         createdAt: new Date().toISOString(),
       })
       const created = targetMessages[targetMessages.length - 1]
@@ -492,6 +527,7 @@ export const useChatStore = defineStore('chat', () => {
 
   function applyTerminalAssistantMetadata(message: DisplayMessage, payload: StreamPayload) {
     if (typeof payload.elapsedMs === 'number') message.elapsedMs = payload.elapsedMs
+    if (payload.model) message.model = payload.model
     applyTokenUsage(message, payload)
   }
 

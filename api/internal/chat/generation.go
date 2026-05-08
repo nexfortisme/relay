@@ -30,17 +30,17 @@ func (s *Service) generateAssistantWithRuntime(userID string, conversationID str
 	for event := range stream {
 		if event.Err != nil {
 			if errorsIsContextDone(event.Err) {
-				s.finishStoppedGeneration(conversationID, assistantMessageID, startTime, &accumulator)
+				s.finishStoppedGeneration(conversationID, assistantMessageID, startTime, &accumulator, settings.LLMModel)
 				return
 			}
 			s.finishFailedGeneration(conversationID, assistantMessageID, startTime, event.Err)
 			return
 		}
 
-		s.publishGenerationDelta(conversationID, assistantMessageID, event, &accumulator)
+		s.publishGenerationDelta(conversationID, assistantMessageID, event, &accumulator, settings.LLMModel)
 
 		if event.Done {
-			s.finishCompletedGeneration(ctx, conversationID, assistantMessageID, startTime, provider, messages, &accumulator)
+			s.finishCompletedGeneration(ctx, conversationID, assistantMessageID, startTime, provider, messages, &accumulator, settings.LLMModel)
 			return
 		}
 	}
@@ -55,6 +55,7 @@ type assistantAccumulator struct {
 type assistantFinalState struct {
 	content   string
 	thinking  string
+	model     string
 	elapsedMs int64
 	usage     llm.TokenUsage
 }
@@ -67,16 +68,17 @@ func (a *assistantAccumulator) finalThinking() string {
 	return strings.TrimSpace(a.thinking.String())
 }
 
-func finalAssistantState(startTime time.Time, accumulator *assistantAccumulator) assistantFinalState {
+func finalAssistantState(startTime time.Time, accumulator *assistantAccumulator, model string) assistantFinalState {
 	return assistantFinalState{
 		content:   accumulator.finalContent(),
 		thinking:  accumulator.finalThinking(),
+		model:     model,
 		elapsedMs: time.Since(startTime).Milliseconds(),
 		usage:     accumulator.usage,
 	}
 }
 
-func (s *Service) publishGenerationDelta(conversationID string, assistantMessageID string, event llm.TokenEvent, accumulator *assistantAccumulator) {
+func (s *Service) publishGenerationDelta(conversationID string, assistantMessageID string, event llm.TokenEvent, accumulator *assistantAccumulator, model string) {
 	if event.Usage != nil {
 		accumulator.usage.Add(*event.Usage)
 	}
@@ -86,6 +88,7 @@ func (s *Service) publishGenerationDelta(conversationID string, assistantMessage
 			Type:      "token",
 			MessageID: assistantMessageID,
 			Token:     event.Token,
+			Model:     model,
 		})
 	}
 	if event.Thinking != "" {
@@ -94,12 +97,13 @@ func (s *Service) publishGenerationDelta(conversationID string, assistantMessage
 			Type:      "thinking",
 			MessageID: assistantMessageID,
 			Thinking:  event.Thinking,
+			Model:     model,
 		})
 	}
 }
 
-func (s *Service) finishStoppedGeneration(conversationID string, assistantMessageID string, startTime time.Time, accumulator *assistantAccumulator) {
-	state := finalAssistantState(startTime, accumulator)
+func (s *Service) finishStoppedGeneration(conversationID string, assistantMessageID string, startTime time.Time, accumulator *assistantAccumulator, model string) {
+	state := finalAssistantState(startTime, accumulator, model)
 	_ = s.persistAssistantFinalState(context.Background(), assistantMessageID, state)
 	s.publishAssistantFinalEvent(conversationID, assistantMessageID, "stopped", state)
 }
@@ -129,12 +133,13 @@ func (s *Service) finishCompletedGeneration(
 	provider llm.Provider,
 	messages []llm.ChatMessage,
 	accumulator *assistantAccumulator,
+	model string,
 ) {
 	if accumulator.finalContent() == "" {
-		s.requestFallbackAssistantResponse(ctx, conversationID, assistantMessageID, provider, messages, accumulator)
+		s.requestFallbackAssistantResponse(ctx, conversationID, assistantMessageID, provider, messages, accumulator, model)
 	}
 
-	state := finalAssistantState(startTime, accumulator)
+	state := finalAssistantState(startTime, accumulator, model)
 	if err := s.persistAssistantFinalState(ctx, assistantMessageID, state); err != nil {
 		s.broker.Publish(conversationID, Event{
 			Type:      "error",
@@ -154,6 +159,9 @@ func (s *Service) persistAssistantFinalState(ctx context.Context, assistantMessa
 	if err := s.store.SetMessageThinking(ctx, assistantMessageID, state.thinking); err != nil {
 		s.logger.Error("failed to persist assistant thinking", "message_id", assistantMessageID, "error", err)
 	}
+	if err := s.store.SetMessageModel(ctx, assistantMessageID, state.model); err != nil {
+		s.logger.Error("failed to persist assistant model", "message_id", assistantMessageID, "error", err)
+	}
 	if err := s.store.SetMessageElapsedMs(ctx, assistantMessageID, state.elapsedMs); err != nil {
 		s.logger.Error("failed to persist assistant elapsed", "message_id", assistantMessageID, "error", err)
 	}
@@ -171,6 +179,7 @@ func (s *Service) publishAssistantFinalEvent(conversationID string, assistantMes
 		MessageID:       assistantMessageID,
 		Content:         state.content,
 		Thinking:        state.thinking,
+		Model:           state.model,
 		ElapsedMs:       state.elapsedMs,
 		InputTokens:     state.usage.InputTokens,
 		OutputTokens:    state.usage.OutputTokens,
@@ -186,6 +195,7 @@ func (s *Service) requestFallbackAssistantResponse(
 	provider llm.Provider,
 	messages []llm.ChatMessage,
 	accumulator *assistantAccumulator,
+	model string,
 ) {
 	// Some tool-capable local models finish with only tool/thinking output.
 	// Ask once more, without tools, so the UI gets a visible assistant reply.
@@ -201,7 +211,7 @@ func (s *Service) requestFallbackAssistantResponse(
 		if event.Err != nil {
 			return
 		}
-		s.publishGenerationDelta(conversationID, assistantMessageID, event, accumulator)
+		s.publishGenerationDelta(conversationID, assistantMessageID, event, accumulator, model)
 		if event.Done {
 			return
 		}

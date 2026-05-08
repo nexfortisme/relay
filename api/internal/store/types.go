@@ -23,6 +23,7 @@ type Message struct {
 	LLMContent      string        `json:"llmContent,omitempty"`
 	Attachments     []MessageFile `json:"attachments,omitempty"`
 	Thinking        string        `json:"thinking,omitempty"`
+	Model           string        `json:"model,omitempty"`
 	HasError        bool          `json:"hasError,omitempty"`
 	ElapsedMs       int64         `json:"elapsedMs,omitempty"`
 	InputTokens     int           `json:"inputTokens,omitempty"`

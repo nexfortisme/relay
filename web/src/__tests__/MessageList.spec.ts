@@ -30,12 +30,13 @@ function userMessage(
   }
 }
 
-function assistantMessage(content: string): DisplayMessage {
+function assistantMessage(content: string, model?: string): DisplayMessage {
   return {
     id: 'msg-assistant-1',
     conversationId: 'conv-1',
     role: 'assistant',
     content,
+    model,
     createdAt: '2026-04-25T12:00:01.000Z',
   }
 }
@@ -144,6 +145,22 @@ describe('MessageList code block copy', () => {
   })
 })
 
+describe('MessageList assistant metadata', () => {
+  it('renders the assistant model in the message header', () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [assistantMessage('Hello', 'gpt-test-model')],
+        pendingAssistant: false,
+      },
+    })
+
+    expect(wrapper.find('.message-model').text()).toBe('gpt-test-model')
+    expect(wrapper.find('.message-model').attributes('title')).toBe('Model: gpt-test-model')
+
+    wrapper.unmount()
+  })
+})
+
 describe('MessageList scrolling', () => {
   it('resets accidental horizontal drift when auto-scrolling', async () => {
     const wrapper = mount(MessageList, {
@@ -186,6 +203,26 @@ describe('ChatHeader token meter', () => {
     })
 
     expect(wrapper.find('.conversation-token-meter').text()).toContain('42 / 100 tokens')
+
+    wrapper.unmount()
+  })
+
+  it('renders one bubble for each model used in the chat', () => {
+    const wrapper = mount(ChatHeader, {
+      props: {
+        isEditing: false,
+        isRenaming: false,
+        isSuggestingTitle: false,
+        renameDraft: '',
+        selectedConversationId: 'conv-1',
+        title: 'Conversation',
+        models: ['gpt-a', 'gpt-b', 'gpt-a', '  gpt-c  '],
+      },
+    })
+
+    const bubbles = wrapper.findAll('.chat-model-bubble')
+    expect(bubbles.map((bubble) => bubble.text())).toEqual(['gpt-a', 'gpt-b', 'gpt-c'])
+    expect(bubbles[0]?.attributes('title')).toBe('Model: gpt-a')
 
     wrapper.unmount()
   })

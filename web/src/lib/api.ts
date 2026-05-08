@@ -25,6 +25,7 @@ export type Message = {
   llmContent?: string;
   attachments?: MessageFile[];
   thinking?: string;
+  model?: string;
   hasError?: boolean;
   elapsedMs?: number;
   inputTokens?: number;

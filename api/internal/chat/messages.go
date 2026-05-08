@@ -177,11 +177,13 @@ func (s *Service) addUserMessageAndGenerate(
 		s.logger.Warn("failed to auto-title conversation", "conversation_id", conversationID, "error", err)
 	}
 
+	settings := s.LoadRuntimeSettingsForConversation(ctx, userID, conversationID)
 	assistantMsg := store.Message{
 		ID:             uuid.NewString(),
 		ConversationID: conversationID,
 		Role:           "assistant",
 		Content:        "",
+		Model:          settings.LLMModel,
 		CreatedAt:      now.Add(time.Millisecond),
 	}
 
@@ -193,8 +195,6 @@ func (s *Service) addUserMessageAndGenerate(
 	if err != nil {
 		return store.Message{}, err
 	}
-
-	settings := s.LoadRuntimeSettingsForConversation(ctx, userID, conversationID)
 
 	// Inject notebook RAG context as a system prompt when the conversation
 	// is linked to a notebook.
