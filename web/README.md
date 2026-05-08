@@ -1,54 +1,73 @@
-# relay
+# Relay Web
 
-This template should help get you started developing with Vue 3 in Vite.
+Vue 3 frontend for Relay. It provides the authenticated shell, realtime chat UI, file previews, feeds reader, notebooks workspace, CSV viewer, and settings screens.
 
-## Recommended IDE Setup
+## Stack
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+- Vue 3, TypeScript, Vite
+- Pinia stores for auth, chat, conversations, notebooks, settings, and UI state
+- Vue Router guarded by cookie-backed session auth
+- Vitest plus Vue Test Utils for unit and component coverage
+- Bun for installs and scripts
 
-## Recommended Browser Setup
+## Requirements
 
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
+- Bun
+- Node.js `^20.19.0 || >=22.12.0`
 
-## Type Support for `.vue` Imports in TS
+If your shell uses an older Node, run:
 
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
+```bash
+nvm use 24
+```
 
-## Customize configuration
+## Development
 
-See [Vite Configuration Reference](https://vite.dev/config/).
+Install dependencies:
 
-## Project Setup
-
-```sh
+```bash
 bun install
 ```
 
-### Compile and Hot-Reload for Development
+Run the frontend dev server:
 
-```sh
+```bash
 bun dev
 ```
 
-### Type-Check, Compile and Minify for Production
+The dev server expects the Go API at `http://localhost:8091/api` unless `VITE_API_BASE_DEV` is set.
 
-```sh
-bun run build
+For the full app stack from the repository root, prefer:
+
+```bash
+./scripts/dev.sh
 ```
 
-### Run Unit Tests with [Vitest](https://vitest.dev/)
+## Scripts
 
-```sh
-bun test:unit
+```bash
+bun dev                 # Vite dev server
+bun test:unit --run     # unit/component tests
+bun run type-check      # vue-tsc project check
+bun run lint            # oxlint + eslint autofix
+bun run build-only      # production frontend bundle only
+bun run build           # type-check plus production bundle
 ```
 
-### Lint with [ESLint](https://eslint.org/)
+## Source Map
 
-```sh
-bun lint
-```
+- `src/views/`: route-level screens (`ChatView`, `FeedsView`, `NotebooksView`, auth screens, placeholders)
+- `src/components/`: shared UI for the shell, composer, message list, settings, notebooks, and previews
+- `src/stores/`: Pinia orchestration for API state, streaming reconciliation, auth, and notebooks
+- `src/lib/`: API wrappers and pure helpers for markdown, upload validation, file types, CSV parsing, and formatting
+- `src/__tests__/`: Vitest tests for components, stores, and helpers
+
+## Environment
+
+- `VITE_API_BASE_DEV`: API base during Vite dev, default `http://localhost:8091/api`
+- `VITE_API_BASE`: API base for production builds, default `/api`
+- `VITE_MAX_UPLOAD_BYTES`: composer upload limit hint
+- `VITE_MAX_IMAGE_BYTES`: image upload/compression limit hint
+- `VITE_MAX_TOKEN_COUNT`: UI token budget hint
+
+These are usually loaded from the root `.env` when using `./scripts/dev.sh`.
