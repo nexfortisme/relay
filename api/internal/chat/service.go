@@ -82,6 +82,7 @@ type RuntimeSettings struct {
 	SystemPrompt   string
 	NotebookID     string
 	NotebookPrompt string // non-empty: replaces SystemPrompt for notebook chats
+	NotebookSkill  string // injected between system prompt and RAG context
 }
 
 func (s *Service) LoadRuntimeSettings(ctx context.Context, userID string) RuntimeSettings {
@@ -109,6 +110,7 @@ func (s *Service) LoadRuntimeSettingsForConversation(ctx context.Context, userID
 	}
 	settings.NotebookID = notebookID
 	settings.NotebookPrompt = nb.SystemPrompt
+	settings.NotebookSkill = nb.SkillPrompt
 	return settings
 }
 

@@ -2,6 +2,7 @@ package notebooks
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,7 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nexfortisme/relay/internal/llm"
 	"github.com/nexfortisme/relay/internal/store"
+	"github.com/nexfortisme/relay/internal/tools"
 )
 
 const (
@@ -22,11 +25,13 @@ const (
 
 // Service manages notebooks: background job processing and CRUD operations.
 type Service struct {
-	mainStore   *store.Store
-	registry    *Registry
-	snapshotDir func(notebookID string) string
-	logger      *slog.Logger
-	sem         chan struct{}
+	mainStore      *store.Store
+	registry       *Registry
+	defaultLLMURL  string
+	defaultLLMModel string
+	snapshotDir    func(notebookID string) string
+	logger         *slog.Logger
+	sem            chan struct{}
 }
 
 func NewService(
@@ -45,6 +50,50 @@ func NewService(
 		logger:      logger,
 		sem:         make(chan struct{}, workerConcurrency),
 	}
+}
+
+// WithLLMDefaults sets the fallback LLM endpoint used for image descriptions
+// when the user has not overridden their settings. These values come from the
+// deployment config (.env); user settings in the DB take precedence at job
+// processing time.
+func (s *Service) WithLLMDefaults(url, model string) {
+	s.defaultLLMURL = url
+	s.defaultLLMModel = model
+}
+
+// llmProviderForUser builds an LLM provider using the user's stored settings,
+// falling back to the deployment defaults when a setting is absent.
+func (s *Service) llmProviderForUser(ctx context.Context, userID string) llm.Provider {
+	llmURL := s.settingOrDefault(ctx, userID, "llm_url", s.defaultLLMURL)
+	llmModel := s.settingOrDefault(ctx, userID, "llm_model", s.defaultLLMModel)
+	llmAPIKey := s.settingOrDefault(ctx, userID, "llm_api_key", "")
+	return llm.NewHTTPProvider(llmURL, llmModel, llmAPIKey, 5*time.Minute)
+}
+
+func (s *Service) settingOrDefault(ctx context.Context, userID, key, defaultVal string) string {
+	val, ok, err := s.mainStore.GetSetting(ctx, userID, key)
+	if err != nil || !ok || val == "" {
+		return defaultVal
+	}
+	return val
+}
+
+// describePageImage calls the LLM with a rendered JPEG page and returns a
+// textual description suitable for appending to the indexed page content.
+func describePageImage(ctx context.Context, provider llm.Provider, jpegBytes []byte) (string, error) {
+	b64 := base64.StdEncoding.EncodeToString(jpegBytes)
+	prompt := "Describe what is shown in this PDF page image. Be concise and factual.\n\n" +
+		"![page](data:image/jpeg;base64," + b64 + ")"
+	msgs := []llm.ChatMessage{{Role: "user", Content: llm.ParseContent(prompt)}}
+	ch := provider.GenerateStream(ctx, msgs, tools.NoopRuntime{})
+	var sb strings.Builder
+	for ev := range ch {
+		if ev.Err != nil {
+			return sb.String(), ev.Err
+		}
+		sb.WriteString(ev.Token)
+	}
+	return sb.String(), nil
 }
 
 // Start launches the background job processor goroutine.
@@ -92,6 +141,7 @@ func (s *Service) processJob(ctx context.Context, job store.NotebookJob) {
 		logger.Error("mark job running", "error", err)
 		return
 	}
+	_ = s.mainStore.SetNotebookFileStatus(ctx, job.FileID, "processing", "")
 
 	f, err := s.mainStore.GetNotebookFile(ctx, job.NotebookID, job.FileID)
 	if err != nil {
@@ -113,6 +163,18 @@ func (s *Service) processJob(ctx context.Context, job store.NotebookJob) {
 
 	nbStore := NewNotebookStore(db)
 
+	var describeImage ImageDescriber
+	if s.defaultLLMURL != "" {
+		provider := s.llmProviderForUser(ctx, job.UserID)
+		describeImage = func(ctx context.Context, jpegBytes []byte) (string, error) {
+			return describePageImage(ctx, provider, jpegBytes)
+		}
+	}
+
+	var onProgress ProgressFunc = func(pagesIndexed, pageCount int) {
+		_ = s.mainStore.SetNotebookFileProgress(ctx, job.FileID, pagesIndexed, pageCount)
+	}
+
 	switch f.FileKind {
 	case "csv":
 		tableName := CSVTableName(f.ID)
@@ -120,7 +182,7 @@ func (s *Service) processJob(ctx context.Context, job store.NotebookJob) {
 	case "image":
 		err = nbStore.InsertImageMeta(ctx, f.ID, f.Name, f.ContentType, f.SizeBytes)
 	default: // document: pdf, md, txt, json, yaml
-		err = ChunkAndIndex(ctx, db, f.ID, f.Name, f.ContentType, data)
+		err = ChunkAndIndex(ctx, db, f.ID, f.Name, f.ContentType, data, describeImage, onProgress)
 	}
 
 	if err != nil {
@@ -146,8 +208,8 @@ func (s *Service) failJob(ctx context.Context, jobID, fileID, errText string) {
 // ---------- CRUD ----------
 
 // CreateNotebook creates a new notebook record.
-func (s *Service) CreateNotebook(ctx context.Context, userID, name, description, systemPrompt string) (store.Notebook, error) {
-	return s.mainStore.CreateNotebook(ctx, userID, name, description, systemPrompt)
+func (s *Service) CreateNotebook(ctx context.Context, userID, name, description, systemPrompt, skillPrompt string) (store.Notebook, error) {
+	return s.mainStore.CreateNotebook(ctx, userID, name, description, systemPrompt, skillPrompt)
 }
 
 // GetNotebook returns a notebook owned by userID.
@@ -230,6 +292,29 @@ func (s *Service) DeleteFile(ctx context.Context, userID, notebookID, fileID str
 		return store.ErrNotFound
 	}
 	return s.mainStore.DeleteNotebookFile(ctx, notebookID, fileID)
+}
+
+// GetPageImage returns the rendered JPEG bytes (and content-type) for a single PDF page.
+// Returns store.ErrNotFound when the notebook, file, or page does not exist, or when
+// no image was stored for that page (e.g. text-only indexed file).
+func (s *Service) GetPageImage(ctx context.Context, userID, notebookID, fileID string, pageNum int) ([]byte, string, error) {
+	if _, err := s.mainStore.GetNotebook(ctx, userID, notebookID); err != nil {
+		return nil, "", err
+	}
+	db, err := s.registry.Open(userID, notebookID)
+	if err != nil {
+		return nil, "", fmt.Errorf("open notebook db: %w", err)
+	}
+	var imgData []byte
+	var imgType string
+	err = db.QueryRowContext(ctx,
+		`SELECT image_data, image_type FROM pages WHERE file_id=? AND page_number=?`,
+		fileID, pageNum,
+	).Scan(&imgData, &imgType)
+	if err != nil || len(imgData) == 0 {
+		return nil, "", store.ErrNotFound
+	}
+	return imgData, imgType, nil
 }
 
 // PendingJobCount returns the number of pending/running jobs for a notebook.

@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS pages (
 	file_id TEXT NOT NULL,
 	page_number INTEGER NOT NULL DEFAULT 0,
 	content TEXT NOT NULL,
+	image_data BLOB,
+	image_type TEXT,
 	created_at DATETIME NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_pages_file ON pages(file_id, page_number);

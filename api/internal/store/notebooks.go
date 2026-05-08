@@ -18,23 +18,26 @@ type Notebook struct {
 	Name         string    `json:"name"`
 	Description  string    `json:"description"`
 	SystemPrompt string    `json:"systemPrompt"`
+	SkillPrompt  string    `json:"skillPrompt"`
 	PendingJobs  int       `json:"pendingJobs,omitempty"`
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 type NotebookFile struct {
-	ID          string    `json:"id"`
-	NotebookID  string    `json:"notebookId"`
-	UserID      string    `json:"-"`
-	Name        string    `json:"name"`
-	ContentType string    `json:"contentType"`
-	SizeBytes   int64     `json:"sizeBytes"`
-	FileKind    string    `json:"fileKind"` // document|csv|image
-	Status      string    `json:"status"`   // pending|processing|ready|error
-	ErrorText   string    `json:"error,omitempty"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID           string    `json:"id"`
+	NotebookID   string    `json:"notebookId"`
+	UserID       string    `json:"-"`
+	Name         string    `json:"name"`
+	ContentType  string    `json:"contentType"`
+	SizeBytes    int64     `json:"sizeBytes"`
+	FileKind     string    `json:"fileKind"` // document|csv|image
+	Status       string    `json:"status"`   // pending|processing|ready|error
+	ErrorText    string    `json:"error,omitempty"`
+	PageCount    int       `json:"pageCount"`
+	PagesIndexed int       `json:"pagesIndexed"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 type NotebookJob struct {
@@ -53,24 +56,25 @@ type NotebookPatch struct {
 	Name         *string
 	Description  *string
 	SystemPrompt *string
+	SkillPrompt  *string
 }
 
 // Notebook CRUD
 
-func (s *Store) CreateNotebook(ctx context.Context, userID, name, description, systemPrompt string) (Notebook, error) {
+func (s *Store) CreateNotebook(ctx context.Context, userID, name, description, systemPrompt, skillPrompt string) (Notebook, error) {
 	now := time.Now().UTC()
 	id := uuid.NewString()
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO notebooks(id, user_id, name, description, system_prompt, created_at, updated_at)
-		 VALUES(?, ?, ?, ?, ?, ?, ?)`,
-		id, userID, name, description, systemPrompt, now, now,
+		`INSERT INTO notebooks(id, user_id, name, description, system_prompt, skill_prompt, created_at, updated_at)
+		 VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, userID, name, description, systemPrompt, skillPrompt, now, now,
 	)
 	if err != nil {
 		return Notebook{}, fmt.Errorf("create notebook: %w", err)
 	}
 	return Notebook{
 		ID: id, UserID: userID, Name: name,
-		Description: description, SystemPrompt: systemPrompt,
+		Description: description, SystemPrompt: systemPrompt, SkillPrompt: skillPrompt,
 		CreatedAt: now, UpdatedAt: now,
 	}, nil
 }
@@ -78,10 +82,10 @@ func (s *Store) CreateNotebook(ctx context.Context, userID, name, description, s
 func (s *Store) GetNotebook(ctx context.Context, userID, notebookID string) (Notebook, error) {
 	var nb Notebook
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, user_id, name, description, system_prompt, created_at, updated_at
+		`SELECT id, user_id, name, description, system_prompt, skill_prompt, created_at, updated_at
 		 FROM notebooks WHERE id = ? AND user_id = ?`,
 		notebookID, userID,
-	).Scan(&nb.ID, &nb.UserID, &nb.Name, &nb.Description, &nb.SystemPrompt, &nb.CreatedAt, &nb.UpdatedAt)
+	).Scan(&nb.ID, &nb.UserID, &nb.Name, &nb.Description, &nb.SystemPrompt, &nb.SkillPrompt, &nb.CreatedAt, &nb.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Notebook{}, ErrNotFound
 	}
@@ -93,7 +97,7 @@ func (s *Store) GetNotebook(ctx context.Context, userID, notebookID string) (Not
 
 func (s *Store) ListNotebooks(ctx context.Context, userID string) ([]Notebook, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT n.id, n.user_id, n.name, n.description, n.system_prompt, n.created_at, n.updated_at,
+		`SELECT n.id, n.user_id, n.name, n.description, n.system_prompt, n.skill_prompt, n.created_at, n.updated_at,
 		        COALESCE((SELECT COUNT(*) FROM notebook_jobs j WHERE j.notebook_id = n.id AND j.status IN ('pending','running')), 0) AS pending_jobs
 		 FROM notebooks n
 		 WHERE n.user_id = ?
@@ -108,7 +112,7 @@ func (s *Store) ListNotebooks(ctx context.Context, userID string) ([]Notebook, e
 	out := make([]Notebook, 0)
 	for rows.Next() {
 		var nb Notebook
-		if err := rows.Scan(&nb.ID, &nb.UserID, &nb.Name, &nb.Description, &nb.SystemPrompt,
+		if err := rows.Scan(&nb.ID, &nb.UserID, &nb.Name, &nb.Description, &nb.SystemPrompt, &nb.SkillPrompt,
 			&nb.CreatedAt, &nb.UpdatedAt, &nb.PendingJobs); err != nil {
 			return nil, fmt.Errorf("scan notebook: %w", err)
 		}
@@ -132,9 +136,12 @@ func (s *Store) UpdateNotebook(ctx context.Context, userID, notebookID string, p
 	if patch.SystemPrompt != nil {
 		nb.SystemPrompt = *patch.SystemPrompt
 	}
+	if patch.SkillPrompt != nil {
+		nb.SkillPrompt = *patch.SkillPrompt
+	}
 	_, err = s.db.ExecContext(ctx,
-		`UPDATE notebooks SET name=?, description=?, system_prompt=?, updated_at=? WHERE id=? AND user_id=?`,
-		nb.Name, nb.Description, nb.SystemPrompt, now, notebookID, userID,
+		`UPDATE notebooks SET name=?, description=?, system_prompt=?, skill_prompt=?, updated_at=? WHERE id=? AND user_id=?`,
+		nb.Name, nb.Description, nb.SystemPrompt, nb.SkillPrompt, now, notebookID, userID,
 	)
 	if err != nil {
 		return Notebook{}, fmt.Errorf("update notebook: %w", err)
@@ -195,11 +202,11 @@ func (s *Store) CreateNotebookFile(ctx context.Context, f NotebookFile, data []b
 func (s *Store) GetNotebookFile(ctx context.Context, notebookID, fileID string) (NotebookFile, error) {
 	var f NotebookFile
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, notebook_id, user_id, name, content_type, size_bytes, file_kind, status, error_text, created_at, updated_at
+		`SELECT id, notebook_id, user_id, name, content_type, size_bytes, file_kind, status, error_text, page_count, pages_indexed, created_at, updated_at
 		 FROM notebook_files WHERE id=? AND notebook_id=?`,
 		fileID, notebookID,
 	).Scan(&f.ID, &f.NotebookID, &f.UserID, &f.Name, &f.ContentType, &f.SizeBytes,
-		&f.FileKind, &f.Status, &f.ErrorText, &f.CreatedAt, &f.UpdatedAt)
+		&f.FileKind, &f.Status, &f.ErrorText, &f.PageCount, &f.PagesIndexed, &f.CreatedAt, &f.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return NotebookFile{}, ErrNotFound
 	}
@@ -224,7 +231,7 @@ func (s *Store) GetNotebookFileData(ctx context.Context, fileID string) ([]byte,
 
 func (s *Store) ListNotebookFiles(ctx context.Context, notebookID string) ([]NotebookFile, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, notebook_id, user_id, name, content_type, size_bytes, file_kind, status, error_text, created_at, updated_at
+		`SELECT id, notebook_id, user_id, name, content_type, size_bytes, file_kind, status, error_text, page_count, pages_indexed, created_at, updated_at
 		 FROM notebook_files WHERE notebook_id=? ORDER BY created_at`,
 		notebookID,
 	)
@@ -237,7 +244,7 @@ func (s *Store) ListNotebookFiles(ctx context.Context, notebookID string) ([]Not
 	for rows.Next() {
 		var f NotebookFile
 		if err := rows.Scan(&f.ID, &f.NotebookID, &f.UserID, &f.Name, &f.ContentType, &f.SizeBytes,
-			&f.FileKind, &f.Status, &f.ErrorText, &f.CreatedAt, &f.UpdatedAt); err != nil {
+			&f.FileKind, &f.Status, &f.ErrorText, &f.PageCount, &f.PagesIndexed, &f.CreatedAt, &f.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan notebook file: %w", err)
 		}
 		out = append(out, f)
@@ -262,6 +269,14 @@ func (s *Store) SetNotebookFileStatus(ctx context.Context, fileID, status, errTe
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE notebook_files SET status=?, error_text=?, updated_at=? WHERE id=?`,
 		status, errText, time.Now().UTC(), fileID,
+	)
+	return err
+}
+
+func (s *Store) SetNotebookFileProgress(ctx context.Context, fileID string, pagesIndexed, pageCount int) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE notebook_files SET pages_indexed=?, page_count=?, updated_at=? WHERE id=?`,
+		pagesIndexed, pageCount, time.Now().UTC(), fileID,
 	)
 	return err
 }

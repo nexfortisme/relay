@@ -4,6 +4,7 @@ import (
 	"errors"
 	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -18,12 +19,14 @@ type createNotebookRequest struct {
 	Name         string `json:"name"`
 	Description  string `json:"description"`
 	SystemPrompt string `json:"systemPrompt"`
+	SkillPrompt  string `json:"skillPrompt"`
 }
 
 type updateNotebookRequest struct {
 	Name         *string `json:"name"`
 	Description  *string `json:"description"`
 	SystemPrompt *string `json:"systemPrompt"`
+	SkillPrompt  *string `json:"skillPrompt"`
 }
 
 func (h *Handlers) CreateNotebook(c *gin.Context) {
@@ -37,7 +40,7 @@ func (h *Handlers) CreateNotebook(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
 		return
 	}
-	nb, err := h.notebooks.CreateNotebook(c.Request.Context(), userID, req.Name, req.Description, req.SystemPrompt)
+	nb, err := h.notebooks.CreateNotebook(c.Request.Context(), userID, req.Name, req.Description, req.SystemPrompt, req.SkillPrompt)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -88,6 +91,7 @@ func (h *Handlers) UpdateNotebook(c *gin.Context) {
 		Name:         req.Name,
 		Description:  req.Description,
 		SystemPrompt: req.SystemPrompt,
+		SkillPrompt:  req.SkillPrompt,
 	}
 	nb, err := h.notebooks.UpdateNotebook(c.Request.Context(), userID, c.Param("notebookId"), patch)
 	if err != nil {
@@ -303,6 +307,26 @@ func (h *Handlers) GetCSVTableData(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"columns": columns, "rows": rows})
+}
+
+// GetNotebookPageImage serves the rendered JPEG image stored for a PDF page.
+func (h *Handlers) GetNotebookPageImage(c *gin.Context) {
+	userID, ok := userIDFromGin(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	pageNum, err := strconv.Atoi(c.Param("pageNum"))
+	if err != nil || pageNum < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid page number"})
+		return
+	}
+	data, contentType, err := h.notebooks.GetPageImage(c.Request.Context(), userID, c.Param("notebookId"), c.Param("fileId"), pageNum)
+	if err != nil {
+		writeNotebookError(c, err)
+		return
+	}
+	c.Data(http.StatusOK, contentType, data)
 }
 
 // writeNotebookError maps store errors to HTTP status codes.

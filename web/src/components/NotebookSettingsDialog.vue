@@ -1,47 +1,20 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import AppIcon from './AppIcon.vue'
+import type { Notebook } from '../lib/notebooks'
+
+const props = defineProps<{ notebook: Notebook }>()
 
 const emit = defineEmits<{
   close: []
-  created: [payload: { name: string; description: string; systemPrompt: string; skillPrompt: string; files: File[] }]
+  saved: [payload: Partial<{ name: string; description: string; systemPrompt: string; skillPrompt: string }>]
 }>()
 
-const name = ref('')
-const description = ref('')
-const systemPrompt = ref('')
-const skillPrompt = ref('')
-const selectedFiles = ref<File[]>([])
-const fileInput = ref<HTMLInputElement | null>(null)
+const name = ref(props.notebook.name)
+const description = ref(props.notebook.description)
+const systemPrompt = ref(props.notebook.systemPrompt)
+const skillPrompt = ref(props.notebook.skillPrompt)
 const nameError = ref('')
-
-function triggerFilePicker() {
-  fileInput.value?.click()
-}
-
-function onFilesSelected(e: Event) {
-  const input = e.target as HTMLInputElement
-  if (!input.files) return
-  const added = Array.from(input.files)
-  const existing = new Set(selectedFiles.value.map((f) => f.name))
-  for (const f of added) {
-    if (!existing.has(f.name)) {
-      selectedFiles.value.push(f)
-      existing.add(f.name)
-    }
-  }
-  input.value = ''
-}
-
-function removeFile(index: number) {
-  selectedFiles.value.splice(index, 1)
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
 
 function submit() {
   nameError.value = ''
@@ -49,21 +22,20 @@ function submit() {
     nameError.value = 'Name is required'
     return
   }
-  emit('created', {
+  emit('saved', {
     name: name.value.trim(),
     description: description.value.trim(),
     systemPrompt: systemPrompt.value.trim(),
     skillPrompt: skillPrompt.value.trim(),
-    files: [...selectedFiles.value],
   })
 }
 </script>
 
 <template>
   <div class="dialog-overlay" @click.self="$emit('close')">
-    <div class="dialog-panel" role="dialog" aria-modal="true" aria-label="Create notebook">
+    <div class="dialog-panel" role="dialog" aria-modal="true" aria-label="Notebook settings">
       <div class="dialog-header">
-        <h2 class="dialog-title">New Notebook</h2>
+        <h2 class="dialog-title">Notebook Settings</h2>
         <button class="dialog-close" title="Close" @click="$emit('close')">
           <AppIcon name="x" :size="17" />
         </button>
@@ -76,7 +48,6 @@ function submit() {
           v-model="name"
           class="field-input"
           :class="{ 'field-input--error': nameError }"
-          placeholder="My Notebook"
           autofocus
           @keydown.enter="submit"
         />
@@ -90,53 +61,28 @@ function submit() {
           placeholder="Optional description"
         />
 
-        <label class="field-label" for="nb-prompt">System Prompt</label>
+        <label class="field-label" for="nb-system-prompt">System Prompt</label>
         <textarea
-          id="nb-prompt"
+          id="nb-system-prompt"
           v-model="systemPrompt"
           class="field-textarea"
           placeholder="Instructions for the LLM when chatting within this notebook. Replaces your global system prompt."
-          rows="3"
+          rows="4"
         />
 
-        <label class="field-label" for="nb-skill">Skill Prompt</label>
+        <label class="field-label" for="nb-skill-prompt">Skill Prompt</label>
         <textarea
-          id="nb-skill"
+          id="nb-skill-prompt"
           v-model="skillPrompt"
           class="field-textarea"
-          placeholder="Additional instructions injected alongside retrieved document context. E.g. &quot;Always cite the exact page number&quot; or &quot;Focus on technical accuracy.&quot;"
-          rows="3"
+          placeholder="Additional instructions injected alongside retrieved document context. Use this to shape how the LLM responds to document queries — e.g. &quot;Always cite the exact page number&quot; or &quot;Focus on technical accuracy.&quot;"
+          rows="4"
         />
-
-        <div class="field-label-row">
-          <label class="field-label">Files</label>
-          <button class="add-files-btn" type="button" @click="triggerFilePicker">
-            <AppIcon name="plus" :size="14" />
-            Add files
-          </button>
-        </div>
-        <input
-          ref="fileInput"
-          type="file"
-          multiple
-          class="sr-only"
-          @change="onFilesSelected"
-        />
-        <div v-if="selectedFiles.length > 0" class="file-list">
-          <div v-for="(file, i) in selectedFiles" :key="file.name" class="file-row">
-            <span class="file-name">{{ file.name }}</span>
-            <span class="file-size">{{ formatBytes(file.size) }}</span>
-            <button class="file-remove" type="button" title="Remove" @click="removeFile(i)">
-              <AppIcon name="x" :size="13" />
-            </button>
-          </div>
-        </div>
-        <p v-else class="field-hint">PDF, CSV, Markdown, images, JSON, YAML — up to 512 MB each</p>
       </div>
 
       <div class="dialog-footer">
         <button class="btn-cancel" @click="$emit('close')">Cancel</button>
-        <button class="btn-create" @click="submit">Create</button>
+        <button class="btn-save" @click="submit">Save</button>
       </div>
     </div>
   </div>
@@ -214,17 +160,6 @@ function submit() {
   margin-top: 0.35rem;
 }
 
-.field-label-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 0.35rem;
-}
-
-.field-label-row .field-label {
-  margin-top: 0;
-}
-
 .field-input,
 .field-textarea {
   padding: 0.68rem 0.78rem;
@@ -251,93 +186,13 @@ function submit() {
 
 .field-textarea {
   resize: vertical;
-  min-height: 100px;
+  min-height: 90px;
 }
 
 .field-error {
   color: var(--danger);
   font-size: 0.82rem;
   margin: 0;
-}
-
-.field-hint {
-  color: var(--muted);
-  font-size: 0.8rem;
-  margin: 0;
-}
-
-.add-files-btn {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.3rem 0.65rem;
-  border-radius: 0.4rem;
-  border: 1px solid var(--border);
-  background: var(--surface-soft);
-  color: var(--text);
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.add-files-btn:hover {
-  background: var(--surface-hover);
-}
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-}
-
-.file-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.file-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.45rem 0.65rem;
-  border-radius: 0.45rem;
-  border: 1px solid var(--border);
-  background: var(--surface-soft);
-}
-
-.file-name {
-  flex: 1;
-  font-size: 0.85rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-size {
-  font-size: 0.78rem;
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.file-remove {
-  width: 1.5rem;
-  height: 1.5rem;
-  display: inline-grid;
-  place-items: center;
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  border-radius: 0.3rem;
-  flex-shrink: 0;
-}
-
-.file-remove:hover {
-  color: var(--danger);
-  background: var(--surface-hover);
 }
 
 .dialog-footer {
@@ -349,7 +204,7 @@ function submit() {
 }
 
 .btn-cancel,
-.btn-create {
+.btn-save {
   min-height: 2.3rem;
   border-radius: 0.5rem;
   padding: 0 1rem;
@@ -364,13 +219,13 @@ function submit() {
   color: var(--text);
 }
 
-.btn-create {
+.btn-save {
   border: none;
   background: var(--primary);
   color: #fff;
 }
 
-.btn-create:hover {
+.btn-save:hover {
   background: var(--primary-strong);
 }
 

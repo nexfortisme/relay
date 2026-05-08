@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import type { NotebookFile } from '../lib/notebooks'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import AppIcon from '../components/AppIcon.vue'
@@ -7,6 +8,7 @@ import ChatComposer from '../components/ChatComposer.vue'
 import EmptyChatGreeting from '../components/EmptyChatGreeting.vue'
 import MessageList from '../components/MessageList.vue'
 import NotebookCreateDialog from '../components/NotebookCreateDialog.vue'
+import NotebookSettingsDialog from '../components/NotebookSettingsDialog.vue'
 import NotebookSidebar from '../components/NotebookSidebar.vue'
 import PageNavTabs from '../components/PageNavTabs.vue'
 import { useNotebookStore } from '../stores/notebookStore'
@@ -43,9 +45,14 @@ const {
 } = storeToRefs(chatStore)
 
 const showCreateDialog = ref(false)
+const showSettingsDialog = ref(false)
 // 'chats' | 'files' — what the middle pane shows
 const middleMode = ref<'chats' | 'files'>('chats')
 const openErrorFileId = ref<string | null>(null)
+const openProgressFileId = ref<string | null>(null)
+// Ticks every second so elapsed-time displays stay live
+const now = ref(Date.now())
+let elapsedTimer: ReturnType<typeof setInterval> | null = null
 
 const isGenerating = computed(
   () =>
@@ -58,16 +65,19 @@ const shouldShowEmptyGreeting = computed(
 
 onMounted(async () => {
   await notebookStore.loadNotebooks()
+  startElapsedTimer()
 })
 
 onUnmounted(() => {
   notebookStore.stopPolling()
+  stopElapsedTimer()
 })
 
 async function handleCreate(payload: {
   name: string
   description: string
   systemPrompt: string
+  skillPrompt: string
   files: File[]
 }) {
   showCreateDialog.value = false
@@ -75,11 +85,20 @@ async function handleCreate(payload: {
     name: payload.name,
     description: payload.description || undefined,
     systemPrompt: payload.systemPrompt || undefined,
+    skillPrompt: payload.skillPrompt || undefined,
   })
   await notebookStore.selectNotebook(nb.id)
   for (const file of payload.files) {
     await notebookStore.uploadFile(nb.id, file)
   }
+}
+
+async function handleSaveSettings(
+  patch: Partial<{ name: string; description: string; systemPrompt: string; skillPrompt: string }>,
+) {
+  showSettingsDialog.value = false
+  if (!selectedNotebookId.value) return
+  await notebookStore.updateExistingNotebook(selectedNotebookId.value, patch)
 }
 
 async function handleSelectNotebook(id: string) {
@@ -144,6 +163,55 @@ function formatDate(iso: string | undefined): string {
 function toggleErrorFlyout(fileId: string) {
   openErrorFileId.value = openErrorFileId.value === fileId ? null : fileId
 }
+
+function toggleProgressFlyout(fileId: string) {
+  openProgressFileId.value = openProgressFileId.value === fileId ? null : fileId
+  openErrorFileId.value = null
+}
+
+type ProcessingStage = { label: string; note?: string }
+
+function getProcessingStages(file: NotebookFile): ProcessingStage[] {
+  if (file.fileKind === 'csv') {
+    return [{ label: 'Parsing table structure' }, { label: 'Building search index' }]
+  }
+  if (file.fileKind === 'image') {
+    return [{ label: 'Storing metadata' }]
+  }
+  const isPdf =
+    file.contentType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+  if (isPdf) {
+    return [
+      { label: 'Extracting text' },
+      { label: 'Rendering pages to images' },
+      { label: 'Generating AI descriptions', note: 'may take a moment for large PDFs' },
+      { label: 'Building search index' },
+    ]
+  }
+  return [{ label: 'Extracting text' }, { label: 'Building search index' }]
+}
+
+function formatElapsed(isoDate: string): string {
+  const secs = Math.max(0, Math.floor((now.value - new Date(isoDate).getTime()) / 1000))
+  if (secs < 60) return `${secs}s`
+  const m = Math.floor(secs / 60)
+  const s = secs % 60
+  return `${m}m ${s}s`
+}
+
+function startElapsedTimer() {
+  if (elapsedTimer !== null) return
+  elapsedTimer = setInterval(() => {
+    now.value = Date.now()
+  }, 1000)
+}
+
+function stopElapsedTimer() {
+  if (elapsedTimer !== null) {
+    clearInterval(elapsedTimer)
+    elapsedTimer = null
+  }
+}
 </script>
 
 <template>
@@ -193,7 +261,23 @@ function toggleErrorFlyout(fileId: string) {
                   <div class="file-row">
                     <span class="file-name" :title="file.name">{{ file.name }}</span>
                     <span class="file-size">{{ formatBytes(file.sizeBytes) }}</span>
-                    <span class="file-status" :class="`file-status--${file.status}`">
+                    <button
+                      v-if="file.status === 'pending' || file.status === 'processing'"
+                      class="file-status file-status-btn"
+                      :class="[
+                        `file-status--${file.status}`,
+                        { 'file-status--open': openProgressFileId === file.id },
+                      ]"
+                      :title="'View processing stages'"
+                      @click="toggleProgressFlyout(file.id)"
+                    >
+                      {{ statusLabel(file.status) }}
+                    </button>
+                    <span
+                      v-else
+                      class="file-status"
+                      :class="`file-status--${file.status}`"
+                    >
                       {{ statusLabel(file.status) }}
                     </span>
                     <button
@@ -215,6 +299,53 @@ function toggleErrorFlyout(fileId: string) {
                   <div v-if="file.error && openErrorFileId === file.id" class="file-flyout">
                     <pre class="file-flyout-msg">{{ file.error }}</pre>
                   </div>
+                  <div
+                    v-if="
+                      (file.status === 'pending' || file.status === 'processing') &&
+                      openProgressFileId === file.id
+                    "
+                    class="file-flyout progress-flyout"
+                  >
+                    <div class="progress-status">
+                      <span v-if="file.status === 'processing'" class="progress-spinner" />
+                      <span class="progress-status-text">
+                        {{
+                          file.status === 'pending'
+                            ? 'Waiting in queue'
+                            : `Processing… ${formatElapsed(file.updatedAt)}`
+                        }}
+                      </span>
+                      <span
+                        v-if="file.status === 'processing' && file.pageCount > 0"
+                        class="progress-page-count"
+                      >
+                        {{ file.pagesIndexed }} / {{ file.pageCount }}
+                        {{ file.pageCount === 1 ? 'page' : 'pages' }}
+                      </span>
+                    </div>
+                    <div
+                      v-if="file.status === 'processing' && file.pageCount > 0"
+                      class="progress-bar-track"
+                    >
+                      <div
+                        class="progress-bar-fill"
+                        :style="{
+                          width: `${Math.round((file.pagesIndexed / file.pageCount) * 100)}%`,
+                        }"
+                      />
+                    </div>
+                    <ul class="stage-list">
+                      <li
+                        v-for="(stage, idx) in getProcessingStages(file)"
+                        :key="idx"
+                        class="stage-item"
+                      >
+                        <span class="stage-dot" />
+                        <span class="stage-label">{{ stage.label }}</span>
+                        <span v-if="stage.note" class="stage-note">— {{ stage.note }}</span>
+                      </li>
+                    </ul>
+                  </div>
                 </div>
                 <p v-if="error" class="pane-empty pane-error">{{ error }}</p>
               </template>
@@ -230,10 +361,20 @@ function toggleErrorFlyout(fileId: string) {
                   {{ selectedNotebook.description }}
                 </p>
               </div>
-              <button v-if="selectedNotebook" class="primary-btn" @click="createChat">
-                <AppIcon name="plus" :size="14" />
-                New chat
-              </button>
+              <div class="header-actions">
+                <button
+                  v-if="selectedNotebook"
+                  class="icon-btn"
+                  title="Notebook settings"
+                  @click="showSettingsDialog = true"
+                >
+                  <AppIcon name="settings" :size="15" />
+                </button>
+                <button v-if="selectedNotebook" class="primary-btn" @click="createChat">
+                  <AppIcon name="plus" :size="14" />
+                  New chat
+                </button>
+              </div>
             </div>
 
             <div class="pane-body">
@@ -304,6 +445,13 @@ function toggleErrorFlyout(fileId: string) {
       v-if="showCreateDialog"
       @close="showCreateDialog = false"
       @created="handleCreate"
+    />
+
+    <NotebookSettingsDialog
+      v-if="showSettingsDialog && selectedNotebook"
+      :notebook="selectedNotebook"
+      @close="showSettingsDialog = false"
+      @saved="handleSaveSettings"
     />
   </div>
 </template>
@@ -648,6 +796,30 @@ function toggleErrorFlyout(fileId: string) {
 }
 
 /* ── Shared buttons ── */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.icon-btn {
+  width: 2rem;
+  height: 2rem;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 0.45rem;
+  flex-shrink: 0;
+}
+
+.icon-btn:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
 .primary-btn {
   display: inline-flex;
   align-items: center;
@@ -666,6 +838,112 @@ function toggleErrorFlyout(fileId: string) {
 
 .primary-btn:hover {
   background: var(--primary-strong);
+}
+
+/* Progress flyout */
+.file-status-btn {
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.67rem;
+}
+
+.file-status-btn:hover,
+.file-status--open {
+  filter: brightness(1.2);
+}
+
+.progress-flyout {
+  background: color-mix(in srgb, var(--primary) 4%, var(--surface));
+  border-top: 1px solid color-mix(in srgb, var(--primary) 18%, transparent);
+  padding: 0.55rem 0.9rem 0.65rem;
+}
+
+.progress-status {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.5rem;
+}
+
+.progress-spinner {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 999px;
+  border: 1.5px solid color-mix(in srgb, var(--primary) 30%, transparent);
+  border-top-color: var(--primary);
+  flex-shrink: 0;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.progress-status-text {
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--primary);
+  flex: 1;
+}
+
+.progress-page-count {
+  font-size: 0.72rem;
+  color: var(--primary);
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+.progress-bar-track {
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+  overflow: hidden;
+  margin-bottom: 0.55rem;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width 0.6s ease;
+  min-width: 4px;
+}
+
+.stage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.stage-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.77rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.stage-dot {
+  width: 0.32rem;
+  height: 0.32rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
+  flex-shrink: 0;
+  position: relative;
+  top: -0.05em;
+}
+
+.stage-note {
+  font-size: 0.72rem;
+  color: color-mix(in srgb, var(--muted) 65%, transparent);
+  font-style: italic;
 }
 
 /* ── Responsive ── */

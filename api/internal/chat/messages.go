@@ -206,7 +206,7 @@ func (s *Service) addUserMessageAndGenerate(
 	}
 
 	activePrompt := s.activeSystemPrompt(settings)
-	llmMessages := toLLMMessages(history, activePrompt, ragContext, citeSourcesDirective)
+	llmMessages := toLLMMessages(history, activePrompt, settings.NotebookSkill, ragContext, citeSourcesDirective)
 
 	toolRuntime := s.notebookToolRuntime(userID, settings.NotebookID)
 	go s.generateAssistantWithRuntime(userID, conversationID, assistantMsg.ID, llmMessages, settings, toolRuntime)
