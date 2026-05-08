@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Environment Notes
 
-- `gh` CLI is not installed — avoid GitHub CLI commands.
+- `gh` CLI is not installed — avoid GitHub CLI commands. NEVER SUGGEST USING `gh` OR ANY `gh` COMMANDS.
 - Frontend tooling requires Node `^20.19.0 || >=22.12.0`. Run `nvm use 24` before Bun commands if the active Node is older or Bun has trouble loading frontend tooling.
 - Use Bun for frontend dependency and script commands.
 
