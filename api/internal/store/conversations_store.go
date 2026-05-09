@@ -31,7 +31,7 @@ func (s *Store) CreateConversation(
 
 func (s *Store) ListConversations(ctx context.Context, userID string, includeArchived bool) ([]Conversation, error) {
 	query := `
-		SELECT id, title, archived_at, notebook_id, created_at, updated_at
+		SELECT id, title, archived_at, favorited_at, notebook_id, created_at, updated_at
 		FROM conversations
 		WHERE user_id = ?
 	`
@@ -48,27 +48,30 @@ func (s *Store) ListConversations(ctx context.Context, userID string, includeArc
 
 	conversations := make([]Conversation, 0)
 	for rows.Next() {
-		var c Conversation
-		var archivedAt sql.NullTime
-		if err := rows.Scan(&c.ID, &c.Title, &archivedAt, &c.NotebookID, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		c, err := scanConversation(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan conversation: %w", err)
 		}
-		c.Archived = archivedAt.Valid
 		conversations = append(conversations, c)
 	}
 
 	return conversations, rows.Err()
 }
 
-// ListNotebookConversations returns non-archived conversations linked to a notebook,
+// ListNotebookConversations returns conversations linked to a notebook,
 // newest first.
-func (s *Store) ListNotebookConversations(ctx context.Context, userID, notebookID string) ([]Conversation, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, title, archived_at, notebook_id, created_at, updated_at
+func (s *Store) ListNotebookConversations(ctx context.Context, userID, notebookID string, includeArchived bool) ([]Conversation, error) {
+	query := `
+		SELECT id, title, archived_at, favorited_at, notebook_id, created_at, updated_at
 		FROM conversations
-		WHERE user_id = ? AND notebook_id = ? AND archived_at IS NULL
-		ORDER BY updated_at DESC
-	`, userID, notebookID)
+		WHERE user_id = ? AND notebook_id = ?
+	`
+	if !includeArchived {
+		query += "\nAND archived_at IS NULL"
+	}
+	query += "\nORDER BY updated_at DESC"
+
+	rows, err := s.db.QueryContext(ctx, query, userID, notebookID)
 	if err != nil {
 		return nil, fmt.Errorf("list notebook conversations: %w", err)
 	}
@@ -76,12 +79,10 @@ func (s *Store) ListNotebookConversations(ctx context.Context, userID, notebookI
 
 	out := make([]Conversation, 0)
 	for rows.Next() {
-		var c Conversation
-		var archivedAt sql.NullTime
-		if err := rows.Scan(&c.ID, &c.Title, &archivedAt, &c.NotebookID, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		c, err := scanConversation(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan conversation: %w", err)
 		}
-		c.Archived = archivedAt.Valid
 		out = append(out, c)
 	}
 	return out, rows.Err()
@@ -104,20 +105,18 @@ func (s *Store) GetConversationOwner(ctx context.Context, conversationID string)
 
 func (s *Store) GetConversation(ctx context.Context, conversationID string) (Conversation, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, title, archived_at, created_at, updated_at
+		SELECT id, title, archived_at, favorited_at, notebook_id, created_at, updated_at
 		FROM conversations
 		WHERE id = ?
 	`, conversationID)
 
-	var c Conversation
-	var archivedAt sql.NullTime
-	if err := row.Scan(&c.ID, &c.Title, &archivedAt, &c.CreatedAt, &c.UpdatedAt); err != nil {
+	c, err := scanConversation(row)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Conversation{}, fmt.Errorf("conversation not found")
 		}
 		return Conversation{}, fmt.Errorf("get conversation: %w", err)
 	}
-	c.Archived = archivedAt.Valid
 	return c, nil
 }
 
@@ -151,10 +150,53 @@ func (s *Store) RestoreConversation(ctx context.Context, conversationID string) 
 	return nil
 }
 
+func (s *Store) SetConversationFavorite(ctx context.Context, conversationID string, favorite bool) error {
+	now := time.Now().UTC()
+	var favoritedAt any
+	if favorite {
+		favoritedAt = now
+	}
+	_, err := s.db.ExecContext(
+		ctx,
+		`UPDATE conversations SET favorited_at = ?, updated_at = ? WHERE id = ?`,
+		favoritedAt,
+		now,
+		conversationID,
+	)
+	if err != nil {
+		return fmt.Errorf("favorite conversation: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) DeleteConversation(ctx context.Context, conversationID string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM conversations WHERE id = ?`, conversationID)
 	if err != nil {
 		return fmt.Errorf("delete conversation: %w", err)
 	}
 	return nil
+}
+
+type conversationScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanConversation(scanner conversationScanner) (Conversation, error) {
+	var c Conversation
+	var archivedAt sql.NullTime
+	var favoritedAt sql.NullTime
+	if err := scanner.Scan(
+		&c.ID,
+		&c.Title,
+		&archivedAt,
+		&favoritedAt,
+		&c.NotebookID,
+		&c.CreatedAt,
+		&c.UpdatedAt,
+	); err != nil {
+		return Conversation{}, err
+	}
+	c.Archived = archivedAt.Valid
+	c.Favorite = favoritedAt.Valid
+	return c, nil
 }

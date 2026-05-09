@@ -10,6 +10,10 @@ type renameConversationRequest struct {
 	Title string `json:"title"`
 }
 
+type favoriteConversationRequest struct {
+	Favorite bool `json:"favorite"`
+}
+
 func (h *Handlers) CreateConversation(c *gin.Context) {
 	userID, ok := userIDFromGin(c)
 	if !ok {
@@ -99,6 +103,24 @@ func (h *Handlers) RestoreConversation(c *gin.Context) {
 		return
 	}
 	if err := h.chat.RestoreConversation(c.Request.Context(), userID, c.Param("id")); err != nil {
+		writeChatError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (h *Handlers) FavoriteConversation(c *gin.Context) {
+	userID, ok := userIDFromGin(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	var req favoriteConversationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+		return
+	}
+	if err := h.chat.SetConversationFavorite(c.Request.Context(), userID, c.Param("id"), req.Favorite); err != nil {
 		writeChatError(c, err)
 		return
 	}

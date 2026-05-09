@@ -1,6 +1,14 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import {
+  archiveConversation,
+  deleteConversation,
+  renameConversation,
+  restoreConversation,
+  suggestConversationTitle,
+  updateConversationFavorite,
+} from '../lib/api'
+import {
   createNotebook,
   createNotebookConversation,
   deleteNotebook,
@@ -18,26 +26,51 @@ import {
   type NotebookFile,
 } from '../lib/notebooks'
 
+export const DEFAULT_NOTEBOOK_CONVERSATION_TITLE = 'New chat'
+
+const MAX_CONVERSATION_TITLE_LENGTH = 40
+
+function clampTitleForDisplay(title: string): string {
+  const normalized = title.trim().replace(/\s+/g, ' ')
+  if (normalized.length <= MAX_CONVERSATION_TITLE_LENGTH) {
+    return normalized
+  }
+  return normalized.slice(0, MAX_CONVERSATION_TITLE_LENGTH).trim()
+}
+
 export const useNotebookStore = defineStore('notebook', () => {
   const notebooks = ref<Notebook[]>([])
   const selectedNotebookId = ref<string | null>(null)
   const files = ref<NotebookFile[]>([])
   const conversations = ref<NotebookConversation[]>([])
   const selectedConversationId = ref<string | null>(null)
+  const showArchived = ref(false)
   const isLoading = ref(false)
   const isUploading = ref(false)
   const uploadProgress = ref(0)
   const error = ref<string | null>(null)
+  const renameDraft = ref('')
+  const isRenaming = ref(false)
+  const isSuggestingTitle = ref(false)
+  const isEditingTitle = ref(false)
 
   let pollTimer: ReturnType<typeof setTimeout> | null = null
 
-  const selectedNotebook = computed(() =>
-    notebooks.value.find((n) => n.id === selectedNotebookId.value) ?? null,
+  const selectedNotebook = computed(
+    () => notebooks.value.find((n) => n.id === selectedNotebookId.value) ?? null,
   )
 
-  const selectedConversation = computed(() =>
-    conversations.value.find((c) => c.id === selectedConversationId.value) ?? null,
+  const selectedConversation = computed(
+    () => conversations.value.find((c) => c.id === selectedConversationId.value) ?? null,
   )
+
+  const activeConversations = computed(() => conversations.value.filter((c) => !c.archived))
+
+  const favoriteConversations = computed(() => activeConversations.value.filter((c) => c.favorite))
+
+  const regularConversations = computed(() => activeConversations.value.filter((c) => !c.favorite))
+
+  const archivedConversations = computed(() => conversations.value.filter((c) => c.archived))
 
   async function loadNotebooks() {
     isLoading.value = true
@@ -73,7 +106,7 @@ export const useNotebookStore = defineStore('notebook', () => {
 
   async function loadConversations(notebookId: string) {
     try {
-      conversations.value = await listNotebookConversations(notebookId)
+      conversations.value = await listNotebookConversations(notebookId, true)
     } catch (e) {
       error.value = (e as Error).message
     }
@@ -81,13 +114,62 @@ export const useNotebookStore = defineStore('notebook', () => {
 
   function selectConversation(id: string | null) {
     selectedConversationId.value = id
+    renameDraft.value = selectedConversation.value?.title ?? DEFAULT_NOTEBOOK_CONVERSATION_TITLE
+    isEditingTitle.value = false
+  }
+
+  function toggleArchived() {
+    showArchived.value = !showArchived.value
+  }
+
+  function beginConversationTitleEdit() {
+    renameDraft.value = selectedConversation.value?.title ?? DEFAULT_NOTEBOOK_CONVERSATION_TITLE
+    isEditingTitle.value = true
+  }
+
+  function cancelConversationTitleEdit() {
+    isEditingTitle.value = false
+    renameDraft.value = selectedConversation.value?.title ?? DEFAULT_NOTEBOOK_CONVERSATION_TITLE
+  }
+
+  async function saveConversationTitle() {
+    if (!selectedNotebookId.value || !selectedConversationId.value) {
+      return
+    }
+    const title = clampTitleForDisplay(renameDraft.value)
+    if (!title) {
+      renameDraft.value = selectedConversation.value?.title ?? DEFAULT_NOTEBOOK_CONVERSATION_TITLE
+      isEditingTitle.value = false
+      return
+    }
+    isRenaming.value = true
+    try {
+      renameDraft.value = title
+      await renameConversation(selectedConversationId.value, title)
+      await loadConversations(selectedNotebookId.value)
+      isEditingTitle.value = false
+    } finally {
+      isRenaming.value = false
+    }
+  }
+
+  async function suggestConversationTitleWithLLM() {
+    if (!selectedConversationId.value || isRenaming.value || isSuggestingTitle.value) {
+      return
+    }
+    isSuggestingTitle.value = true
+    try {
+      const suggestedTitle = await suggestConversationTitle(selectedConversationId.value)
+      renameDraft.value = clampTitleForDisplay(suggestedTitle)
+      await saveConversationTitle()
+    } finally {
+      isSuggestingTitle.value = false
+    }
   }
 
   function startPollIfNeeded(notebookId: string) {
     stopPolling()
-    const hasPending = files.value.some(
-      (f) => f.status === 'pending' || f.status === 'processing',
-    )
+    const hasPending = files.value.some((f) => f.status === 'pending' || f.status === 'processing')
     if (!hasPending) return
     schedulePoll(notebookId)
   }
@@ -131,7 +213,12 @@ export const useNotebookStore = defineStore('notebook', () => {
 
   async function updateExistingNotebook(
     id: string,
-    patch: Partial<{ name: string; description: string; systemPrompt: string; skillPrompt: string }>,
+    patch: Partial<{
+      name: string
+      description: string
+      systemPrompt: string
+      skillPrompt: string
+    }>,
   ): Promise<void> {
     const nb = await updateNotebook(id, patch)
     const idx = notebooks.value.findIndex((n) => n.id === id)
@@ -186,7 +273,50 @@ export const useNotebookStore = defineStore('notebook', () => {
     const conv = await createNotebookConversation(notebookId)
     conversations.value = [conv, ...conversations.value]
     selectedConversationId.value = conv.id
+    renameDraft.value = conv.title
     return conv
+  }
+
+  function confirmArchive(conversationId: string): boolean {
+    const conversation = conversations.value.find((c) => c.id === conversationId)
+    const title = conversation?.title ?? 'this chat'
+    return window.confirm(`Archive "${title}"?`)
+  }
+
+  function confirmDelete(conversationId: string): boolean {
+    const conversation = conversations.value.find((c) => c.id === conversationId)
+    const title = conversation?.title ?? 'this chat'
+    return window.confirm(`Delete "${title}"? This cannot be undone.`)
+  }
+
+  async function archiveConversationById(conversationId: string) {
+    if (!selectedNotebookId.value) return
+    await archiveConversation(conversationId)
+    await loadConversations(selectedNotebookId.value)
+  }
+
+  async function restoreConversationById(conversationId: string) {
+    if (!selectedNotebookId.value) return
+    await restoreConversation(conversationId)
+    await loadConversations(selectedNotebookId.value)
+  }
+
+  async function deleteConversationById(conversationId: string) {
+    if (!selectedNotebookId.value) return
+    await deleteConversation(conversationId)
+    conversations.value = conversations.value.filter((c) => c.id !== conversationId)
+    await loadConversations(selectedNotebookId.value)
+  }
+
+  async function setConversationFavoriteById(conversationId: string, favorite: boolean) {
+    if (!selectedNotebookId.value) return
+    await updateConversationFavorite(conversationId, favorite)
+    await loadConversations(selectedNotebookId.value)
+  }
+
+  async function toggleConversationFavoriteById(conversationId: string) {
+    const conversation = conversations.value.find((c) => c.id === conversationId)
+    await setConversationFavoriteById(conversationId, !(conversation?.favorite ?? false))
   }
 
   return {
@@ -197,15 +327,29 @@ export const useNotebookStore = defineStore('notebook', () => {
     conversations,
     selectedConversationId,
     selectedConversation,
+    activeConversations,
+    favoriteConversations,
+    regularConversations,
+    archivedConversations,
+    showArchived,
     isLoading,
     isUploading,
     uploadProgress,
     error,
+    renameDraft,
+    isRenaming,
+    isSuggestingTitle,
+    isEditingTitle,
     loadNotebooks,
     selectNotebook,
     loadFiles,
     loadConversations,
     selectConversation,
+    toggleArchived,
+    beginConversationTitleEdit,
+    cancelConversationTitleEdit,
+    saveConversationTitle,
+    suggestConversationTitleWithLLM,
     createNewNotebook,
     updateExistingNotebook,
     removeNotebook,
@@ -213,6 +357,13 @@ export const useNotebookStore = defineStore('notebook', () => {
     removeFile,
     getCSVData,
     newChat,
+    confirmArchive,
+    confirmDelete,
+    archiveConversationById,
+    restoreConversationById,
+    deleteConversationById,
+    setConversationFavoriteById,
+    toggleConversationFavoriteById,
     stopPolling,
   }
 })

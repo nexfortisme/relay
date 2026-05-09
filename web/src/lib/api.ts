@@ -1,168 +1,169 @@
 const API_BASE = import.meta.env.DEV
-  ? (import.meta.env.VITE_API_BASE_DEV ?? "http://localhost:8091/api")
-  : (import.meta.env.VITE_API_BASE ?? "/api");
+  ? (import.meta.env.VITE_API_BASE_DEV ?? 'http://localhost:8091/api')
+  : (import.meta.env.VITE_API_BASE ?? '/api')
 
 export type Conversation = {
-  id: string;
-  title: string;
-  archived: boolean;
-  notebookId?: string;
-  createdAt: string;
-  updatedAt: string;
-};
+  id: string
+  title: string
+  archived: boolean
+  favorite: boolean
+  notebookId?: string
+  createdAt: string
+  updatedAt: string
+}
 
 export type MessageFile = {
-  id: string;
-  name: string;
-};
+  id: string
+  name: string
+}
 
 export type Message = {
-  id: string;
-  conversationId: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  userContent?: string;
-  llmContent?: string;
-  attachments?: MessageFile[];
-  thinking?: string;
-  model?: string;
-  hasError?: boolean;
-  elapsedMs?: number;
-  inputTokens?: number;
-  outputTokens?: number;
-  reasoningTokens?: number;
-  totalTokens?: number;
-  createdAt: string;
-};
+  id: string
+  conversationId: string
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  userContent?: string
+  llmContent?: string
+  attachments?: MessageFile[]
+  thinking?: string
+  model?: string
+  hasError?: boolean
+  elapsedMs?: number
+  inputTokens?: number
+  outputTokens?: number
+  reasoningTokens?: number
+  totalTokens?: number
+  createdAt: string
+}
 
 export type Feed = {
-  id: string;
-  url: string;
-  title: string;
-  siteUrl: string;
-  description?: string;
-  pollingIntervalMinutes: number;
-  autoSummarize: boolean;
-  autoAddToNotebook: boolean;
-  notebookId?: string;
-  lastCheckedAt?: string;
-  nextCheckAt: string;
-  lastError?: string;
-  unreadCount: number;
-  createdAt: string;
-  updatedAt: string;
-};
+  id: string
+  url: string
+  title: string
+  siteUrl: string
+  description?: string
+  pollingIntervalMinutes: number
+  autoSummarize: boolean
+  autoAddToNotebook: boolean
+  notebookId?: string
+  lastCheckedAt?: string
+  nextCheckAt: string
+  lastError?: string
+  unreadCount: number
+  createdAt: string
+  updatedAt: string
+}
 
 export type FeedCheckResult = {
-  url: string;
-  title: string;
-  siteUrl: string;
-  description: string;
-  itemCount: number;
-};
+  url: string
+  title: string
+  siteUrl: string
+  description: string
+  itemCount: number
+}
 
 export type FeedItem = {
-  id: string;
-  feedId: string;
-  feedTitle?: string;
-  externalId: string;
-  title: string;
-  url: string;
-  author?: string;
-  publishedAt?: string;
-  preview: string;
-  content?: string;
-  mediaType?: string;
-  mediaUrl?: string;
-  summary?: string;
-  summaryStatus?: string;
-  summaryError?: string;
-  read: boolean;
-  starred: boolean;
-  createdAt: string;
-  updatedAt: string;
-};
+  id: string
+  feedId: string
+  feedTitle?: string
+  externalId: string
+  title: string
+  url: string
+  author?: string
+  publishedAt?: string
+  preview: string
+  content?: string
+  mediaType?: string
+  mediaUrl?: string
+  summary?: string
+  summaryStatus?: string
+  summaryError?: string
+  read: boolean
+  starred: boolean
+  createdAt: string
+  updatedAt: string
+}
 
-export type FeedItemView = "unread" | "starred" | "all";
+export type FeedItemView = 'unread' | 'starred' | 'all'
 
 export type FeedBackfillRequest = {
-  mode: "latest" | "since" | "all";
-  limit?: number;
-  since?: string;
-};
+  mode: 'latest' | 'since' | 'all'
+  limit?: number
+  since?: string
+}
 
 export type CreateFeedPayload = {
-  url: string;
-  name?: string;
-  pollingIntervalMinutes: number;
-  autoSummarize: boolean;
-  autoAddToNotebook: boolean;
-  notebookId?: string;
-  backfill: FeedBackfillRequest;
-};
+  url: string
+  name?: string
+  pollingIntervalMinutes: number
+  autoSummarize: boolean
+  autoAddToNotebook: boolean
+  notebookId?: string
+  backfill: FeedBackfillRequest
+}
 
 export type UpdateFeedPayload = Partial<{
-  name: string;
-  pollingIntervalMinutes: number;
-  autoSummarize: boolean;
-  autoAddToNotebook: boolean;
-  notebookId: string;
-}>;
+  name: string
+  pollingIntervalMinutes: number
+  autoSummarize: boolean
+  autoAddToNotebook: boolean
+  notebookId: string
+}>
 
 function normalizeCreateMessageError(rawMessage: string, includesFiles: boolean): string {
-  const message = rawMessage.trim();
-  const lower = message.toLowerCase();
+  const message = rawMessage.trim()
+  const lower = message.toLowerCase()
   if (includesFiles) {
     if (
-      lower.includes("request body too large") ||
-      lower.includes("payload too large") ||
-      lower.includes("too large")
+      lower.includes('request body too large') ||
+      lower.includes('payload too large') ||
+      lower.includes('too large')
     ) {
-      return message;
+      return message
     }
-    if (lower.includes("failed to fetch") || lower.includes("networkerror")) {
-      return "Upload failed. One or more files may be too large for the server upload limit.";
+    if (lower.includes('failed to fetch') || lower.includes('networkerror')) {
+      return 'Upload failed. One or more files may be too large for the server upload limit.'
     }
   }
-  return message || "Failed to send message";
+  return message || 'Failed to send message'
 }
 
 function apiPath(path: string): string {
-  return `${API_BASE}${path}`;
+  return `${API_BASE}${path}`
 }
 
 async function responseErrorMessage(response: Response, fallback: string): Promise<string> {
   try {
-    const data = (await response.json()) as { error?: string };
-    return data.error || fallback;
+    const data = (await response.json()) as { error?: string }
+    return data.error || fallback
   } catch {
-    return fallback;
+    return fallback
   }
 }
 
 // Single source of truth for "we just got 401"; the auth store subscribes to
 // this so navigation back to /login happens once even if many requests fail.
-type UnauthorizedHandler = () => void;
-let unauthorizedHandler: UnauthorizedHandler | null = null;
+type UnauthorizedHandler = () => void
+let unauthorizedHandler: UnauthorizedHandler | null = null
 export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
-  unauthorizedHandler = handler;
+  unauthorizedHandler = handler
 }
 
 // Paths that should not trigger the unauthorized handler — they ARE the
 // auth flow, and a 401 there is expected (bad password, expired refresh on
 // page load, etc.).
-const authPathPrefix = "/auth/";
+const authPathPrefix = '/auth/'
 
 function withCredentials(init: RequestInit | undefined): RequestInit {
-  return { credentials: "include", ...init };
+  return { credentials: 'include', ...init }
 }
 
 async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  const response = await fetch(apiPath(path), withCredentials(init));
+  const response = await fetch(apiPath(path), withCredentials(init))
   if (response.status === 401 && !path.startsWith(authPathPrefix) && unauthorizedHandler) {
-    unauthorizedHandler();
+    unauthorizedHandler()
   }
-  return response;
+  return response
 }
 
 async function fetchJson<T>(
@@ -170,11 +171,11 @@ async function fetchJson<T>(
   init: RequestInit | undefined,
   errorMessage: string,
 ): Promise<T> {
-  const response = await apiFetch(path, init);
+  const response = await apiFetch(path, init)
   if (!response.ok) {
-    throw new Error(await responseErrorMessage(response, errorMessage));
+    throw new Error(await responseErrorMessage(response, errorMessage))
   }
-  return response.json();
+  return response.json()
 }
 
 async function fetchNoContent(
@@ -182,19 +183,19 @@ async function fetchNoContent(
   init: RequestInit | undefined,
   errorMessage: string,
 ): Promise<void> {
-  const response = await apiFetch(path, init);
+  const response = await apiFetch(path, init)
   if (!response.ok) {
-    throw new Error(await responseErrorMessage(response, errorMessage));
+    throw new Error(await responseErrorMessage(response, errorMessage))
   }
 }
 
 export type AuthUser = {
-  id: string;
-  username: string;
-};
+  id: string
+  username: string
+}
 
 export async function authMe(): Promise<AuthUser> {
-  return fetchJson<AuthUser>("/auth/me", undefined, "Not authenticated");
+  return fetchJson<AuthUser>('/auth/me', undefined, 'Not authenticated')
 }
 
 export async function authLogin(
@@ -203,14 +204,14 @@ export async function authLogin(
   rememberMe: boolean,
 ): Promise<AuthUser> {
   return fetchJson<AuthUser>(
-    "/auth/login",
+    '/auth/login',
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password, rememberMe }),
     },
-    "Login failed",
-  );
+    'Login failed',
+  )
 }
 
 export async function authRegister(
@@ -219,60 +220,60 @@ export async function authRegister(
   rememberMe: boolean,
 ): Promise<AuthUser> {
   return fetchJson<AuthUser>(
-    "/auth/register",
+    '/auth/register',
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password, rememberMe }),
     },
-    "Registration failed",
-  );
+    'Registration failed',
+  )
 }
 
 export async function authLogout(): Promise<void> {
-  await fetchNoContent("/auth/logout", { method: "POST" }, "Logout failed");
+  await fetchNoContent('/auth/logout', { method: 'POST' }, 'Logout failed')
 }
 
 export async function authRefresh(): Promise<AuthUser | null> {
-  const response = await fetch(apiPath("/auth/refresh"), withCredentials({ method: "POST" }));
+  const response = await fetch(apiPath('/auth/refresh'), withCredentials({ method: 'POST' }))
   if (response.status === 401) {
-    return null;
+    return null
   }
   if (!response.ok) {
-    throw new Error(await responseErrorMessage(response, "Refresh failed"));
+    throw new Error(await responseErrorMessage(response, 'Refresh failed'))
   }
-  return response.json();
+  return response.json()
 }
 
 export async function createConversation(): Promise<Conversation> {
   return fetchJson<Conversation>(
-    "/conversations",
-    { method: "POST" },
-    "Failed to create conversation",
-  );
+    '/conversations',
+    { method: 'POST' },
+    'Failed to create conversation',
+  )
 }
 
 export async function listConversations(includeArchived = false): Promise<Conversation[]> {
-  const params = new URLSearchParams();
+  const params = new URLSearchParams()
   if (includeArchived) {
-    params.set("includeArchived", "1");
+    params.set('includeArchived', '1')
   }
-  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const suffix = params.toString() ? `?${params.toString()}` : ''
   const data = await fetchJson<{ items: Conversation[] }>(
     `/conversations${suffix}`,
     undefined,
-    "Failed to load conversations",
-  );
-  return data.items;
+    'Failed to load conversations',
+  )
+  return data.items
 }
 
 export async function listMessages(conversationId: string): Promise<Message[]> {
   const data = await fetchJson<{ items: Message[] }>(
     `/conversations/${conversationId}/messages`,
     undefined,
-    "Failed to load messages",
-  );
-  return data.items;
+    'Failed to load messages',
+  )
+  return data.items
 }
 
 export async function createMessage(
@@ -280,34 +281,34 @@ export async function createMessage(
   content: string,
   files: File[] = [],
 ): Promise<void> {
-  let response: Response;
+  let response: Response
   try {
     if (files.length > 0) {
-      const formData = new FormData();
-      formData.set("content", content);
+      const formData = new FormData()
+      formData.set('content', content)
       for (const file of files) {
-        formData.append("files", file);
+        formData.append('files', file)
       }
       response = await apiFetch(`/conversations/${conversationId}/messages`, {
-        method: "POST",
+        method: 'POST',
         body: formData,
-      });
+      })
     } else {
       response = await apiFetch(`/conversations/${conversationId}/messages`, {
-        method: "POST",
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({ content }),
-      });
+      })
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to send message";
-    throw new Error(normalizeCreateMessageError(message, files.length > 0));
+    const message = error instanceof Error ? error.message : 'Failed to send message'
+    throw new Error(normalizeCreateMessageError(message, files.length > 0))
   }
   if (!response.ok) {
-    const message = await responseErrorMessage(response, "Failed to send message");
-    throw new Error(normalizeCreateMessageError(message, files.length > 0));
+    const message = await responseErrorMessage(response, 'Failed to send message')
+    throw new Error(normalizeCreateMessageError(message, files.length > 0))
   }
 }
 
@@ -319,17 +320,17 @@ export async function createFailedMessage(
   return fetchJson<Message>(
     `/conversations/${conversationId}/messages/failed`,
     {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         content,
         attachments,
       }),
     },
-    "Failed to persist failed message",
-  );
+    'Failed to persist failed message',
+  )
 }
 
 export async function requeueMessage(
@@ -339,20 +340,20 @@ export async function requeueMessage(
   return fetchJson<{ userMessage: Message; assistantMessageId: string }>(
     `/conversations/${conversationId}/messages/${messageId}/requeue`,
     {
-      method: "POST",
+      method: 'POST',
     },
-    "Failed to requeue message",
-  );
+    'Failed to requeue message',
+  )
 }
 
 export function conversationStreamUrl(conversationId: string): string {
-  const httpUrl = `${API_BASE}/conversations/${conversationId}/stream`;
+  const httpUrl = `${API_BASE}/conversations/${conversationId}/stream`
   try {
-    const url = new URL(httpUrl);
-    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    return url.toString();
+    const url = new URL(httpUrl)
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+    return url.toString()
   } catch {
-    return httpUrl.replace(/^http/i, "ws");
+    return httpUrl.replace(/^http/i, 'ws')
   }
 }
 
@@ -360,192 +361,207 @@ export async function renameConversation(conversationId: string, title: string):
   await fetchNoContent(
     `/conversations/${conversationId}`,
     {
-      method: "PATCH",
+      method: 'PATCH',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({ title }),
     },
-    "Failed to rename conversation",
-  );
+    'Failed to rename conversation',
+  )
 }
 
 export async function suggestConversationTitle(conversationId: string): Promise<string> {
   const data = await fetchJson<{ title?: string }>(
     `/conversations/${conversationId}/suggest-title`,
-    { method: "POST" },
-    "Failed to suggest conversation title",
-  );
+    { method: 'POST' },
+    'Failed to suggest conversation title',
+  )
   if (!data.title) {
-    throw new Error("Title suggestion was empty");
+    throw new Error('Title suggestion was empty')
   }
-  return data.title;
+  return data.title
 }
 
 export async function archiveConversation(conversationId: string): Promise<void> {
   await fetchNoContent(
     `/conversations/${conversationId}/archive`,
-    { method: "PATCH" },
-    "Failed to archive conversation",
-  );
+    { method: 'PATCH' },
+    'Failed to archive conversation',
+  )
 }
 
 export async function restoreConversation(conversationId: string): Promise<void> {
   await fetchNoContent(
     `/conversations/${conversationId}/restore`,
-    { method: "PATCH" },
-    "Failed to restore conversation",
-  );
+    { method: 'PATCH' },
+    'Failed to restore conversation',
+  )
+}
+
+export async function updateConversationFavorite(
+  conversationId: string,
+  favorite: boolean,
+): Promise<void> {
+  await fetchNoContent(
+    `/conversations/${conversationId}/favorite`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ favorite }),
+    },
+    'Failed to update favorite',
+  )
 }
 
 export async function deleteConversation(conversationId: string): Promise<void> {
   await fetchNoContent(
     `/conversations/${conversationId}`,
-    { method: "DELETE" },
-    "Failed to delete conversation",
-  );
+    { method: 'DELETE' },
+    'Failed to delete conversation',
+  )
 }
 
 export async function stopConversationGeneration(conversationId: string): Promise<void> {
   const response = await apiFetch(`/conversations/${conversationId}/stop`, {
-    method: "POST",
-  });
+    method: 'POST',
+  })
   if (!response.ok && response.status !== 409) {
-    throw new Error(await responseErrorMessage(response, "Failed to stop generation"));
+    throw new Error(await responseErrorMessage(response, 'Failed to stop generation'))
   }
 }
 
 export type Settings = {
-  llm_url: string;
-  llm_model: string;
-  llm_api_key: string;
-  system_prompt: string;
-};
+  llm_url: string
+  llm_model: string
+  llm_api_key: string
+  system_prompt: string
+}
 
 export async function getSettings(): Promise<Settings> {
-  return fetchJson<Settings>("/settings", undefined, "Failed to load settings");
+  return fetchJson<Settings>('/settings', undefined, 'Failed to load settings')
 }
 
 export async function updateSettings(settings: Partial<Settings>): Promise<Settings> {
   return fetchJson<Settings>(
-    "/settings",
+    '/settings',
     {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings),
     },
-    "Failed to save settings",
-  );
+    'Failed to save settings',
+  )
 }
 
 export function fileDownloadUrl(fileId: string): string {
-  return `${API_BASE}/files/${fileId}/download`;
+  return `${API_BASE}/files/${fileId}/download`
 }
 
 export async function listFeeds(): Promise<Feed[]> {
-  const data = await fetchJson<{ items: Feed[] }>("/feeds", undefined, "Failed to load feeds");
-  return data.items;
+  const data = await fetchJson<{ items: Feed[] }>('/feeds', undefined, 'Failed to load feeds')
+  return data.items
 }
 
 export async function checkFeed(url: string): Promise<FeedCheckResult> {
   return fetchJson<FeedCheckResult>(
-    "/feeds/check",
+    '/feeds/check',
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
     },
-    "Failed to check feed",
-  );
+    'Failed to check feed',
+  )
 }
 
 export async function createFeed(
   payload: CreateFeedPayload,
 ): Promise<{ feed: Feed; items: FeedItem[] }> {
   return fetchJson<{ feed: Feed; items: FeedItem[] }>(
-    "/feeds",
+    '/feeds',
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     },
-    "Failed to add feed",
-  );
+    'Failed to add feed',
+  )
 }
 
 export async function updateFeed(feedId: string, payload: UpdateFeedPayload): Promise<Feed> {
   return fetchJson<Feed>(
     `/feeds/${feedId}`,
     {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     },
-    "Failed to update feed",
-  );
+    'Failed to update feed',
+  )
 }
 
 export async function deleteFeed(feedId: string): Promise<void> {
-  await fetchNoContent(`/feeds/${feedId}`, { method: "DELETE" }, "Failed to delete feed");
+  await fetchNoContent(`/feeds/${feedId}`, { method: 'DELETE' }, 'Failed to delete feed')
 }
 
-export async function markFeedRead(
-  feedId: string,
-): Promise<{ feed: Feed; updatedCount: number }> {
+export async function markFeedRead(feedId: string): Promise<{ feed: Feed; updatedCount: number }> {
   return fetchJson<{ feed: Feed; updatedCount: number }>(
     `/feeds/${feedId}/mark-read`,
-    { method: "POST" },
-    "Failed to mark feed read",
-  );
+    { method: 'POST' },
+    'Failed to mark feed read',
+  )
 }
 
 export async function listFeedItems(
   view: FeedItemView,
   feedId?: string | null,
 ): Promise<FeedItem[]> {
-  const params = new URLSearchParams({ view });
+  const params = new URLSearchParams({ view })
   if (feedId) {
-    params.set("feedId", feedId);
+    params.set('feedId', feedId)
   }
   const data = await fetchJson<{ items: FeedItem[] }>(
     `/feeds/items?${params.toString()}`,
     undefined,
-    "Failed to load feed items",
-  );
-  return data.items;
+    'Failed to load feed items',
+  )
+  return data.items
 }
 
 export async function getFeedItem(itemId: string): Promise<FeedItem> {
-  return fetchJson<FeedItem>(`/feeds/items/${itemId}`, undefined, "Failed to load feed item");
+  return fetchJson<FeedItem>(`/feeds/items/${itemId}`, undefined, 'Failed to load feed item')
 }
 
 export async function updateFeedItem(
   itemId: string,
-  payload: Partial<Pick<FeedItem, "read" | "starred">>,
+  payload: Partial<Pick<FeedItem, 'read' | 'starred'>>,
 ): Promise<FeedItem> {
   return fetchJson<FeedItem>(
     `/feeds/items/${itemId}`,
     {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     },
-    "Failed to update feed item",
-  );
+    'Failed to update feed item',
+  )
 }
 
 export async function summarizeFeedItem(
   itemId: string,
-  mode: "summary" | "resummary" | "expanded",
+  mode: 'summary' | 'resummary' | 'expanded',
   targetCharacters?: number,
 ): Promise<FeedItem> {
   return fetchJson<FeedItem>(
     `/feeds/items/${itemId}/summarize`,
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mode, targetCharacters }),
     },
-    "Failed to summarize feed item",
-  );
+    'Failed to summarize feed item',
+  )
 }

@@ -40,6 +40,7 @@ func (s *Store) migrate(ctx context.Context) error {
 			user_id TEXT NOT NULL DEFAULT '',
 			title TEXT NOT NULL DEFAULT 'New chat',
 			archived_at DATETIME,
+			favorited_at DATETIME,
 			created_at DATETIME NOT NULL,
 			updated_at DATETIME NOT NULL
 		);
@@ -267,6 +268,9 @@ func (s *Store) migrate(ctx context.Context) error {
 		return err
 	}
 	if err := s.ensureColumn(ctx, "conversations", "notebook_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn(ctx, "conversations", "favorited_at", "DATETIME"); err != nil {
 		return err
 	}
 	if err := s.ensureColumn(ctx, "notebooks", "skill_prompt", "TEXT NOT NULL DEFAULT ''"); err != nil {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/nexfortisme/relay/internal/attachments"
@@ -137,6 +138,7 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 		authed.POST("/conversations/:id/suggest-title", handlers.SuggestConversationTitle)
 		authed.PATCH("/conversations/:id/archive", handlers.ArchiveConversation)
 		authed.PATCH("/conversations/:id/restore", handlers.RestoreConversation)
+		authed.PATCH("/conversations/:id/favorite", handlers.FavoriteConversation)
 		authed.DELETE("/conversations/:id", handlers.DeleteConversation)
 		authed.POST("/conversations/:id/stop", handlers.StopConversationGeneration)
 		authed.GET("/conversations/:id/messages", handlers.ListMessages)

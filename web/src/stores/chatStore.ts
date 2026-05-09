@@ -220,10 +220,7 @@ export const useChatStore = defineStore('chat', () => {
     await handleCreateConversation()
   }
 
-  async function selectConversation(
-    conversationId: string,
-    options?: { updateUrl?: boolean },
-  ) {
+  async function selectConversation(conversationId: string, options?: { updateUrl?: boolean }) {
     const convStore = useConversationStore()
     cacheCurrentConversationMessages()
     convStore.selectedConversationId = conversationId
@@ -293,7 +290,9 @@ export const useChatStore = defineStore('chat', () => {
   function isActiveStreamFor(conversationId: string): boolean {
     if (!streamSocket || streamConversationId !== conversationId) return false
     const readyState = (streamSocket as { readyState?: number }).readyState
-    return readyState === undefined || readyState === websocketConnecting || readyState === websocketOpen
+    return (
+      readyState === undefined || readyState === websocketConnecting || readyState === websocketOpen
+    )
   }
 
   function handleStreamPayload(conversationId: string, payload: StreamPayload) {
@@ -399,7 +398,12 @@ export const useChatStore = defineStore('chat', () => {
       case 'token':
         if (!payload.messageId) return
         clearAssistantWaitFor(conversationId)
-        upsertAssistantMessage(conversationId, payload.messageId, payload.token ?? '', payload.model)
+        upsertAssistantMessage(
+          conversationId,
+          payload.messageId,
+          payload.token ?? '',
+          payload.model,
+        )
         return
       case 'thinking':
         if (!payload.messageId) return
@@ -519,7 +523,8 @@ export const useChatStore = defineStore('chat', () => {
       existing.content = pickLongestOrPrefix(existing.content, payload.content)
     }
     if (typeof payload.thinking === 'string') {
-      existing.thinking = pickLongestOrPrefix(existing.thinking ?? '', payload.thinking) || undefined
+      existing.thinking =
+        pickLongestOrPrefix(existing.thinking ?? '', payload.thinking) || undefined
     }
     applyTerminalAssistantMetadata(existing, payload)
     syncVisibleMessagesFromConversation(conversationId)
@@ -729,6 +734,25 @@ export const useChatStore = defineStore('chat', () => {
     await moveSelectionAfterConversationLeavesList(conversationId)
   }
 
+  async function toggleFavoriteChat(conversationId: string) {
+    const convStore = useConversationStore()
+    await convStore.toggleConversationFavoriteById(conversationId)
+  }
+
+  function clearSelection() {
+    const convStore = useConversationStore()
+    cacheCurrentConversationMessages()
+    closeStream()
+    messages.value = []
+    selectedFiles.value = []
+    draft.value = ''
+    streamError.value = ''
+    convStore.selectedConversationId = null
+    convStore.updateConversationInUrl(null)
+    convStore.isEditingTitle = false
+    convStore.renameDraft = ''
+  }
+
   async function moveSelectionAfterConversationLeavesList(conversationId: string) {
     const convStore = useConversationStore()
     if (convStore.selectedConversationId !== conversationId) return
@@ -827,6 +851,8 @@ export const useChatStore = defineStore('chat', () => {
     archiveSelectedConversation,
     restoreChat,
     deleteChat,
+    toggleFavoriteChat,
+    clearSelection,
     cacheCurrentConversationMessages,
   }
 })

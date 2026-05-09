@@ -7,6 +7,7 @@ import {
   renameConversation,
   restoreConversation,
   suggestConversationTitle,
+  updateConversationFavorite,
   type Conversation,
 } from '../lib/api'
 
@@ -36,9 +37,9 @@ export const useConversationStore = defineStore('conversation', () => {
     conversations.value.find((c) => c.id === selectedConversationId.value),
   )
 
-  const activeConversations = computed(() =>
-    conversations.value.filter((c) => !c.archived),
-  )
+  const activeConversations = computed(() => conversations.value.filter((c) => !c.archived))
+
+  const favoriteConversations = computed(() => activeConversations.value.filter((c) => c.favorite))
 
   async function loadConversations() {
     conversations.value = await listConversations(true)
@@ -136,6 +137,16 @@ export const useConversationStore = defineStore('conversation', () => {
     await loadConversations()
   }
 
+  async function setConversationFavoriteById(conversationId: string, favorite: boolean) {
+    await updateConversationFavorite(conversationId, favorite)
+    await loadConversations()
+  }
+
+  async function toggleConversationFavoriteById(conversationId: string) {
+    const conversation = conversations.value.find((c) => c.id === conversationId)
+    await setConversationFavoriteById(conversationId, !(conversation?.favorite ?? false))
+  }
+
   return {
     conversations,
     selectedConversationId,
@@ -147,6 +158,7 @@ export const useConversationStore = defineStore('conversation', () => {
     isEditingTitle,
     selectedConversation,
     activeConversations,
+    favoriteConversations,
     loadConversations,
     toggleArchived,
     updateConversationInUrl,
@@ -160,5 +172,7 @@ export const useConversationStore = defineStore('conversation', () => {
     archiveConversationById,
     restoreConversationById,
     deleteConversationById,
+    setConversationFavoriteById,
+    toggleConversationFavoriteById,
   }
 })

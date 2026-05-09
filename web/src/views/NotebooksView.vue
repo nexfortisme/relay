@@ -5,13 +5,14 @@ import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import AppIcon from '../components/AppIcon.vue'
 import ChatComposer from '../components/ChatComposer.vue'
+import ChatHeader from '../components/ChatHeader.vue'
 import EmptyChatGreeting from '../components/EmptyChatGreeting.vue'
 import MessageList from '../components/MessageList.vue'
 import NotebookCreateDialog from '../components/NotebookCreateDialog.vue'
 import NotebookSettingsDialog from '../components/NotebookSettingsDialog.vue'
 import NotebookSidebar from '../components/NotebookSidebar.vue'
 import PageNavTabs from '../components/PageNavTabs.vue'
-import { useNotebookStore } from '../stores/notebookStore'
+import { DEFAULT_NOTEBOOK_CONVERSATION_TITLE, useNotebookStore } from '../stores/notebookStore'
 import { useUiStore } from '../stores/uiStore'
 import { useChatStore } from '../stores/chatStore'
 
@@ -25,12 +26,20 @@ const {
   selectedNotebook,
   selectedNotebookId,
   files,
-  conversations,
   selectedConversationId,
+  selectedConversation,
+  favoriteConversations,
+  regularConversations,
+  archivedConversations,
+  showArchived,
   isLoading,
   isUploading,
   uploadProgress,
   error,
+  renameDraft,
+  isRenaming,
+  isSuggestingTitle,
+  isEditingTitle,
 } = storeToRefs(notebookStore)
 
 const {
@@ -39,6 +48,7 @@ const {
   isSending,
   generatingConversationId,
   selectedFiles,
+  conversationTokenCount,
   isConversationTokenCapReached,
   shouldShowPendingAssistantPlaceholder,
   streamError,
@@ -58,6 +68,9 @@ const isGenerating = computed(
   () =>
     !!selectedConversationId.value &&
     generatingConversationId.value === selectedConversationId.value,
+)
+const visibleConversationCount = computed(
+  () => favoriteConversations.value.length + regularConversations.value.length,
 )
 const shouldShowEmptyGreeting = computed(
   () => messages.value.length === 0 && !shouldShowPendingAssistantPlaceholder.value,
@@ -103,6 +116,7 @@ async function handleSaveSettings(
 
 async function handleSelectNotebook(id: string) {
   await notebookStore.selectNotebook(id)
+  chatStore.clearSelection()
   // Stay in current mode — let user decide what to look at
 }
 
@@ -126,6 +140,46 @@ async function createChat() {
   const conv = await notebookStore.newChat(selectedNotebookId.value)
   await chatStore.selectConversation(conv.id)
   middleMode.value = 'chats'
+}
+
+async function archiveNotebookChat(conversationId: string, event?: MouseEvent) {
+  if (event?.shiftKey) {
+    await deleteNotebookChat(conversationId)
+    return
+  }
+  if (!notebookStore.confirmArchive(conversationId)) return
+  await notebookStore.archiveConversationById(conversationId)
+  await moveSelectionAfterConversationLeavesList(conversationId)
+}
+
+async function archiveSelectedNotebookChat(event?: MouseEvent) {
+  if (!selectedConversationId.value) return
+  await archiveNotebookChat(selectedConversationId.value, event)
+}
+
+async function restoreNotebookChat(conversationId: string) {
+  await notebookStore.restoreConversationById(conversationId)
+}
+
+async function deleteNotebookChat(conversationId: string) {
+  if (!notebookStore.confirmDelete(conversationId)) return
+  await notebookStore.deleteConversationById(conversationId)
+  await moveSelectionAfterConversationLeavesList(conversationId)
+}
+
+async function toggleFavoriteNotebookChat(conversationId: string) {
+  await notebookStore.toggleConversationFavoriteById(conversationId)
+}
+
+async function moveSelectionAfterConversationLeavesList(conversationId: string) {
+  if (selectedConversationId.value !== conversationId) return
+  const replacement = favoriteConversations.value[0] ?? regularConversations.value[0]
+  if (replacement) {
+    await selectConversation(replacement.id)
+    return
+  }
+  notebookStore.selectConversation(null)
+  chatStore.clearSelection()
 }
 
 function toggleMiddleMode() {
@@ -178,8 +232,7 @@ function getProcessingStages(file: NotebookFile): ProcessingStage[] {
   if (file.fileKind === 'image') {
     return [{ label: 'Storing metadata' }]
   }
-  const isPdf =
-    file.contentType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+  const isPdf = file.contentType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
   if (isPdf) {
     return [
       { label: 'Extracting text' },
@@ -248,7 +301,9 @@ function stopElapsedTimer() {
             </div>
 
             <div class="pane-body">
-              <div v-if="!selectedNotebook" class="pane-empty">Select a notebook to manage files.</div>
+              <div v-if="!selectedNotebook" class="pane-empty">
+                Select a notebook to manage files.
+              </div>
               <template v-else>
                 <div v-if="isUploading" class="upload-progress">
                   <div class="upload-bar" :style="{ width: uploadProgress + '%' }" />
@@ -273,11 +328,7 @@ function stopElapsedTimer() {
                     >
                       {{ statusLabel(file.status) }}
                     </button>
-                    <span
-                      v-else
-                      class="file-status"
-                      :class="`file-status--${file.status}`"
-                    >
+                    <span v-else class="file-status" :class="`file-status--${file.status}`">
                       {{ statusLabel(file.status) }}
                     </span>
                     <button
@@ -364,6 +415,20 @@ function stopElapsedTimer() {
               <div class="header-actions">
                 <button
                   v-if="selectedNotebook"
+                  class="secondary-btn"
+                  :class="{ 'secondary-btn--active': showArchived }"
+                  :title="showArchived ? 'Hide archived chats' : 'View archived chats'"
+                  @click="notebookStore.toggleArchived"
+                >
+                  <AppIcon name="archive" :size="14" />
+                  {{
+                    showArchived
+                      ? 'Hide archived'
+                      : `View archived (${archivedConversations.length})`
+                  }}
+                </button>
+                <button
+                  v-if="selectedNotebook"
                   class="icon-btn"
                   title="Notebook settings"
                   @click="showSettingsDialog = true"
@@ -381,19 +446,112 @@ function stopElapsedTimer() {
               <div v-if="!selectedNotebook" class="pane-empty">
                 Select a notebook to see its chats.
               </div>
-              <div v-else-if="conversations.length === 0" class="pane-empty">
-                No chats yet — start one above.
-              </div>
-              <button
-                v-for="conv in conversations"
-                :key="conv.id"
-                class="conv-row"
-                :class="{ 'conv-row--active': selectedConversationId === conv.id }"
-                @click="selectConversation(conv.id)"
+              <div
+                v-else-if="
+                  visibleConversationCount === 0 &&
+                  (!showArchived || archivedConversations.length === 0)
+                "
+                class="pane-empty"
               >
-                <span class="conv-title">{{ conv.title }}</span>
-                <span class="conv-date">{{ formatDate(conv.updatedAt) }}</span>
-              </button>
+                No chats yet. Start one above.
+              </div>
+              <template v-else>
+                <div v-if="favoriteConversations.length" class="conv-section-title">Favorites</div>
+                <div
+                  v-for="conv in favoriteConversations"
+                  :key="conv.id"
+                  class="conv-row"
+                  :class="{ 'conv-row--active': selectedConversationId === conv.id }"
+                >
+                  <button class="conv-main" @click="selectConversation(conv.id)">
+                    <span class="conv-title">{{ conv.title }}</span>
+                    <span class="conv-date">{{ formatDate(conv.updatedAt) }}</span>
+                  </button>
+                  <button
+                    class="conv-action conv-action--favorite conv-action--active"
+                    title="Remove from favorites"
+                    @click.stop="toggleFavoriteNotebookChat(conv.id)"
+                  >
+                    <AppIcon name="star" :size="14" filled />
+                  </button>
+                  <button
+                    class="conv-action"
+                    title="Archive chat (Shift+click to delete)"
+                    @click.stop="archiveNotebookChat(conv.id, $event)"
+                  >
+                    <AppIcon name="archive" :size="14" />
+                  </button>
+                </div>
+
+                <div
+                  v-if="favoriteConversations.length && regularConversations.length"
+                  class="conv-section-title"
+                >
+                  Chats
+                </div>
+                <div
+                  v-for="conv in regularConversations"
+                  :key="conv.id"
+                  class="conv-row"
+                  :class="{ 'conv-row--active': selectedConversationId === conv.id }"
+                >
+                  <button class="conv-main" @click="selectConversation(conv.id)">
+                    <span class="conv-title">{{ conv.title }}</span>
+                    <span class="conv-date">{{ formatDate(conv.updatedAt) }}</span>
+                  </button>
+                  <button
+                    class="conv-action conv-action--favorite"
+                    title="Add to favorites"
+                    @click.stop="toggleFavoriteNotebookChat(conv.id)"
+                  >
+                    <AppIcon name="star" :size="14" />
+                  </button>
+                  <button
+                    class="conv-action"
+                    title="Archive chat (Shift+click to delete)"
+                    @click.stop="archiveNotebookChat(conv.id, $event)"
+                  >
+                    <AppIcon name="archive" :size="14" />
+                  </button>
+                </div>
+
+                <div v-if="showArchived" class="conv-section-title">
+                  Archived ({{ archivedConversations.length }})
+                </div>
+                <div
+                  v-for="conv in showArchived ? archivedConversations : []"
+                  :key="conv.id"
+                  class="conv-row conv-row--archived"
+                  :class="{ 'conv-row--active': selectedConversationId === conv.id }"
+                >
+                  <button class="conv-main" @click="selectConversation(conv.id)">
+                    <span class="conv-title">{{ conv.title }}</span>
+                    <span class="conv-date">{{ formatDate(conv.updatedAt) }}</span>
+                  </button>
+                  <button
+                    class="conv-action conv-action--favorite"
+                    :class="{ 'conv-action--active': conv.favorite }"
+                    :title="conv.favorite ? 'Remove from favorites' : 'Add to favorites'"
+                    @click.stop="toggleFavoriteNotebookChat(conv.id)"
+                  >
+                    <AppIcon name="star" :size="14" :filled="conv.favorite" />
+                  </button>
+                  <button
+                    class="conv-action"
+                    title="Restore chat"
+                    @click.stop="restoreNotebookChat(conv.id)"
+                  >
+                    <AppIcon name="restore" :size="14" />
+                  </button>
+                  <button
+                    class="conv-action conv-action--danger"
+                    title="Delete chat"
+                    @click.stop="deleteNotebookChat(conv.id)"
+                  >
+                    <AppIcon name="trash" :size="14" />
+                  </button>
+                </div>
+              </template>
             </div>
           </template>
         </section>
@@ -401,12 +559,22 @@ function stopElapsedTimer() {
         <!-- ── Chat panel ── -->
         <article class="chat-panel">
           <template v-if="selectedConversationId">
-            <div class="chat-panel-header">
-              <span class="chat-panel-title">
-                {{ conversations.find((c) => c.id === selectedConversationId)?.title ?? 'Chat' }}
-              </span>
-              <span v-if="isGenerating" class="generating-dot" title="Generating" />
-            </div>
+            <ChatHeader
+              v-model:rename-draft="renameDraft"
+              :is-editing="isEditingTitle"
+              :is-generating="isGenerating"
+              :is-renaming="isRenaming"
+              :is-suggesting-title="isSuggestingTitle"
+              :selected-conversation-id="selectedConversationId"
+              :title="selectedConversation?.title ?? DEFAULT_NOTEBOOK_CONVERSATION_TITLE"
+              :token-count="conversationTokenCount"
+              :max-token-count="chatStore.maxConversationTokenCount"
+              @archive="archiveSelectedNotebookChat"
+              @begin-edit="notebookStore.beginConversationTitleEdit"
+              @cancel-edit="notebookStore.cancelConversationTitleEdit"
+              @save-title="notebookStore.saveConversationTitle"
+              @suggest-title="notebookStore.suggestConversationTitleWithLLM"
+            />
 
             <MessageList
               :messages="messages"
@@ -690,18 +858,42 @@ function stopElapsedTimer() {
 }
 
 /* Conversations */
+.conv-section-title {
+  padding: 0.7rem 0.9rem 0.2rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 760;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
 .conv-row {
   display: grid;
-  gap: 0.2rem;
-  padding: 0.65rem 0.9rem;
-  border: 0;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.42rem 0.55rem 0.42rem 0.9rem;
   border-bottom: 1px solid var(--border);
-  border-radius: 0;
   background: transparent;
   color: var(--text);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.conv-row--archived {
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+}
+
+.conv-main {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  padding: 0.2rem 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
   text-align: left;
   cursor: pointer;
-  width: 100%;
 }
 
 .conv-row:hover {
@@ -712,6 +904,36 @@ function stopElapsedTimer() {
   background: var(--selected);
   border-left: 2px solid var(--primary);
   padding-left: calc(0.9rem - 2px);
+}
+
+.conv-action {
+  width: 1.9rem;
+  height: 1.9rem;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.conv-action:hover {
+  color: var(--text);
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+.conv-action--active {
+  color: #f59e0b;
+  border-color: color-mix(in srgb, #f59e0b 50%, var(--border));
+  background: color-mix(in srgb, #f59e0b 12%, transparent);
+}
+
+.conv-action--danger:hover {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 52%, var(--border));
 }
 
 .conv-title {
@@ -753,25 +975,6 @@ function stopElapsedTimer() {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
-}
-
-.generating-dot {
-  width: 0.55rem;
-  height: 0.55rem;
-  border-radius: 999px;
-  background: var(--primary);
-  flex-shrink: 0;
-  animation: blink 1.2s ease-in-out infinite;
-}
-
-@keyframes blink {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.25;
-  }
 }
 
 .panel-empty {
@@ -817,6 +1020,30 @@ function stopElapsedTimer() {
 
 .icon-btn:hover {
   color: var(--text);
+  background: var(--surface-hover);
+}
+
+.secondary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 2rem;
+  padding: 0.34rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.secondary-btn:hover,
+.secondary-btn--active {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
   background: var(--surface-hover);
 }
 
