@@ -67,7 +67,7 @@ The backend runs two servers: the main HTTP API on `:8091` and an internal MCP s
 
 ### Frontend (`web/src/`)
 
-State is managed by a single Pinia store (`stores/appStore.ts`) with refs for conversations, messages, draft, selectedConversationId, theme, and settings. The store owns all API calls.
+State is split across Pinia stores: `stores/chatStore.ts` and `stores/conversationStore.ts` own realtime chat/streaming flows; authentication, notebooks, settings, and UI chrome live in sibling stores (`authStore`, `notebookStore`, `settingsStore`, `uiStore`). `stores/appStore.ts` remains an older consolidated store referenced by Vitest suites. Shared optimistic/stream merge helpers for WebSocket deltas live in `src/lib/conversationStreamMessages.ts`.
 
 Key data flow for a user message:
 1. Optimistic UI: local message with `local-{timestamp}` ID added immediately

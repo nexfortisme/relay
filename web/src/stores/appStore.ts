@@ -20,6 +20,16 @@ import {
   type Settings,
 } from '../lib/api'
 import {
+  applyTokenUsageFieldsFromPayload,
+  cloneDisplayMessages,
+  type ConversationStreamPayload,
+  isPersistedMatchForOptimisticUserMessage,
+  mergePersistedWithCachedStreamMessages,
+  pickLongestOverlappingStreamText,
+  type QueuedAssistantStreamDelta,
+  sumTotalTokensAcrossMessages,
+} from '../lib/conversationStreamMessages'
+import {
   parsePositiveInt,
   shouldAlertUploadFailure,
   validateSelectedFiles,
@@ -45,33 +55,11 @@ const uploadLimits: UploadLimits = {
   maxImageUploadBytes,
 }
 const websocketConnecting = 0
+/** WebSocket `OPEN` readyState — CONNECTING sockets are treated as reusable. */
 const websocketOpen = 1
 
 type ConversationSelectionOptions = {
   updateUrl?: boolean
-}
-
-type StreamPayload = {
-  type: string
-  messageId?: string
-  token?: string
-  content?: string
-  thinking?: string
-  model?: string
-  error?: string
-  elapsedMs?: number
-  inputTokens?: number
-  outputTokens?: number
-  reasoningTokens?: number
-  totalTokens?: number
-}
-
-type QueuedStreamDelta = {
-  conversationId: string
-  messageId: string
-  token: string
-  thinking: string
-  model?: string
 }
 
 function getStoredTheme(): 'dark' | 'light' {
@@ -96,108 +84,6 @@ function shouldCollapseSidebarInitially(): boolean {
     return window.matchMedia(compactSidebarQuery).matches
   } catch {
     return false
-  }
-}
-
-function cloneMessages(items: DisplayMessage[]): DisplayMessage[] {
-  return items.map((item) => ({ ...item }))
-}
-
-function pickLongestOrPrefix(cached: string, persisted: string): string {
-  if (!cached) {
-    return persisted
-  }
-  if (!persisted) {
-    return cached
-  }
-  if (cached.startsWith(persisted) || persisted.startsWith(cached)) {
-    return cached.length >= persisted.length ? cached : persisted
-  }
-  return persisted.length >= cached.length ? persisted : cached
-}
-
-function mergeMessagesPreservingStreamState(
-  persisted: DisplayMessage[],
-  cached: DisplayMessage[],
-): DisplayMessage[] {
-  if (cached.length === 0) {
-    return persisted
-  }
-
-  const cachedById = new Map(cached.map((message) => [message.id, message]))
-  const merged = persisted.map((message) => {
-    const local = cachedById.get(message.id)
-    if (!local || message.role !== 'assistant') {
-      return message
-    }
-    return {
-      ...message,
-      content: pickLongestOrPrefix(local.content, message.content),
-      thinking: pickLongestOrPrefix(local.thinking ?? '', message.thinking ?? '') || undefined,
-      model: message.model || local.model,
-      inputTokens: Math.max(local.inputTokens ?? 0, message.inputTokens ?? 0) || undefined,
-      outputTokens: Math.max(local.outputTokens ?? 0, message.outputTokens ?? 0) || undefined,
-      reasoningTokens:
-        Math.max(local.reasoningTokens ?? 0, message.reasoningTokens ?? 0) || undefined,
-      totalTokens: Math.max(local.totalTokens ?? 0, message.totalTokens ?? 0) || undefined,
-    }
-  })
-
-  for (const localMessage of cached) {
-    if (localMessage.id.startsWith('local-')) {
-      continue
-    }
-    if (!merged.some((item) => item.id === localMessage.id)) {
-      merged.push(localMessage)
-    }
-  }
-  return merged
-}
-
-function isPersistedVersionOfLocalUserMessage(
-  message: DisplayMessage,
-  localMessage: DisplayMessage,
-): boolean {
-  return (
-    message.role === 'user' &&
-    !message.id.startsWith('local-') &&
-    message.content === localMessage.content &&
-    sameAttachmentNames(message.attachments, localMessage.attachments)
-  )
-}
-
-function sameAttachmentNames(
-  left: { name: string }[] | undefined,
-  right: { name: string }[] | undefined,
-): boolean {
-  const leftItems = left ?? []
-  const rightItems = right ?? []
-  return (
-    leftItems.length === rightItems.length &&
-    leftItems.every((item, index) => item.name === rightItems[index]?.name)
-  )
-}
-
-function sumConversationTokens(items: DisplayMessage[]): number {
-  return items.reduce((sum, message) => sum + positiveNumber(message.totalTokens), 0)
-}
-
-function positiveNumber(value: number | undefined): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0
-}
-
-function applyTokenUsage(message: DisplayMessage, payload: StreamPayload) {
-  if (typeof payload.inputTokens === 'number') {
-    message.inputTokens = payload.inputTokens
-  }
-  if (typeof payload.outputTokens === 'number') {
-    message.outputTokens = payload.outputTokens
-  }
-  if (typeof payload.reasoningTokens === 'number') {
-    message.reasoningTokens = payload.reasoningTokens
-  }
-  if (typeof payload.totalTokens === 'number') {
-    message.totalTokens = payload.totalTokens
   }
 }
 
@@ -240,7 +126,7 @@ export const useAppStore = defineStore('app', () => {
   const isEditingTitle = ref(false)
   let streamSocket: WebSocket | null = null
   let streamConversationId: string | null = null
-  const pendingStreamDeltas = new Map<string, QueuedStreamDelta>()
+  const pendingStreamDeltas = new Map<string, QueuedAssistantStreamDelta>()
   let streamFlushHandle: number | null = null
 
   const selectedConversation = computed(() =>
@@ -258,7 +144,7 @@ export const useAppStore = defineStore('app', () => {
   const shouldShowPendingAssistantPlaceholder = computed(
     () => isSelectedConversationWaitingForAssistant.value,
   )
-  const conversationTokenCount = computed(() => sumConversationTokens(messages.value))
+  const conversationTokenCount = computed(() => sumTotalTokensAcrossMessages(messages.value))
   const isConversationTokenCapReached = computed(
     () =>
       maxConversationTokenCount > 0 && conversationTokenCount.value >= maxConversationTokenCount,
@@ -288,7 +174,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function closeStream() {
-    flushQueuedStreamDeltas()
+    flushQueuedAssistantStreamDeltas()
     const socket = streamSocket
     streamSocket = null
     streamConversationId = null
@@ -336,13 +222,13 @@ export const useAppStore = defineStore('app', () => {
     if (options?.updateUrl !== false) {
       updateConversationInUrl(conversationId)
     }
-    messages.value = cloneMessages(conversationMessageCache.value.get(conversationId) ?? [])
+    messages.value = cloneDisplayMessages(conversationMessageCache.value.get(conversationId) ?? [])
     const persistedMessages = await listMessages(conversationId)
-    messages.value = mergeMessagesPreservingStreamState(
+    messages.value = mergePersistedWithCachedStreamMessages(
       persistedMessages,
       conversationMessageCache.value.get(conversationId) ?? [],
     )
-    conversationMessageCache.value.set(conversationId, cloneMessages(messages.value))
+    conversationMessageCache.value.set(conversationId, cloneDisplayMessages(messages.value))
     renameDraft.value = selectedConversation.value?.title ?? ''
     isEditingTitle.value = false
     setupStream(conversationId)
@@ -378,14 +264,14 @@ export const useAppStore = defineStore('app', () => {
       if (streamSocket !== socket) {
         return
       }
-      handleStreamPayload(conversationId, JSON.parse(event.data) as StreamPayload)
+      handleStreamPayload(conversationId, JSON.parse(event.data) as ConversationStreamPayload)
     }
 
     socket.onerror = () => {
       if (streamSocket !== socket) {
         return
       }
-      flushQueuedStreamDeltas()
+      flushQueuedAssistantStreamDeltas()
       streamError.value = 'Stream disconnected'
       resetGenerationFor(conversationId)
       streamSocket = null
@@ -397,7 +283,7 @@ export const useAppStore = defineStore('app', () => {
       if (streamSocket !== socket) {
         return
       }
-      flushQueuedStreamDeltas()
+      flushQueuedAssistantStreamDeltas()
       streamSocket = null
       streamConversationId = null
       if (event.wasClean) {
@@ -416,7 +302,7 @@ export const useAppStore = defineStore('app', () => {
     return readyState === undefined || readyState === websocketConnecting || readyState === websocketOpen
   }
 
-  function handleStreamPayload(conversationId: string, payload: StreamPayload) {
+  function handleStreamPayload(conversationId: string, payload: ConversationStreamPayload) {
     switch (payload.type) {
       case 'token':
       case 'thinking':
@@ -425,7 +311,7 @@ export const useAppStore = defineStore('app', () => {
       case 'done':
       case 'stopped':
       case 'error':
-        flushQueuedStreamDeltas()
+        flushQueuedAssistantStreamDeltas()
         applyStreamPayload(conversationId, payload)
         return
       default:
@@ -433,7 +319,7 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  function queueStreamDelta(conversationId: string, payload: StreamPayload) {
+  function queueStreamDelta(conversationId: string, payload: ConversationStreamPayload) {
     if (!payload.messageId) {
       return
     }
@@ -473,17 +359,17 @@ export const useAppStore = defineStore('app', () => {
     if (typeof window.requestAnimationFrame === 'function') {
       streamFlushHandle = window.requestAnimationFrame(() => {
         streamFlushHandle = null
-        flushQueuedStreamDeltas()
+        flushQueuedAssistantStreamDeltas()
       })
       return
     }
     streamFlushHandle = window.setTimeout(() => {
       streamFlushHandle = null
-      flushQueuedStreamDeltas()
+      flushQueuedAssistantStreamDeltas()
     }, 16)
   }
 
-  function flushQueuedStreamDeltas() {
+  function flushQueuedAssistantStreamDeltas() {
     if (streamFlushHandle !== null) {
       if (typeof window.cancelAnimationFrame === 'function') {
         window.cancelAnimationFrame(streamFlushHandle as number)
@@ -526,7 +412,7 @@ export const useAppStore = defineStore('app', () => {
     waitingForAssistantConversationId.value = null
   }
 
-  function applyStreamPayload(conversationId: string, payload: StreamPayload) {
+  function applyStreamPayload(conversationId: string, payload: ConversationStreamPayload) {
     switch (payload.type) {
       case 'token':
         if (!payload.messageId) return
@@ -560,7 +446,7 @@ export const useAppStore = defineStore('app', () => {
     waitingForAssistantConversationId.value = null
   }
 
-  function finishAssistantStream(conversationId: string, payload: StreamPayload) {
+  function finishAssistantStream(conversationId: string, payload: ConversationStreamPayload) {
     if (payload.messageId) {
       finishAssistantMessage(conversationId, payload.messageId, payload)
     }
@@ -638,7 +524,7 @@ export const useAppStore = defineStore('app', () => {
   function finishAssistantMessage(
     conversationId: string,
     messageId: string,
-    payload: StreamPayload,
+    payload: ConversationStreamPayload,
   ) {
     const targetMessages = ensureConversationMessages(conversationId)
     const existing = targetMessages.find((message) => message.id === messageId)
@@ -660,24 +546,24 @@ export const useAppStore = defineStore('app', () => {
       return
     }
     if (typeof payload.content === 'string') {
-      existing.content = pickLongestOrPrefix(existing.content, payload.content)
+      existing.content = pickLongestOverlappingStreamText(existing.content, payload.content)
     }
     if (typeof payload.thinking === 'string') {
       existing.thinking =
-        pickLongestOrPrefix(existing.thinking ?? '', payload.thinking) || undefined
+        pickLongestOverlappingStreamText(existing.thinking ?? '', payload.thinking) || undefined
     }
     applyTerminalAssistantMetadata(existing, payload)
     syncVisibleMessagesFromConversation(conversationId)
   }
 
-  function applyTerminalAssistantMetadata(message: DisplayMessage, payload: StreamPayload) {
+  function applyTerminalAssistantMetadata(message: DisplayMessage, payload: ConversationStreamPayload) {
     if (typeof payload.elapsedMs === 'number') {
       message.elapsedMs = payload.elapsedMs
     }
     if (payload.model) {
       message.model = payload.model
     }
-    applyTokenUsage(message, payload)
+    applyTokenUsageFieldsFromPayload(message, payload)
   }
 
   function beginConversationTitleEdit() {
@@ -740,7 +626,7 @@ export const useAppStore = defineStore('app', () => {
       attachments: files.map((file) => ({ id: '', name: file.name })),
       createdAt: new Date().toISOString(),
     })
-    conversationMessageCache.value.set(conversationId, cloneMessages(messages.value))
+    conversationMessageCache.value.set(conversationId, cloneDisplayMessages(messages.value))
     return localMessageId
   }
 
@@ -776,7 +662,7 @@ export const useAppStore = defineStore('app', () => {
     }
 
     messages.value[localMessageIndex] = { ...localMessage, hasError: true }
-    conversationMessageCache.value.set(conversationId, cloneMessages(messages.value))
+    conversationMessageCache.value.set(conversationId, cloneDisplayMessages(messages.value))
 
     try {
       const persisted = await createFailedMessage(
@@ -785,7 +671,7 @@ export const useAppStore = defineStore('app', () => {
         files.map((file) => file.name),
       )
       messages.value[localMessageIndex] = persisted
-      conversationMessageCache.value.set(conversationId, cloneMessages(messages.value))
+      conversationMessageCache.value.set(conversationId, cloneDisplayMessages(messages.value))
       await loadConversations()
     } catch (persistError) {
       console.error('failed to persist failed user message', persistError)
@@ -802,13 +688,13 @@ export const useAppStore = defineStore('app', () => {
     try {
       const { userMessage } = await requeueMessage(conversationId, message.id)
       messages.value.push(userMessage)
-      conversationMessageCache.value.set(conversationId, cloneMessages(messages.value))
+      conversationMessageCache.value.set(conversationId, cloneDisplayMessages(messages.value))
       const persistedMessages = await listMessages(conversationId)
-      messages.value = mergeMessagesPreservingStreamState(
+      messages.value = mergePersistedWithCachedStreamMessages(
         persistedMessages,
         conversationMessageCache.value.get(conversationId) ?? [],
       )
-      conversationMessageCache.value.set(conversationId, cloneMessages(messages.value))
+      conversationMessageCache.value.set(conversationId, cloneDisplayMessages(messages.value))
       await loadConversations()
     } catch (error) {
       resetGenerationFor(conversationId)
@@ -947,7 +833,7 @@ export const useAppStore = defineStore('app', () => {
     if (!selectedConversationId.value) {
       return
     }
-    conversationMessageCache.value.set(selectedConversationId.value, cloneMessages(messages.value))
+    conversationMessageCache.value.set(selectedConversationId.value, cloneDisplayMessages(messages.value))
   }
 
   function markLatestUserMessageError(conversationId: string) {
@@ -966,7 +852,7 @@ export const useAppStore = defineStore('app', () => {
       return cached
     }
     const initial =
-      conversationId === selectedConversationId.value ? cloneMessages(messages.value) : []
+      conversationId === selectedConversationId.value ? cloneDisplayMessages(messages.value) : []
     conversationMessageCache.value.set(conversationId, initial)
     return initial
   }
@@ -975,7 +861,7 @@ export const useAppStore = defineStore('app', () => {
     if (conversationId !== selectedConversationId.value) {
       return
     }
-    messages.value = cloneMessages(conversationMessageCache.value.get(conversationId) ?? [])
+    messages.value = cloneDisplayMessages(conversationMessageCache.value.get(conversationId) ?? [])
   }
 
   async function reconcileSentUserMessage(conversationId: string, localMessageId: string) {
@@ -991,16 +877,16 @@ export const useAppStore = defineStore('app', () => {
     const persistedMessages = await listMessages(conversationId)
     const persistedUserMessage = [...persistedMessages]
       .reverse()
-      .find((message) => isPersistedVersionOfLocalUserMessage(message, localMessage))
+      .find((message) => isPersistedMatchForOptimisticUserMessage(message, localMessage))
     if (!persistedUserMessage) {
       return
     }
 
-    const nextMessages = cloneMessages(cachedMessages)
+    const nextMessages = cloneDisplayMessages(cachedMessages)
     nextMessages[localIndex] = persistedUserMessage
     conversationMessageCache.value.set(conversationId, nextMessages)
     if (conversationId === selectedConversationId.value) {
-      messages.value = cloneMessages(nextMessages)
+      messages.value = cloneDisplayMessages(nextMessages)
     }
   }
 

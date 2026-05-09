@@ -12,10 +12,14 @@ import (
 	"github.com/nexfortisme/relay/internal/tools"
 )
 
+// generateAssistant runs the default composite tool runtime for a single
+// assistant turn (HTTP MCP, feeds, etc.).
 func (s *Service) generateAssistant(userID string, conversationID string, assistantMessageID string, messages []llm.ChatMessage, settings RuntimeSettings) {
 	s.generateAssistantWithRuntime(userID, conversationID, assistantMessageID, messages, settings, s.tools)
 }
 
+// generateAssistantWithRuntime streams one assistant reply, wiring cancel/stop,
+// WebSocket fan-out, persistence, and optional notebook tool runtime injection.
 func (s *Service) generateAssistantWithRuntime(userID string, conversationID string, assistantMessageID string, messages []llm.ChatMessage, settings RuntimeSettings, toolRuntime tools.Runtime) {
 	ctx, cancel := context.WithCancel(auth.ContextWithUserID(context.Background(), userID))
 	defer cancel()
@@ -46,6 +50,7 @@ func (s *Service) generateAssistantWithRuntime(userID string, conversationID str
 	}
 }
 
+// assistantAccumulator holds in-memory streaming state before the final DB write.
 type assistantAccumulator struct {
 	content  strings.Builder
 	thinking strings.Builder

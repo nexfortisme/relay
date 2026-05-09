@@ -72,7 +72,7 @@ api (Gin + SQLite + WebSocket chat + feed scheduler + notebook indexer)
 ```
 
 - **`api/`**: HTTP API, WebSocket stream, SQLite, LLM client, attachments, MCP client/runtime, RSS/Atom feed fetch + summarize, notebook indexing/tools
-- **`web/`**: Pinia stores (auth, chat, conversations, notebooks, settings, UI), routed views
+- **`web/`**: Split Pinia stores (auth, chat, conversations, notebooks, settings, UI), routed views; chat streaming/cache merge helpers in `src/lib/conversationStreamMessages.ts`
 - **`resources/`**: prompt and resource markdown used by backend packages
 - **`scripts/dev.sh`**: installs deps and runs **`air`** for the API and **`bun dev`** for the frontend
 

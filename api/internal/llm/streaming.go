@@ -1,3 +1,6 @@
+// Package llm implements an OpenAI-compatible chat-completions client. This
+// file handles streaming responses: Server-Sent Events line parsing, optional
+// JSON fallback, and fan-out of token/thinking/tool-call fragments.
 package llm
 
 import (
@@ -61,9 +64,27 @@ func (p *HTTPProvider) generateStream(parentCtx, respCtx context.Context, messag
 	return response, false, err
 }
 
+// relaySSEEvent sends one token or reasoning fragment downstream. When stop is true,
+// err != nil means the parent context cancelled; err == nil means the HTTP response
+// body finished and the caller should return the accumulated partial response.
+func relaySSEEvent(parentCtx, respCtx context.Context, out chan<- TokenEvent, evt TokenEvent) (stop bool, err error) {
+	select {
+	case <-parentCtx.Done():
+		return true, parentCtx.Err()
+	case <-respCtx.Done():
+		select {
+		case out <- evt:
+		default:
+		}
+		return true, nil
+	case out <- evt:
+		return false, nil
+	}
+}
+
 func (p *HTTPProvider) consumeSSE(parentCtx, respCtx context.Context, body io.Reader, out chan<- TokenEvent) (llmResponse, bool, error) {
 	scanner := bufio.NewScanner(body)
-	sawStream := false
+	sawSSEFrames := false
 	var content strings.Builder
 	var thinkingBuilder strings.Builder
 	contentRepetition := repetitionDetector{}
@@ -76,13 +97,13 @@ func (p *HTTPProvider) consumeSSE(parentCtx, respCtx context.Context, body io.Re
 			continue
 		}
 		if strings.HasPrefix(line, "event:") {
-			sawStream = true
+			sawSSEFrames = true
 			continue
 		}
 
 		raw := line
 		if strings.HasPrefix(raw, "data:") {
-			sawStream = true
+			sawSSEFrames = true
 			raw = strings.TrimSpace(strings.TrimPrefix(raw, "data:"))
 		}
 
@@ -90,7 +111,7 @@ func (p *HTTPProvider) consumeSSE(parentCtx, respCtx context.Context, body io.Re
 			return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String(), ToolCalls: orderedToolCalls(toolCalls), Usage: totalUsage}, true, nil
 		}
 
-		token, thinking, calls, usage, ok := extractChunk(raw)
+		token, thinking, toolCallDeltas, usage, ok := extractChunk(raw)
 		if usage != nil {
 			totalUsage.Add(*usage)
 		}
@@ -99,16 +120,12 @@ func (p *HTTPProvider) consumeSSE(parentCtx, respCtx context.Context, body io.Re
 				return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String(), Usage: totalUsage, RepetitionDetected: true}, true, nil
 			}
 			content.WriteString(token)
-			select {
-			case <-parentCtx.Done():
-				return llmResponse{}, true, parentCtx.Err()
-			case <-respCtx.Done():
-				select {
-				case out <- TokenEvent{Token: token}:
-				default:
+			stopStreaming, relayErr := relaySSEEvent(parentCtx, respCtx, out, TokenEvent{Token: token})
+			if stopStreaming {
+				if relayErr != nil {
+					return llmResponse{}, true, relayErr
 				}
 				return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String(), Usage: totalUsage}, true, nil
-			case out <- TokenEvent{Token: token}:
 			}
 		}
 		if ok && thinking != "" {
@@ -116,20 +133,16 @@ func (p *HTTPProvider) consumeSSE(parentCtx, respCtx context.Context, body io.Re
 				return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String(), Usage: totalUsage, RepetitionDetected: true}, true, nil
 			}
 			thinkingBuilder.WriteString(thinking)
-			select {
-			case <-parentCtx.Done():
-				return llmResponse{}, true, parentCtx.Err()
-			case <-respCtx.Done():
-				select {
-				case out <- TokenEvent{Thinking: thinking}:
-				default:
+			stopThinking, relayErr := relaySSEEvent(parentCtx, respCtx, out, TokenEvent{Thinking: thinking})
+			if stopThinking {
+				if relayErr != nil {
+					return llmResponse{}, true, relayErr
 				}
 				return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String(), Usage: totalUsage}, true, nil
-			case out <- TokenEvent{Thinking: thinking}:
 			}
 		}
-		for _, call := range calls {
-			accumulateToolCall(toolCalls, call)
+		for _, delta := range toolCallDeltas {
+			accumulateToolCall(toolCalls, delta)
 		}
 		select {
 		case <-parentCtx.Done():
@@ -142,14 +155,14 @@ func (p *HTTPProvider) consumeSSE(parentCtx, respCtx context.Context, body io.Re
 
 	if err := scanner.Err(); err != nil {
 		if parentCtx.Err() != nil {
-			return llmResponse{}, sawStream, parentCtx.Err()
+			return llmResponse{}, sawSSEFrames, parentCtx.Err()
 		}
 		if respCtx.Err() != nil {
-			return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String(), Usage: totalUsage}, sawStream, nil
+			return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String(), Usage: totalUsage}, sawSSEFrames, nil
 		}
-		return llmResponse{}, sawStream, fmt.Errorf("read llm stream: %w", err)
+		return llmResponse{}, sawSSEFrames, fmt.Errorf("read llm stream: %w", err)
 	}
-	return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String(), ToolCalls: orderedToolCalls(toolCalls), Usage: totalUsage}, sawStream, nil
+	return llmResponse{Content: content.String(), Thinking: thinkingBuilder.String(), ToolCalls: orderedToolCalls(toolCalls), Usage: totalUsage}, sawSSEFrames, nil
 }
 
 func (p *HTTPProvider) consumeSingleJSON(ctx context.Context, messages []ChatMessage, requestTools []openAITool) (llmResponse, error) {
@@ -221,6 +234,9 @@ func (p *HTTPProvider) applyAuth(req *http.Request) {
 	req.Header.Set("Authorization", "Bearer "+p.apiKey)
 }
 
+// extractChunk parses one SSE `data:` JSON line from OpenAI-compatible or Ollama
+// providers. The boolean marks whether the line was recognized (including
+// usage-only chunks with no text).
 func extractChunk(raw string) (string, string, []toolCallDelta, *TokenUsage, bool) {
 	var openAIChunk struct {
 		Choices []struct {
@@ -251,18 +267,18 @@ func extractChunk(raw string) (string, string, []toolCallDelta, *TokenUsage, boo
 		if openAIChunk.Choices[0].Delta.Content != "" {
 			return openAIChunk.Choices[0].Delta.Content, "", nil, usage, true
 		}
-		calls := make([]toolCallDelta, 0, len(openAIChunk.Choices[0].Delta.ToolCalls))
-		for _, call := range openAIChunk.Choices[0].Delta.ToolCalls {
-			calls = append(calls, toolCallDelta{
-				Index:     call.Index,
-				ID:        call.ID,
-				Type:      call.Type,
-				Name:      call.Function.Name,
-				Arguments: call.Function.Arguments,
+		toolCallDeltas := make([]toolCallDelta, 0, len(openAIChunk.Choices[0].Delta.ToolCalls))
+		for _, rawCall := range openAIChunk.Choices[0].Delta.ToolCalls {
+			toolCallDeltas = append(toolCallDeltas, toolCallDelta{
+				Index:     rawCall.Index,
+				ID:        rawCall.ID,
+				Type:      rawCall.Type,
+				Name:      rawCall.Function.Name,
+				Arguments: rawCall.Function.Arguments,
 			})
 		}
-		if len(calls) > 0 {
-			return "", "", calls, usage, true
+		if len(toolCallDeltas) > 0 {
+			return "", "", toolCallDeltas, usage, true
 		}
 		reasoning := firstNonEmpty(
 			openAIChunk.Choices[0].Delta.ReasoningContent,

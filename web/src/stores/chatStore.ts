@@ -10,6 +10,16 @@ import {
   stopConversationGeneration,
 } from '../lib/api'
 import {
+  applyTokenUsageFieldsFromPayload,
+  cloneDisplayMessages,
+  isPersistedMatchForOptimisticUserMessage,
+  mergePersistedWithCachedStreamMessages,
+  pickLongestOverlappingStreamText,
+  sumTotalTokensAcrossMessages,
+  type ConversationStreamPayload,
+  type QueuedAssistantStreamDelta,
+} from '../lib/conversationStreamMessages'
+import {
   parsePositiveInt,
   shouldAlertUploadFailure,
   validateSelectedFiles,
@@ -32,114 +42,8 @@ const uploadLimits: UploadLimits = {
 }
 
 const websocketConnecting = 0
+/** WebSocket `OPEN` readyState — we treat CONNECTING sockets as reusable. */
 const websocketOpen = 1
-
-type StreamPayload = {
-  type: string
-  messageId?: string
-  token?: string
-  content?: string
-  thinking?: string
-  model?: string
-  error?: string
-  elapsedMs?: number
-  inputTokens?: number
-  outputTokens?: number
-  reasoningTokens?: number
-  totalTokens?: number
-}
-
-type QueuedStreamDelta = {
-  conversationId: string
-  messageId: string
-  token: string
-  thinking: string
-  model?: string
-}
-
-function cloneMessages(items: DisplayMessage[]): DisplayMessage[] {
-  return items.map((item) => ({ ...item }))
-}
-
-function pickLongestOrPrefix(cached: string, persisted: string): string {
-  if (!cached) return persisted
-  if (!persisted) return cached
-  if (cached.startsWith(persisted) || persisted.startsWith(cached)) {
-    return cached.length >= persisted.length ? cached : persisted
-  }
-  return persisted.length >= cached.length ? persisted : cached
-}
-
-function mergeMessagesPreservingStreamState(
-  persisted: DisplayMessage[],
-  cached: DisplayMessage[],
-): DisplayMessage[] {
-  if (cached.length === 0) return persisted
-
-  const cachedById = new Map(cached.map((m) => [m.id, m]))
-  const merged = persisted.map((message) => {
-    const local = cachedById.get(message.id)
-    if (!local || message.role !== 'assistant') return message
-    return {
-      ...message,
-      content: pickLongestOrPrefix(local.content, message.content),
-      thinking: pickLongestOrPrefix(local.thinking ?? '', message.thinking ?? '') || undefined,
-      model: message.model || local.model,
-      inputTokens: Math.max(local.inputTokens ?? 0, message.inputTokens ?? 0) || undefined,
-      outputTokens: Math.max(local.outputTokens ?? 0, message.outputTokens ?? 0) || undefined,
-      reasoningTokens:
-        Math.max(local.reasoningTokens ?? 0, message.reasoningTokens ?? 0) || undefined,
-      totalTokens: Math.max(local.totalTokens ?? 0, message.totalTokens ?? 0) || undefined,
-    }
-  })
-
-  for (const localMessage of cached) {
-    if (localMessage.id.startsWith('local-')) continue
-    if (!merged.some((item) => item.id === localMessage.id)) {
-      merged.push(localMessage)
-    }
-  }
-  return merged
-}
-
-function isPersistedVersionOfLocalUserMessage(
-  message: DisplayMessage,
-  localMessage: DisplayMessage,
-): boolean {
-  return (
-    message.role === 'user' &&
-    !message.id.startsWith('local-') &&
-    message.content === localMessage.content &&
-    sameAttachmentNames(message.attachments, localMessage.attachments)
-  )
-}
-
-function sameAttachmentNames(
-  left: { name: string }[] | undefined,
-  right: { name: string }[] | undefined,
-): boolean {
-  const leftItems = left ?? []
-  const rightItems = right ?? []
-  return (
-    leftItems.length === rightItems.length &&
-    leftItems.every((item, index) => item.name === rightItems[index]?.name)
-  )
-}
-
-function sumConversationTokens(items: DisplayMessage[]): number {
-  return items.reduce((sum, message) => sum + positiveNumber(message.totalTokens), 0)
-}
-
-function positiveNumber(value: number | undefined): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0
-}
-
-function applyTokenUsage(message: DisplayMessage, payload: StreamPayload) {
-  if (typeof payload.inputTokens === 'number') message.inputTokens = payload.inputTokens
-  if (typeof payload.outputTokens === 'number') message.outputTokens = payload.outputTokens
-  if (typeof payload.reasoningTokens === 'number') message.reasoningTokens = payload.reasoningTokens
-  if (typeof payload.totalTokens === 'number') message.totalTokens = payload.totalTokens
-}
 
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<DisplayMessage[]>([])
@@ -154,7 +58,7 @@ export const useChatStore = defineStore('chat', () => {
 
   let streamSocket: WebSocket | null = null
   let streamConversationId: string | null = null
-  const pendingStreamDeltas = new Map<string, QueuedStreamDelta>()
+  const pendingStreamDeltas = new Map<string, QueuedAssistantStreamDelta>()
   let streamFlushHandle: number | null = null
 
   const isSelectedConversationWaitingForAssistant = computed(() => {
@@ -170,7 +74,7 @@ export const useChatStore = defineStore('chat', () => {
     () => isSelectedConversationWaitingForAssistant.value,
   )
 
-  const conversationTokenCount = computed(() => sumConversationTokens(messages.value))
+  const conversationTokenCount = computed(() => sumTotalTokensAcrossMessages(messages.value))
 
   const isConversationTokenCapReached = computed(
     () =>
@@ -227,13 +131,13 @@ export const useChatStore = defineStore('chat', () => {
     if (options?.updateUrl !== false) {
       convStore.updateConversationInUrl(conversationId)
     }
-    messages.value = cloneMessages(conversationMessageCache.value.get(conversationId) ?? [])
+    messages.value = cloneDisplayMessages(conversationMessageCache.value.get(conversationId) ?? [])
     const persistedMessages = await listMessages(conversationId)
-    messages.value = mergeMessagesPreservingStreamState(
+    messages.value = mergePersistedWithCachedStreamMessages(
       persistedMessages,
       conversationMessageCache.value.get(conversationId) ?? [],
     )
-    conversationMessageCache.value.set(conversationId, cloneMessages(messages.value))
+    conversationMessageCache.value.set(conversationId, cloneDisplayMessages(messages.value))
     convStore.renameDraft = convStore.selectedConversation?.title ?? ''
     convStore.isEditingTitle = false
     setupStream(conversationId)
@@ -263,7 +167,7 @@ export const useChatStore = defineStore('chat', () => {
 
     socket.onmessage = (event) => {
       if (streamSocket !== socket) return
-      handleStreamPayload(conversationId, JSON.parse(event.data) as StreamPayload)
+      handleStreamPayload(conversationId, JSON.parse(event.data) as ConversationStreamPayload)
     }
 
     socket.onerror = () => {
@@ -295,7 +199,7 @@ export const useChatStore = defineStore('chat', () => {
     )
   }
 
-  function handleStreamPayload(conversationId: string, payload: StreamPayload) {
+  function handleStreamPayload(conversationId: string, payload: ConversationStreamPayload) {
     switch (payload.type) {
       case 'token':
       case 'thinking':
@@ -312,7 +216,7 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function queueStreamDelta(conversationId: string, payload: StreamPayload) {
+  function queueStreamDelta(conversationId: string, payload: ConversationStreamPayload) {
     if (!payload.messageId) return
     const token = payload.type === 'token' ? (payload.token ?? '') : ''
     const thinking = payload.type === 'thinking' ? (payload.thinking ?? '') : ''
@@ -393,7 +297,7 @@ export const useChatStore = defineStore('chat', () => {
     waitingForAssistantConversationId.value = null
   }
 
-  function applyStreamPayload(conversationId: string, payload: StreamPayload) {
+  function applyStreamPayload(conversationId: string, payload: ConversationStreamPayload) {
     switch (payload.type) {
       case 'token':
         if (!payload.messageId) return
@@ -430,7 +334,7 @@ export const useChatStore = defineStore('chat', () => {
     waitingForAssistantConversationId.value = null
   }
 
-  function finishAssistantStream(conversationId: string, payload: StreamPayload) {
+  function finishAssistantStream(conversationId: string, payload: ConversationStreamPayload) {
     if (payload.messageId) finishAssistantMessage(conversationId, payload.messageId, payload)
     resetGenerationFor(conversationId)
   }
@@ -452,7 +356,7 @@ export const useChatStore = defineStore('chat', () => {
     model?: string,
   ) {
     const targetMessages = ensureConversationMessages(conversationId)
-    const existing = targetMessages.find((m) => m.id === messageId)
+    const existing = targetMessages.find((message) => message.id === messageId)
     if (existing) {
       existing.content += token
       if (model) existing.model = model
@@ -478,7 +382,7 @@ export const useChatStore = defineStore('chat', () => {
   ) {
     if (!thinking) return
     const targetMessages = ensureConversationMessages(conversationId)
-    const existing = targetMessages.find((m) => m.id === messageId)
+    const existing = targetMessages.find((message) => message.id === messageId)
     if (existing) {
       existing.thinking = (existing.thinking ?? '') + thinking
       if (model) existing.model = model
@@ -500,10 +404,10 @@ export const useChatStore = defineStore('chat', () => {
   function finishAssistantMessage(
     conversationId: string,
     messageId: string,
-    payload: StreamPayload,
+    payload: ConversationStreamPayload,
   ) {
     const targetMessages = ensureConversationMessages(conversationId)
-    const existing = targetMessages.find((m) => m.id === messageId)
+    const existing = targetMessages.find((message) => message.id === messageId)
     if (!existing) {
       targetMessages.push({
         id: messageId,
@@ -520,20 +424,20 @@ export const useChatStore = defineStore('chat', () => {
       return
     }
     if (typeof payload.content === 'string') {
-      existing.content = pickLongestOrPrefix(existing.content, payload.content)
+      existing.content = pickLongestOverlappingStreamText(existing.content, payload.content)
     }
     if (typeof payload.thinking === 'string') {
       existing.thinking =
-        pickLongestOrPrefix(existing.thinking ?? '', payload.thinking) || undefined
+        pickLongestOverlappingStreamText(existing.thinking ?? '', payload.thinking) || undefined
     }
     applyTerminalAssistantMetadata(existing, payload)
     syncVisibleMessagesFromConversation(conversationId)
   }
 
-  function applyTerminalAssistantMetadata(message: DisplayMessage, payload: StreamPayload) {
+  function applyTerminalAssistantMetadata(message: DisplayMessage, payload: ConversationStreamPayload) {
     if (typeof payload.elapsedMs === 'number') message.elapsedMs = payload.elapsedMs
     if (payload.model) message.model = payload.model
-    applyTokenUsage(message, payload)
+    applyTokenUsageFieldsFromPayload(message, payload)
   }
 
   async function sendMessage() {
@@ -585,7 +489,7 @@ export const useChatStore = defineStore('chat', () => {
       attachments: files.map((file) => ({ id: '', name: file.name })),
       createdAt: new Date().toISOString(),
     })
-    conversationMessageCache.value.set(conversationId, cloneMessages(messages.value))
+    conversationMessageCache.value.set(conversationId, cloneDisplayMessages(messages.value))
     return localMessageId
   }
 
@@ -617,7 +521,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!localMessage) return
 
     messages.value[localMessageIndex] = { ...localMessage, hasError: true }
-    conversationMessageCache.value.set(conversationId, cloneMessages(messages.value))
+    conversationMessageCache.value.set(conversationId, cloneDisplayMessages(messages.value))
 
     try {
       const persisted = await createFailedMessage(
@@ -626,7 +530,7 @@ export const useChatStore = defineStore('chat', () => {
         files.map((file) => file.name),
       )
       messages.value[localMessageIndex] = persisted
-      conversationMessageCache.value.set(conversationId, cloneMessages(messages.value))
+      conversationMessageCache.value.set(conversationId, cloneDisplayMessages(messages.value))
       const convStore = useConversationStore()
       await convStore.loadConversations()
     } catch (persistError) {
@@ -643,13 +547,13 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const { userMessage } = await requeueMessage(conversationId, message.id)
       messages.value.push(userMessage)
-      conversationMessageCache.value.set(conversationId, cloneMessages(messages.value))
+      conversationMessageCache.value.set(conversationId, cloneDisplayMessages(messages.value))
       const persistedMessages = await listMessages(conversationId)
-      messages.value = mergeMessagesPreservingStreamState(
+      messages.value = mergePersistedWithCachedStreamMessages(
         persistedMessages,
         conversationMessageCache.value.get(conversationId) ?? [],
       )
-      conversationMessageCache.value.set(conversationId, cloneMessages(messages.value))
+      conversationMessageCache.value.set(conversationId, cloneDisplayMessages(messages.value))
       await convStore.loadConversations()
     } catch (error) {
       resetGenerationFor(conversationId)
@@ -771,14 +675,16 @@ export const useChatStore = defineStore('chat', () => {
     if (!convStore.selectedConversationId) return
     conversationMessageCache.value.set(
       convStore.selectedConversationId,
-      cloneMessages(messages.value),
+      cloneDisplayMessages(messages.value),
     )
   }
 
   function markLatestUserMessageError(conversationId: string) {
     const latestUserMessage = [...messages.value]
       .reverse()
-      .find((m) => m.conversationId === conversationId && m.role === 'user')
+      .find(
+        (message) => message.conversationId === conversationId && message.role === 'user',
+      )
     if (!latestUserMessage) return
     latestUserMessage.hasError = true
   }
@@ -788,7 +694,7 @@ export const useChatStore = defineStore('chat', () => {
     const cached = conversationMessageCache.value.get(conversationId)
     if (cached) return cached
     const initial =
-      conversationId === convStore.selectedConversationId ? cloneMessages(messages.value) : []
+      conversationId === convStore.selectedConversationId ? cloneDisplayMessages(messages.value) : []
     conversationMessageCache.value.set(conversationId, initial)
     return initial
   }
@@ -796,27 +702,27 @@ export const useChatStore = defineStore('chat', () => {
   function syncVisibleMessagesFromConversation(conversationId: string) {
     const convStore = useConversationStore()
     if (conversationId !== convStore.selectedConversationId) return
-    messages.value = cloneMessages(conversationMessageCache.value.get(conversationId) ?? [])
+    messages.value = cloneDisplayMessages(conversationMessageCache.value.get(conversationId) ?? [])
   }
 
   async function reconcileSentUserMessage(conversationId: string, localMessageId: string) {
     const cachedMessages = conversationMessageCache.value.get(conversationId) ?? []
-    const localIndex = cachedMessages.findIndex((m) => m.id === localMessageId)
+    const localIndex = cachedMessages.findIndex((message) => message.id === localMessageId)
     if (localIndex < 0) return
     const localMessage = cachedMessages[localIndex]
     if (!localMessage) return
     const persistedMessages = await listMessages(conversationId)
     const persistedUserMessage = [...persistedMessages]
       .reverse()
-      .find((m) => isPersistedVersionOfLocalUserMessage(m, localMessage))
+      .find((candidate) => isPersistedMatchForOptimisticUserMessage(candidate, localMessage))
     if (!persistedUserMessage) return
 
-    const nextMessages = cloneMessages(cachedMessages)
+    const nextMessages = cloneDisplayMessages(cachedMessages)
     nextMessages[localIndex] = persistedUserMessage
     conversationMessageCache.value.set(conversationId, nextMessages)
     const convStore = useConversationStore()
     if (conversationId === convStore.selectedConversationId) {
-      messages.value = cloneMessages(nextMessages)
+      messages.value = cloneDisplayMessages(nextMessages)
     }
   }
 
