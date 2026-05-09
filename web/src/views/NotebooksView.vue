@@ -58,6 +58,7 @@ const {
 
 const showCreateDialog = ref(false)
 const showSettingsDialog = ref(false)
+const shiftHeld = ref(false)
 // 'chats' | 'files' — what the middle pane shows
 const middleMode = ref<'chats' | 'files'>('chats')
 const openErrorFileId = ref<string | null>(null)
@@ -78,14 +79,25 @@ const shouldShowEmptyGreeting = computed(
   () => messages.value.length === 0 && !isSelectedConversationWaitingForAssistant.value,
 )
 
+function onKeyDown(e: KeyboardEvent) {
+  if (e.key === 'Shift') shiftHeld.value = true
+}
+function onKeyUp(e: KeyboardEvent) {
+  if (e.key === 'Shift') shiftHeld.value = false
+}
+
 onMounted(async () => {
   await notebookStore.loadNotebooks()
   startElapsedTimer()
+  window.addEventListener('keydown', onKeyDown)
+  window.addEventListener('keyup', onKeyUp)
 })
 
 onUnmounted(() => {
   notebookStore.stopPolling()
   stopElapsedTimer()
+  window.removeEventListener('keydown', onKeyDown)
+  window.removeEventListener('keyup', onKeyUp)
 })
 
 async function handleCreate(payload: {
@@ -492,10 +504,10 @@ function stopElapsedTimer() {
                   </button>
                   <button
                     class="conv-action"
-                    title="Archive chat (Shift+click to delete)"
+                    :title="shiftHeld ? 'Delete chat' : 'Archive chat (Shift+click to delete)'"
                     @click.stop="archiveNotebookChat(conv.id, $event)"
                   >
-                    <AppIcon name="archive" :size="14" />
+                    <AppIcon :name="shiftHeld ? 'trash' : 'archive'" :size="14" />
                   </button>
                 </div>
 
@@ -524,10 +536,10 @@ function stopElapsedTimer() {
                   </button>
                   <button
                     class="conv-action"
-                    title="Archive chat (Shift+click to delete)"
+                    :title="shiftHeld ? 'Delete chat' : 'Archive chat (Shift+click to delete)'"
                     @click.stop="archiveNotebookChat(conv.id, $event)"
                   >
-                    <AppIcon name="archive" :size="14" />
+                    <AppIcon :name="shiftHeld ? 'trash' : 'archive'" :size="14" />
                   </button>
                 </div>
 
