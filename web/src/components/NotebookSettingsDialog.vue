@@ -7,13 +7,12 @@ const props = defineProps<{ notebook: Notebook }>()
 
 const emit = defineEmits<{
   close: []
-  saved: [payload: Partial<{ name: string; description: string; systemPrompt: string; skillPrompt: string }>]
+  saved: [payload: Partial<{ name: string; description: string; systemPrompt: string }>]
 }>()
 
 const name = ref(props.notebook.name)
 const description = ref(props.notebook.description)
 const systemPrompt = ref(props.notebook.systemPrompt)
-const skillPrompt = ref(props.notebook.skillPrompt)
 const nameError = ref('')
 
 function submit() {
@@ -26,7 +25,6 @@ function submit() {
     name: name.value.trim(),
     description: description.value.trim(),
     systemPrompt: systemPrompt.value.trim(),
-    skillPrompt: skillPrompt.value.trim(),
   })
 }
 </script>
@@ -67,15 +65,6 @@ function submit() {
           v-model="systemPrompt"
           class="field-textarea"
           placeholder="Instructions for the LLM when chatting within this notebook. Replaces your global system prompt."
-          rows="4"
-        />
-
-        <label class="field-label" for="nb-skill-prompt">Skill Prompt</label>
-        <textarea
-          id="nb-skill-prompt"
-          v-model="skillPrompt"
-          class="field-textarea"
-          placeholder="Additional instructions injected alongside retrieved document context. Use this to shape how the LLM responds to document queries — e.g. &quot;Always cite the exact page number&quot; or &quot;Focus on technical accuracy.&quot;"
           rows="4"
         />
       </div>
