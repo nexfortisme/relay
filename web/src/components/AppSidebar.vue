@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink, useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
@@ -7,13 +8,24 @@ import { brandLogoPalette } from '../lib/logoPalette'
 import UserMenu from './UserMenu.vue'
 import { useConversationStore } from '../stores/conversationStore'
 import { useChatStore } from '../stores/chatStore'
+import { useNotebookStore } from '../stores/notebookStore'
 import { useUiStore } from '../stores/uiStore'
 
 const conversationStore = useConversationStore()
 const chatStore = useChatStore()
+const notebookStore = useNotebookStore()
 const uiStore = useUiStore()
 const router = useRouter()
 const { activeConversations } = storeToRefs(conversationStore)
+const { notebooks } = storeToRefs(notebookStore)
+
+const notebookNames = computed(() => {
+  const map: Record<string, string> = {}
+  for (const nb of notebooks.value) {
+    map[nb.id] = nb.name
+  }
+  return map
+})
 
 type NavItem = {
   to: string
@@ -92,7 +104,12 @@ function selectConversation(conversationId: string) {
         class="recent-item"
         @click="selectConversation(conversation.id)"
       >
-        {{ conversation.title }}
+        <span class="recent-item-title">{{ conversation.title }}</span>
+        <span
+          v-if="conversation.notebookId"
+          class="recent-notebook-badge"
+          :title="`From notebook: ${notebookNames[conversation.notebookId] ?? 'Notebook'}`"
+        >{{ notebookNames[conversation.notebookId] ?? 'Notebook' }}</span>
       </button>
       <p v-if="activeConversations.length === 0" class="recent-empty">
         No chats yet — start one with the launcher.
@@ -240,6 +257,9 @@ function selectConversation(conversationId: string) {
 }
 
 .recent-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   text-align: left;
   padding: 0.45rem 0.6rem;
   border-radius: 0.4rem;
@@ -248,14 +268,35 @@ function selectConversation(conversationId: string) {
   color: var(--muted);
   font-size: 0.85rem;
   cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .recent-item:hover {
   background: var(--surface-hover);
   color: var(--text);
+}
+
+.recent-item-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-notebook-badge {
+  flex-shrink: 0;
+  font-size: 0.63rem;
+  font-weight: 650;
+  padding: 0.08rem 0.35rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 14%, var(--surface));
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+  max-width: 4.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .recent-empty {

@@ -211,8 +211,8 @@ func (s *Service) failJob(ctx context.Context, jobID, fileID, errText string) {
 // ---------- CRUD ----------
 
 // CreateNotebook creates a new notebook record.
-func (s *Service) CreateNotebook(ctx context.Context, userID, name, description, systemPrompt, skillPrompt string) (store.Notebook, error) {
-	return s.mainStore.CreateNotebook(ctx, userID, name, description, systemPrompt, skillPrompt)
+func (s *Service) CreateNotebook(ctx context.Context, userID, name, description, systemPrompt, skillPrompt string, includeInGeneral bool) (store.Notebook, error) {
+	return s.mainStore.CreateNotebook(ctx, userID, name, description, systemPrompt, skillPrompt, includeInGeneral)
 }
 
 // GetNotebook returns a notebook owned by userID.

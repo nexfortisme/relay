@@ -43,7 +43,7 @@ func newServiceTestRig(t *testing.T) (context.Context, *Service, *store.Store, *
 func TestUploadFileRequiresNotebookOwnership(t *testing.T) {
 	ctx, svc, _, _ := newServiceTestRig(t)
 
-	nb, err := svc.CreateNotebook(ctx, "owner", "Research", "", "", "")
+	nb, err := svc.CreateNotebook(ctx, "owner", "Research", "", "", "", false)
 	if err != nil {
 		t.Fatalf("create notebook: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestUploadFileRequiresNotebookOwnership(t *testing.T) {
 func TestDeleteFilePurgesIndexedNotebookData(t *testing.T) {
 	ctx, svc, st, registry := newServiceTestRig(t)
 
-	nb, err := svc.CreateNotebook(ctx, "owner", "Research", "", "", "")
+	nb, err := svc.CreateNotebook(ctx, "owner", "Research", "", "", "", false)
 	if err != nil {
 		t.Fatalf("create notebook: %v", err)
 	}

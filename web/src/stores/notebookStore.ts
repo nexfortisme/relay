@@ -205,6 +205,7 @@ export const useNotebookStore = defineStore('notebook', () => {
     description?: string
     systemPrompt?: string
     skillPrompt?: string
+    includeInGeneral?: boolean
   }): Promise<Notebook> {
     const nb = await createNotebook(payload)
     notebooks.value = [nb, ...notebooks.value]
@@ -218,6 +219,7 @@ export const useNotebookStore = defineStore('notebook', () => {
       description: string
       systemPrompt: string
       skillPrompt: string
+      includeInGeneral: boolean
     }>,
   ): Promise<void> {
     const nb = await updateNotebook(id, patch)
