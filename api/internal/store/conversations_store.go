@@ -34,6 +34,9 @@ func (s *Store) ListConversations(ctx context.Context, userID string, includeArc
 		SELECT id, title, archived_at, favorited_at, notebook_id, created_at, updated_at
 		FROM conversations
 		WHERE user_id = ?
+		AND (notebook_id = '' OR EXISTS (
+			SELECT 1 FROM notebooks WHERE id = notebook_id AND include_in_general = 1
+		))
 	`
 	if !includeArchived {
 		query += "\nAND archived_at IS NULL"

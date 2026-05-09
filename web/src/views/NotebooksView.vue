@@ -105,6 +105,7 @@ async function handleCreate(payload: {
   description: string
   systemPrompt: string
   skillPrompt?: string
+  includeInGeneral: boolean
   files: File[]
 }) {
   showCreateDialog.value = false
@@ -113,6 +114,7 @@ async function handleCreate(payload: {
     description: payload.description || undefined,
     systemPrompt: payload.systemPrompt || undefined,
     skillPrompt: payload.skillPrompt || undefined,
+    includeInGeneral: payload.includeInGeneral,
   })
   await notebookStore.selectNotebook(nb.id)
   for (const file of payload.files) {
@@ -121,7 +123,7 @@ async function handleCreate(payload: {
 }
 
 async function handleSaveSettings(
-  patch: Partial<{ name: string; description: string; systemPrompt: string; skillPrompt: string }>,
+  patch: Partial<{ name: string; description: string; systemPrompt: string; includeInGeneral: boolean }>,
 ) {
   showSettingsDialog.value = false
   if (!selectedNotebookId.value) return

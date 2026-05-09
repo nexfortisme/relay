@@ -7,12 +7,13 @@ const props = defineProps<{ notebook: Notebook }>()
 
 const emit = defineEmits<{
   close: []
-  saved: [payload: Partial<{ name: string; description: string; systemPrompt: string }>]
+  saved: [payload: Partial<{ name: string; description: string; systemPrompt: string; includeInGeneral: boolean }>]
 }>()
 
 const name = ref(props.notebook.name)
 const description = ref(props.notebook.description)
 const systemPrompt = ref(props.notebook.systemPrompt)
+const includeInGeneral = ref(props.notebook.includeInGeneral)
 const nameError = ref('')
 
 function submit() {
@@ -25,6 +26,7 @@ function submit() {
     name: name.value.trim(),
     description: description.value.trim(),
     systemPrompt: systemPrompt.value.trim(),
+    includeInGeneral: includeInGeneral.value,
   })
 }
 </script>
@@ -67,6 +69,22 @@ function submit() {
           placeholder="Instructions for the LLM when chatting within this notebook. Replaces your global system prompt."
           rows="4"
         />
+
+        <label class="toggle-row" for="nb-include-general">
+          <div class="toggle-text">
+            <span class="toggle-label">Show chats in general Chat view</span>
+            <span class="toggle-hint">Conversations from this notebook will appear alongside regular chats</span>
+          </div>
+          <div class="toggle-switch" :class="{ active: includeInGeneral }">
+            <input
+              id="nb-include-general"
+              v-model="includeInGeneral"
+              type="checkbox"
+              class="sr-only"
+            />
+            <div class="toggle-thumb" />
+          </div>
+        </label>
       </div>
 
       <div class="dialog-footer">
@@ -176,6 +194,72 @@ function submit() {
 .field-textarea {
   resize: vertical;
   min-height: 90px;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.55rem;
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  cursor: pointer;
+  margin-top: 0.35rem;
+}
+
+.toggle-row:hover {
+  background: var(--surface-hover);
+}
+
+.toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.toggle-label {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.toggle-hint {
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.toggle-switch {
+  flex-shrink: 0;
+  width: 2.4rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  background: var(--border);
+  position: relative;
+  transition: background 0.18s;
+}
+
+.toggle-switch.active {
+  background: var(--primary);
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 0.18rem;
+  left: 0.18rem;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  background: #fff;
+  transition: transform 0.18s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.toggle-switch.active .toggle-thumb {
+  transform: translateX(1.05rem);
 }
 
 .field-error {

@@ -8,6 +8,7 @@ export type Notebook = {
   description: string
   systemPrompt: string
   skillPrompt: string
+  includeInGeneral: boolean
   pendingJobs: number
   createdAt: string
   updatedAt: string
@@ -99,6 +100,7 @@ export async function createNotebook(payload: {
   description?: string
   systemPrompt?: string
   skillPrompt?: string
+  includeInGeneral?: boolean
 }): Promise<Notebook> {
   return fetchJson<Notebook>(
     '/notebooks',
@@ -117,7 +119,7 @@ export async function getNotebook(id: string): Promise<Notebook> {
 
 export async function updateNotebook(
   id: string,
-  patch: Partial<{ name: string; description: string; systemPrompt: string; skillPrompt: string }>,
+  patch: Partial<{ name: string; description: string; systemPrompt: string; skillPrompt: string; includeInGeneral: boolean }>,
 ): Promise<Notebook> {
   return fetchJson<Notebook>(
     `/notebooks/${id}`,

@@ -10,10 +10,12 @@ import MessageList from '../components/MessageList.vue'
 import PageNavTabs from '../components/PageNavTabs.vue'
 import { DEFAULT_CONVERSATION_TITLE, useConversationStore } from '../stores/conversationStore'
 import { useChatStore } from '../stores/chatStore'
+import { useNotebookStore } from '../stores/notebookStore'
 import { useUiStore } from '../stores/uiStore'
 
 const conversationStore = useConversationStore()
 const chatStore = useChatStore()
+const notebookStore = useNotebookStore()
 const uiStore = useUiStore()
 const router = useRouter()
 
@@ -62,11 +64,24 @@ const chatModels = computed(() => {
   return models
 })
 
+const notebookNames = computed(() => {
+  const map: Record<string, string> = {}
+  for (const nb of notebookStore.notebooks) {
+    map[nb.id] = nb.name
+  }
+  return map
+})
+
 const goHome = () => {
   router.push('/home')
 }
 
-onMounted(chatStore.resumeSelectedConversationStream)
+onMounted(async () => {
+  chatStore.resumeSelectedConversationStream()
+  if (notebookStore.notebooks.length === 0) {
+    await notebookStore.loadNotebooks()
+  }
+})
 </script>
 
 <template>
@@ -77,6 +92,7 @@ onMounted(chatStore.resumeSelectedConversationStream)
       :generating-conversation-id="generatingConversationId"
       :selected-conversation-id="selectedConversationId"
       :show-archived="showArchived"
+      :notebook-names="notebookNames"
       @archive="chatStore.archiveChat"
       @create="chatStore.handleCreateConversation"
       @home="goHome"

@@ -276,6 +276,9 @@ func (s *Store) migrate(ctx context.Context) error {
 	if err := s.ensureColumn(ctx, "notebooks", "skill_prompt", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
+	if err := s.ensureColumn(ctx, "notebooks", "include_in_general", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
 	if err := s.ensureColumn(ctx, "notebook_files", "page_count", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}

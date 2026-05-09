@@ -16,17 +16,19 @@ const maxNotebookFileBytes = 512 << 20 // 512 MB
 // --- Notebooks CRUD ---
 
 type createNotebookRequest struct {
-	Name         string `json:"name"`
-	Description  string `json:"description"`
-	SystemPrompt string `json:"systemPrompt"`
-	SkillPrompt  string `json:"skillPrompt"`
+	Name             string `json:"name"`
+	Description      string `json:"description"`
+	SystemPrompt     string `json:"systemPrompt"`
+	SkillPrompt      string `json:"skillPrompt"`
+	IncludeInGeneral bool   `json:"includeInGeneral"`
 }
 
 type updateNotebookRequest struct {
-	Name         *string `json:"name"`
-	Description  *string `json:"description"`
-	SystemPrompt *string `json:"systemPrompt"`
-	SkillPrompt  *string `json:"skillPrompt"`
+	Name             *string `json:"name"`
+	Description      *string `json:"description"`
+	SystemPrompt     *string `json:"systemPrompt"`
+	SkillPrompt      *string `json:"skillPrompt"`
+	IncludeInGeneral *bool   `json:"includeInGeneral"`
 }
 
 func (h *Handlers) CreateNotebook(c *gin.Context) {
@@ -40,7 +42,7 @@ func (h *Handlers) CreateNotebook(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
 		return
 	}
-	nb, err := h.notebooks.CreateNotebook(c.Request.Context(), userID, req.Name, req.Description, req.SystemPrompt, req.SkillPrompt)
+	nb, err := h.notebooks.CreateNotebook(c.Request.Context(), userID, req.Name, req.Description, req.SystemPrompt, req.SkillPrompt, req.IncludeInGeneral)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -88,10 +90,11 @@ func (h *Handlers) UpdateNotebook(c *gin.Context) {
 		return
 	}
 	patch := store.NotebookPatch{
-		Name:         req.Name,
-		Description:  req.Description,
-		SystemPrompt: req.SystemPrompt,
-		SkillPrompt:  req.SkillPrompt,
+		Name:             req.Name,
+		Description:      req.Description,
+		SystemPrompt:     req.SystemPrompt,
+		SkillPrompt:      req.SkillPrompt,
+		IncludeInGeneral: req.IncludeInGeneral,
 	}
 	nb, err := h.notebooks.UpdateNotebook(c.Request.Context(), userID, c.Param("notebookId"), patch)
 	if err != nil {

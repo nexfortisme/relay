@@ -13,15 +13,16 @@ import (
 // Notebook types
 
 type Notebook struct {
-	ID           string    `json:"id"`
-	UserID       string    `json:"-"`
-	Name         string    `json:"name"`
-	Description  string    `json:"description"`
-	SystemPrompt string    `json:"systemPrompt"`
-	SkillPrompt  string    `json:"skillPrompt"`
-	PendingJobs  int       `json:"pendingJobs,omitempty"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	ID               string    `json:"id"`
+	UserID           string    `json:"-"`
+	Name             string    `json:"name"`
+	Description      string    `json:"description"`
+	SystemPrompt     string    `json:"systemPrompt"`
+	SkillPrompt      string    `json:"skillPrompt"`
+	IncludeInGeneral bool      `json:"includeInGeneral"`
+	PendingJobs      int       `json:"pendingJobs,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 type NotebookFile struct {
@@ -53,21 +54,22 @@ type NotebookJob struct {
 }
 
 type NotebookPatch struct {
-	Name         *string
-	Description  *string
-	SystemPrompt *string
-	SkillPrompt  *string
+	Name             *string
+	Description      *string
+	SystemPrompt     *string
+	SkillPrompt      *string
+	IncludeInGeneral *bool
 }
 
 // Notebook CRUD
 
-func (s *Store) CreateNotebook(ctx context.Context, userID, name, description, systemPrompt, skillPrompt string) (Notebook, error) {
+func (s *Store) CreateNotebook(ctx context.Context, userID, name, description, systemPrompt, skillPrompt string, includeInGeneral bool) (Notebook, error) {
 	now := time.Now().UTC()
 	id := uuid.NewString()
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO notebooks(id, user_id, name, description, system_prompt, skill_prompt, created_at, updated_at)
-		 VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, userID, name, description, systemPrompt, skillPrompt, now, now,
+		`INSERT INTO notebooks(id, user_id, name, description, system_prompt, skill_prompt, include_in_general, created_at, updated_at)
+		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, userID, name, description, systemPrompt, skillPrompt, includeInGeneral, now, now,
 	)
 	if err != nil {
 		return Notebook{}, fmt.Errorf("create notebook: %w", err)
@@ -75,6 +77,7 @@ func (s *Store) CreateNotebook(ctx context.Context, userID, name, description, s
 	return Notebook{
 		ID: id, UserID: userID, Name: name,
 		Description: description, SystemPrompt: systemPrompt, SkillPrompt: skillPrompt,
+		IncludeInGeneral: includeInGeneral,
 		CreatedAt: now, UpdatedAt: now,
 	}, nil
 }
@@ -82,10 +85,10 @@ func (s *Store) CreateNotebook(ctx context.Context, userID, name, description, s
 func (s *Store) GetNotebook(ctx context.Context, userID, notebookID string) (Notebook, error) {
 	var nb Notebook
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, user_id, name, description, system_prompt, skill_prompt, created_at, updated_at
+		`SELECT id, user_id, name, description, system_prompt, skill_prompt, include_in_general, created_at, updated_at
 		 FROM notebooks WHERE id = ? AND user_id = ?`,
 		notebookID, userID,
-	).Scan(&nb.ID, &nb.UserID, &nb.Name, &nb.Description, &nb.SystemPrompt, &nb.SkillPrompt, &nb.CreatedAt, &nb.UpdatedAt)
+	).Scan(&nb.ID, &nb.UserID, &nb.Name, &nb.Description, &nb.SystemPrompt, &nb.SkillPrompt, &nb.IncludeInGeneral, &nb.CreatedAt, &nb.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Notebook{}, ErrNotFound
 	}
@@ -97,7 +100,7 @@ func (s *Store) GetNotebook(ctx context.Context, userID, notebookID string) (Not
 
 func (s *Store) ListNotebooks(ctx context.Context, userID string) ([]Notebook, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT n.id, n.user_id, n.name, n.description, n.system_prompt, n.skill_prompt, n.created_at, n.updated_at,
+		`SELECT n.id, n.user_id, n.name, n.description, n.system_prompt, n.skill_prompt, n.include_in_general, n.created_at, n.updated_at,
 		        COALESCE((SELECT COUNT(*) FROM notebook_jobs j WHERE j.notebook_id = n.id AND j.status IN ('pending','running')), 0) AS pending_jobs
 		 FROM notebooks n
 		 WHERE n.user_id = ?
@@ -113,7 +116,7 @@ func (s *Store) ListNotebooks(ctx context.Context, userID string) ([]Notebook, e
 	for rows.Next() {
 		var nb Notebook
 		if err := rows.Scan(&nb.ID, &nb.UserID, &nb.Name, &nb.Description, &nb.SystemPrompt, &nb.SkillPrompt,
-			&nb.CreatedAt, &nb.UpdatedAt, &nb.PendingJobs); err != nil {
+			&nb.IncludeInGeneral, &nb.CreatedAt, &nb.UpdatedAt, &nb.PendingJobs); err != nil {
 			return nil, fmt.Errorf("scan notebook: %w", err)
 		}
 		out = append(out, nb)
@@ -139,9 +142,12 @@ func (s *Store) UpdateNotebook(ctx context.Context, userID, notebookID string, p
 	if patch.SkillPrompt != nil {
 		nb.SkillPrompt = *patch.SkillPrompt
 	}
+	if patch.IncludeInGeneral != nil {
+		nb.IncludeInGeneral = *patch.IncludeInGeneral
+	}
 	_, err = s.db.ExecContext(ctx,
-		`UPDATE notebooks SET name=?, description=?, system_prompt=?, skill_prompt=?, updated_at=? WHERE id=? AND user_id=?`,
-		nb.Name, nb.Description, nb.SystemPrompt, nb.SkillPrompt, now, notebookID, userID,
+		`UPDATE notebooks SET name=?, description=?, system_prompt=?, skill_prompt=?, include_in_general=?, updated_at=? WHERE id=? AND user_id=?`,
+		nb.Name, nb.Description, nb.SystemPrompt, nb.SkillPrompt, nb.IncludeInGeneral, now, notebookID, userID,
 	)
 	if err != nil {
 		return Notebook{}, fmt.Errorf("update notebook: %w", err)

@@ -11,6 +11,7 @@ const props = defineProps<{
   generatingConversationId: string | null
   selectedConversationId: string | null
   showArchived: boolean
+  notebookNames?: Record<string, string>
 }>()
 
 defineEmits<{
@@ -121,6 +122,11 @@ onBeforeUnmount(() => {
               aria-label="Generating response"
               title="Generating response"
             />
+            <span
+              v-else-if="conversation.notebookId"
+              class="notebook-badge"
+              :title="`From notebook: ${notebookNames?.[conversation.notebookId] ?? 'Notebook'}`"
+            >{{ notebookNames?.[conversation.notebookId] ?? 'Notebook' }}</span>
           </button>
           <button
             class="icon-button favorite active"
@@ -168,6 +174,11 @@ onBeforeUnmount(() => {
               aria-label="Generating response"
               title="Generating response"
             />
+            <span
+              v-else-if="conversation.notebookId"
+              class="notebook-badge"
+              :title="`From notebook: ${notebookNames?.[conversation.notebookId] ?? 'Notebook'}`"
+            >{{ notebookNames?.[conversation.notebookId] ?? 'Notebook' }}</span>
           </button>
           <button
             class="icon-button favorite"
@@ -445,6 +456,21 @@ onBeforeUnmount(() => {
 .icon-button.danger:hover {
   border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
   color: var(--danger);
+}
+
+.notebook-badge {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  font-weight: 650;
+  padding: 0.1rem 0.38rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 14%, var(--surface));
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+  max-width: 5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-generating-indicator {
