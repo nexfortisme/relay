@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { formatBytes } from '../lib/notebookFiles'
 import AppIcon from './AppIcon.vue'
 
 const emit = defineEmits<{
   close: []
-  created: [payload: { name: string; description: string; systemPrompt: string; skillPrompt: string; files: File[] }]
+  created: [payload: { name: string; description: string; systemPrompt: string; files: File[] }]
 }>()
 
 const name = ref('')
 const description = ref('')
 const systemPrompt = ref('')
-const skillPrompt = ref('')
 const selectedFiles = ref<File[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
 const nameError = ref('')
@@ -37,12 +37,6 @@ function removeFile(index: number) {
   selectedFiles.value.splice(index, 1)
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
-
 function submit() {
   nameError.value = ''
   if (!name.value.trim()) {
@@ -53,7 +47,6 @@ function submit() {
     name: name.value.trim(),
     description: description.value.trim(),
     systemPrompt: systemPrompt.value.trim(),
-    skillPrompt: skillPrompt.value.trim(),
     files: [...selectedFiles.value],
   })
 }
@@ -96,15 +89,6 @@ function submit() {
           v-model="systemPrompt"
           class="field-textarea"
           placeholder="Instructions for the LLM when chatting within this notebook. Replaces your global system prompt."
-          rows="3"
-        />
-
-        <label class="field-label" for="nb-skill">Skill Prompt</label>
-        <textarea
-          id="nb-skill"
-          v-model="skillPrompt"
-          class="field-textarea"
-          placeholder="Additional instructions injected alongside retrieved document context. E.g. &quot;Always cite the exact page number&quot; or &quot;Focus on technical accuracy.&quot;"
           rows="3"
         />
 

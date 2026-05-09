@@ -90,7 +90,7 @@ async function handleCreate(payload: {
   name: string
   description: string
   systemPrompt: string
-  skillPrompt: string
+  skillPrompt?: string
   files: File[]
 }) {
   showCreateDialog.value = false

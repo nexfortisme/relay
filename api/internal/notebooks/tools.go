@@ -259,6 +259,9 @@ func (r *ToolRuntime) updateCSVRow(ctx context.Context, args map[string]any) (to
 	tableName, _ := args["table_name"].(string)
 	rawUpdates, _ := args["updates"].(map[string]any)
 	filters := parseFilters(args["filters"])
+	if len(filters) == 0 {
+		return tools.Result{Name: "notebook_update_csv_row", IsError: true, Output: "filters required for update to prevent accidental mass edits"}, nil
+	}
 
 	updates := make(map[string]string, len(rawUpdates))
 	for k, v := range rawUpdates {

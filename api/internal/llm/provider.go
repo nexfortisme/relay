@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nexfortisme/relay/internal/prompts"
 	"github.com/nexfortisme/relay/internal/tools"
 )
 
@@ -48,7 +49,7 @@ const (
 	maxRepetitionRetries   = 2
 )
 
-const repetitionRetryPrompt = "Your previous response was stopped because it began repeating itself. Continue from exactly where the assistant message left off, without restating or repeating any text that has already been provided."
+var repetitionRetryPrompt = prompts.MustLoad(prompts.RepetitionRetry)
 
 func NewHTTPProvider(baseURL string, model string, apiKey string, responseTimeout time.Duration) *HTTPProvider {
 	return NewHTTPProviderWithReasoningEffort(baseURL, model, apiKey, responseTimeout, "")

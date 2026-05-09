@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -38,7 +39,7 @@ type ImageMeta struct {
 // Filter represents a structured WHERE clause condition.
 type Filter struct {
 	Column string `json:"column"`
-	Op     string `json:"op"`    // eq|neq|contains|gt|lt|gte|lte
+	Op     string `json:"op"` // eq|neq|contains|gt|lt|gte|lte
 	Value  string `json:"value"`
 }
 
@@ -56,6 +57,10 @@ func (s *NotebookStore) SearchChunks(ctx context.Context, query string, max int)
 	if max <= 0 {
 		max = 10
 	}
+	matchQuery := buildFTSMatchQuery(query)
+	if matchQuery == "" {
+		return nil, nil
+	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT c.file_id, c.page_number, c.chunk_index, c.content
 		FROM chunks_fts fts
@@ -63,7 +68,7 @@ func (s *NotebookStore) SearchChunks(ctx context.Context, query string, max int)
 		WHERE chunks_fts MATCH ?
 		ORDER BY fts.rank
 		LIMIT ?
-	`, query, max)
+	`, matchQuery, max)
 	if err != nil {
 		return nil, fmt.Errorf("fts search: %w", err)
 	}
@@ -239,6 +244,9 @@ func (s *NotebookStore) UpdateCSVRows(ctx context.Context, tableName string, upd
 	if len(updates) == 0 {
 		return 0, fmt.Errorf("no updates provided")
 	}
+	if len(filters) == 0 {
+		return 0, fmt.Errorf("filters required for update")
+	}
 
 	setClauses := make([]string, 0, len(updates))
 	args := make([]any, 0, len(updates)+len(filters))
@@ -248,6 +256,9 @@ func (s *NotebookStore) UpdateCSVRows(ctx context.Context, tableName string, upd
 	}
 
 	where, whereArgs := buildWhere(filters)
+	if where == "" {
+		return 0, fmt.Errorf("no valid filters provided")
+	}
 	args = append(args, whereArgs...)
 
 	query := fmt.Sprintf("UPDATE %s SET %s%s",
@@ -268,8 +279,14 @@ func (s *NotebookStore) DeleteCSVRows(ctx context.Context, tableName string, fil
 	if err := s.ValidateTableName(ctx, tableName); err != nil {
 		return 0, err
 	}
+	if len(filters) == 0 {
+		return 0, fmt.Errorf("filters required for delete")
+	}
 
 	where, args := buildWhere(filters)
+	if where == "" {
+		return 0, fmt.Errorf("no valid filters provided")
+	}
 	query := fmt.Sprintf("DELETE FROM %s%s", quoteSQLiteIdent(tableName), where)
 
 	res, err := s.db.ExecContext(ctx, query, args...)
@@ -351,6 +368,51 @@ func (s *NotebookStore) InsertImageMeta(ctx context.Context, fileID, name, conte
 		fileID, name, contentType, sizeBytes, time.Now().UTC(),
 	)
 	return err
+}
+
+// PurgeFileData removes every indexed artifact for a notebook file.
+// It is used when the user deletes a file from the main notebook record so
+// stale chunks, rendered pages, CSV tables, or image metadata cannot remain
+// available to RAG or notebook tools.
+func (s *NotebookStore) PurgeFileData(ctx context.Context, fileID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin purge file data: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var tableName string
+	err = tx.QueryRowContext(ctx,
+		`SELECT table_name FROM csv_tables WHERE file_id=?`,
+		fileID,
+	).Scan(&tableName)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("lookup csv table: %w", err)
+	}
+	if tableName != "" {
+		if _, err := tx.ExecContext(ctx,
+			fmt.Sprintf("DROP TABLE IF EXISTS %s", quoteSQLiteIdent(tableName)),
+		); err != nil {
+			return fmt.Errorf("drop csv table: %w", err)
+		}
+	}
+
+	statements := []string{
+		`DELETE FROM csv_tables WHERE file_id=?`,
+		`DELETE FROM image_meta WHERE file_id=?`,
+		`DELETE FROM chunks WHERE file_id=?`,
+		`DELETE FROM pages WHERE file_id=?`,
+	}
+	for _, stmt := range statements {
+		if _, err := tx.ExecContext(ctx, stmt, fileID); err != nil {
+			return fmt.Errorf("purge file data: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit purge file data: %w", err)
+	}
+	return nil
 }
 
 // buildWhere converts a Filter slice into a safe WHERE clause + args.

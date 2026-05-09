@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -35,6 +36,10 @@ func (r *Registry) Open(userID, notebookID string) (*sql.DB, error) {
 
 	if db, ok := r.dbs[key]; ok {
 		return db, nil
+	}
+
+	if err := os.MkdirAll(r.dir, 0755); err != nil {
+		return nil, fmt.Errorf("create notebook db dir: %w", err)
 	}
 
 	path := filepath.Join(r.dir, key+".db")

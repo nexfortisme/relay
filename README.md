@@ -1,6 +1,6 @@
 # Relay
 
-Relay is a full-stack AI application with a Go backend and Vue 3 frontend. The main experience is realtime chat with token-by-token streaming over WebSocket, SQLite persistence, and optional tool calling (Model Context Protocol plus first-party feed tools). A built-in **Feeds** inbox subscribes to RSS/Atom sources, polls on a schedule, and can summarize items with your configured LLM.
+Relay is a full-stack AI application with a Go backend and Vue 3 frontend. The main experience is realtime chat with token-by-token streaming over WebSocket, SQLite persistence, file attachments, and tool calling through Model Context Protocol (MCP) plus first-party Relay tools. Built-in **Feeds** and **Notebooks** workspaces let the assistant read RSS/Atom inboxes, summarize items, search uploaded documents, and query or edit notebook CSV data.
 
 ## Features
 
@@ -20,13 +20,21 @@ Relay is a full-stack AI application with a Go backend and Vue 3 frontend. The m
 - Backfill options when adding a feed (e.g. latest / since date / fuller history with limits)
 - Read and starred state; unread, starred, and all-item views
 - On-demand or automatic **LLM summaries** for items (automatic summary is gated on feed settings); expanded / re-summary actions in the UI
-- Feed settings placeholder fields for routing items into **notebooks** when that area ships
+- Feed settings store auto-add-to-notebook preferences and an optional notebook target
+
+### Notebooks
+
+- Create notebooks with description, notebook-specific system prompt, and skill prompt fields
+- Upload documents, CSV files, and images; background jobs index content into per-notebook SQLite databases under `DATA_DIR`
+- PDF text extraction, page image rendering, and optional LLM page descriptions for scanned or mixed-content pages
+- CSV table viewer plus notebook tools for querying, inserting, updating, and deleting CSV rows
+- Notebook-linked chat conversations that can search notebook documents and use notebook CSV tools
 
 ### Dashboard and navigation
 
 - **Home** launcher for quick jumps (e.g. open Feeds, start Chat with prefilled draft)
-- **Chat** and **Feeds** are fully wired to the API
-- **Notebooks**, **Scheduled**, and **My Data** routes exist with placeholder copy for future features
+- **Chat**, **Feeds**, and **Notebooks** are fully wired to the API
+- **Scheduled** and **My Data** routes exist as placeholders for future features
 
 ### Account and settings
 
@@ -38,7 +46,8 @@ Relay is a full-stack AI application with a Go backend and Vue 3 frontend. The m
 ### Models and tools
 
 - OpenAI-compatible chat completions (LM Studio, Ollama gateways, hosted APIs, etc.); **`LLM_URL`** or **`LLM_BASE_URL`**
-- **Composite tool runtime**: tools are merged from the internal MCP HTTP server and from Relay’s feed tooling (`list_feeds`, `get_feed_items`), so the model can read your feed inbox inside chat
+- **Composite tool runtime**: tools are merged from the internal MCP HTTP server and Relay tools such as `list_feeds` and `get_feed_items`
+- Notebook-linked chats also expose notebook tools: `notebook_search_docs`, `notebook_query_csv`, `notebook_insert_csv_row`, `notebook_update_csv_row`, and `notebook_delete_csv_row`
 - Internal MCP tools (streamable HTTP on **`MCP_SERVER_ADDRESS`**, exposed at **`MCP_URL`**): `web_search` (SearxNG when configured), `get_weather`, `get_time`
 - **`fetch_url`** / **`fetch_urls`** are registered on the MCP server but call an external **fetcher** MCP relay (`FETCHER_MCP_ENDPOINT`, default `http://localhost:3000/mcp`) for JS-heavy pages — run that stack if you rely on browsing-style fetch
 
@@ -53,15 +62,17 @@ Relay is a full-stack AI application with a Go backend and Vue 3 frontend. The m
 web (Vue 3 + Pinia + Vue Router + Vite)
         |  HTTP / WS
         v
-api (Gin + SQLite + WebSocket chat + feed scheduler)
+api (Gin + SQLite + WebSocket chat + feed scheduler + notebook indexer)
         |
         +-- internal MCP (:8090)  streamable HTTP tools
+        |
+        +-- per-notebook SQLite databases under DATA_DIR
         |
         +-- optional FETCHER MCP (browse/fetch_url) via FETCHER_MCP_ENDPOINT
 ```
 
-- **`api/`**: HTTP API, WebSocket stream, SQLite, LLM client, attachments, MCP client/runtime, RSS/Atom feed fetch + summarize
-- **`web/`**: Pinia stores (auth, chat, conversations, settings, UI), routed views
+- **`api/`**: HTTP API, WebSocket stream, SQLite, LLM client, attachments, MCP client/runtime, RSS/Atom feed fetch + summarize, notebook indexing/tools
+- **`web/`**: Pinia stores (auth, chat, conversations, notebooks, settings, UI), routed views
 - **`resources/`**: prompt and resource markdown used by backend packages
 - **`scripts/dev.sh`**: installs deps and runs **`air`** for the API and **`bun dev`** for the frontend
 
@@ -143,7 +154,8 @@ Key environment variables:
 - **`WEB_ORIGIN`**: browser origin allowed by CORS (default `http://localhost:5173`)
 - **`VITE_API_BASE_DEV`**: frontend API base during Vite dev (default `http://localhost:8091/api`)
 - **`VITE_API_BASE`**: frontend API base in production builds (default `/api`)
-- **`SQLITE_PATH`**: SQLite database file path
+- **`SQLITE_PATH`**: main SQLite database file (default `../.relay/data/relay.db` relative to API cwd with `./scripts/dev.sh`)
+- **`DATA_DIR`**: notebook databases, snapshots, and other larger local data (default `../.relay/data` relative to API cwd — repo `.relay/data` with `./scripts/dev.sh`)
 - **`JWT_TOKEN`**, **`JWT_REFRESH_TOKEN`**: secrets for signing and hashing tokens
 - **`DISABLE_AUTH`**: disable auth wall and act as root user
 - **`ROOT_USERNAME`**, **`ROOT_PASSWORD`**: seeded admin account
@@ -166,6 +178,7 @@ Run with SQLite persisted on a host volume:
 docker run --rm -p 8091:8091 -v relay-data:/data \
   -e LLM_URL=http://host.docker.internal:1234/v1 \
   -e LLM_MODEL=your-model-name \
+  -e DATA_DIR=/data \
   relay:latest
 ```
 
@@ -178,6 +191,7 @@ docker run -d \
   -v relay-data:/data \
   --env-file .env \
   -e SQLITE_PATH=/data/relay.db \
+  -e DATA_DIR=/data \
   --restart unless-stopped \
   relay:latest
 ```
@@ -185,7 +199,8 @@ docker run -d \
 Notes:
 
 - The container defaults **`SQLITE_PATH`** to `/data/relay.db`.
-- Mount `/data` so the database survives image rebuilds.
+- Set **`DATA_DIR=/data`** when using notebooks so notebook databases and snapshots survive image rebuilds.
+- Mount `/data` so the database and notebook data survive image rebuilds.
 - The bundled UI is served from the backend; only **`8091`** (or your chosen **`API_PORT`**) needs to be published unless you terminate TLS elsewhere.
 
 ## API Surface
@@ -227,6 +242,23 @@ Files:
 
 - **`GET /files/:id/download`** — attachment bytes for authenticated owner
 
+Notebooks:
+
+- **`POST /notebooks`**
+- **`GET /notebooks`**
+- **`GET /notebooks/:notebookId`**
+- **`PATCH /notebooks/:notebookId`**
+- **`DELETE /notebooks/:notebookId`**
+- **`POST /notebooks/:notebookId/files`**
+- **`GET /notebooks/:notebookId/files`**
+- **`DELETE /notebooks/:notebookId/files/:fileId`**
+- **`GET /notebooks/:notebookId/files/:fileId/download`**
+- **`GET /notebooks/:notebookId/files/:fileId/pages/:pageNum/image`**
+- **`GET /notebooks/:notebookId/jobs/count`**
+- **`GET /notebooks/:notebookId/conversations`**
+- **`POST /notebooks/:notebookId/conversations`**
+- **`GET /notebooks/:notebookId/csv/:fileId`**
+
 Feeds:
 
 - **`GET /feeds`**
@@ -236,6 +268,7 @@ Feeds:
 - **`GET /feeds/items/:id`**
 - **`PATCH /feeds/items/:id`** — e.g. read / starred toggles
 - **`POST /feeds/items/:id/summarize`**
+- **`POST /feeds/:id/mark-read`**
 - **`PATCH /feeds/:id`**
 - **`DELETE /feeds/:id`**
 

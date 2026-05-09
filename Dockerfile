@@ -9,14 +9,18 @@ ARG VITE_API_BASE=/api
 ENV VITE_API_BASE=${VITE_API_BASE}
 RUN bun run build-only
 
-FROM golang:1.25 AS api-builder
+# Use the bookworm-based Go image so CGO links against the same glibc as debian:bookworm-slim
+# below. Default golang:* uses newer Debian → GLIBC_2.38+ symbols the runtime libc lacks.
+FROM golang:1.25-bookworm AS api-builder
 WORKDIR /build/api
 
 COPY api/go.mod api/go.sum ./
 RUN go mod download
 
 COPY api/ ./
-RUN CGO_ENABLED=0 GOOS=linux go build -o /out/relay ./main.go
+# go-fitz: CGO links bundled MuPDF static libs in the module. CGO_ENABLED=0 selects
+# purego + dlopen("libmupdf.so"), which this slim runtime image does not ship.
+RUN CGO_ENABLED=1 GOOS=linux go build -o /out/relay ./main.go
 
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
