@@ -101,6 +101,7 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 	rootUserID, err := httpapi.EnsureRootUser(context.Background(), st, authSvc, chatService, cfg.RootUsername, cfg.RootPassword, logger)
 	if err != nil {
 		stopFeeds()
+		stopNotebooks()
 		_ = st.Close()
 		return nil, nil, fmt.Errorf("seed root user: %w", err)
 	}
