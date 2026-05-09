@@ -158,23 +158,24 @@ func (h *Handlers) parseUploadedFiles(formFiles []*multipart.FileHeader) ([]atta
 	return files, nil
 }
 
+// bytesLabel formats a byte count for human-readable upload limit errors.
 func bytesLabel(bytes int64) string {
 	if bytes <= 0 {
 		return "0B"
 	}
 	const (
-		kb = int64(1024)
-		mb = kb * 1024
+		bytesPerKibibyte = int64(1024)
+		bytesPerMebibyte = bytesPerKibibyte * 1024
 	)
-	if bytes >= mb {
-		whole := float64(bytes) / float64(mb)
+	if bytes >= bytesPerMebibyte {
+		whole := float64(bytes) / float64(bytesPerMebibyte)
 		if math.Mod(whole, 1) == 0 {
 			return fmt.Sprintf("%.0fMB", whole)
 		}
 		return fmt.Sprintf("%.1fMB", whole)
 	}
-	if bytes >= kb {
-		whole := float64(bytes) / float64(kb)
+	if bytes >= bytesPerKibibyte {
+		whole := float64(bytes) / float64(bytesPerKibibyte)
 		if math.Mod(whole, 1) == 0 {
 			return fmt.Sprintf("%.0fKB", whole)
 		}

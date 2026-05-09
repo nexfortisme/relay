@@ -80,8 +80,10 @@ The backend starts the main HTTP API on `:8091` by default and an internal MCP s
 
 ### Frontend Structure
 
-- `src/stores/appStore.ts` owns API calls, conversation state, streaming reconciliation, settings, uploads, and theme state.
-- `src/lib/` contains shared pure helpers such as API wrappers, file type handling, markdown rendering, message formatting, and upload validation.
+- Routed chat uses `src/stores/chatStore.ts` (streaming, drafts, uploads, message caches) with `conversationStore.ts` (sidebar conversations, URLs). Other domains use `authStore`, `notebookStore`, `settingsStore`, and `uiStore`.
+- Legacy `src/stores/appStore.ts` still aggregates chat plus settings/theme for focused tests (`appStore.spec.ts`); it imports the same streaming helpers below.
+- `src/lib/conversationStreamMessages.ts` centralizes merge logic between persisted REST messages and in-flight WebSocket state, optimistic user reconciliation, and stream payload typings (used by chat and legacy app stores).
+- `src/lib/` also holds API wrappers, file handling, markdown rendering, and upload validation.
 - `src/components/` contains reusable UI pieces for the chat shell, composer, message list, sidebars, settings, icons, and file preview.
 - `src/views/` contains route-level views.
 - `src/__tests__/` contains Vitest component and unit tests.
@@ -142,7 +144,7 @@ Important variables:
 
 ## Coding Guidelines
 
-- Prefer small, pure helpers in `web/src/lib/` for reusable frontend formatting/validation logic.
+- Prefer small, pure helpers in `web/src/lib/` for reusable frontend formatting/validation logic (including streaming message merge/reconciliation via `conversationStreamMessages.ts`).
 - Keep Pinia store changes focused on state orchestration and API flow; avoid burying generic utility logic in the store.
 - Keep backend resource loading independent of the process working directory. Go tests run with each package as the working directory.
 - Preserve optimistic message behavior and per-conversation message caching when changing streaming or navigation code.
