@@ -70,10 +70,6 @@ export const useChatStore = defineStore('chat', () => {
     )
   })
 
-  const shouldShowPendingAssistantPlaceholder = computed(
-    () => isSelectedConversationWaitingForAssistant.value,
-  )
-
   const conversationTokenCount = computed(() => sumTotalTokensAcrossMessages(messages.value))
 
   const isConversationTokenCapReached = computed(
@@ -737,7 +733,6 @@ export const useChatStore = defineStore('chat', () => {
     waitingForAssistantConversationId,
     streamError,
     isSelectedConversationWaitingForAssistant,
-    shouldShowPendingAssistantPlaceholder,
     conversationTokenCount,
     isConversationTokenCapReached,
     maxConversationTokenCount,

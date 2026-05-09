@@ -141,9 +141,6 @@ export const useAppStore = defineStore('app', () => {
       waitingForAssistantResponse.value &&
       waitingForAssistantConversationId.value === selectedConversationId.value,
   )
-  const shouldShowPendingAssistantPlaceholder = computed(
-    () => isSelectedConversationWaitingForAssistant.value,
-  )
   const conversationTokenCount = computed(() => sumTotalTokensAcrossMessages(messages.value))
   const isConversationTokenCapReached = computed(
     () =>
@@ -174,7 +171,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function closeStream() {
-    flushQueuedAssistantStreamDeltas()
+    flushQueuedStreamDeltas()
     const socket = streamSocket
     streamSocket = null
     streamConversationId = null
@@ -271,7 +268,7 @@ export const useAppStore = defineStore('app', () => {
       if (streamSocket !== socket) {
         return
       }
-      flushQueuedAssistantStreamDeltas()
+      flushQueuedStreamDeltas()
       streamError.value = 'Stream disconnected'
       resetGenerationFor(conversationId)
       streamSocket = null
@@ -283,7 +280,7 @@ export const useAppStore = defineStore('app', () => {
       if (streamSocket !== socket) {
         return
       }
-      flushQueuedAssistantStreamDeltas()
+      flushQueuedStreamDeltas()
       streamSocket = null
       streamConversationId = null
       if (event.wasClean) {
@@ -311,7 +308,7 @@ export const useAppStore = defineStore('app', () => {
       case 'done':
       case 'stopped':
       case 'error':
-        flushQueuedAssistantStreamDeltas()
+        flushQueuedStreamDeltas()
         applyStreamPayload(conversationId, payload)
         return
       default:
@@ -359,17 +356,17 @@ export const useAppStore = defineStore('app', () => {
     if (typeof window.requestAnimationFrame === 'function') {
       streamFlushHandle = window.requestAnimationFrame(() => {
         streamFlushHandle = null
-        flushQueuedAssistantStreamDeltas()
+        flushQueuedStreamDeltas()
       })
       return
     }
     streamFlushHandle = window.setTimeout(() => {
       streamFlushHandle = null
-      flushQueuedAssistantStreamDeltas()
+      flushQueuedStreamDeltas()
     }, 16)
   }
 
-  function flushQueuedAssistantStreamDeltas() {
+  function flushQueuedStreamDeltas() {
     if (streamFlushHandle !== null) {
       if (typeof window.cancelAnimationFrame === 'function') {
         window.cancelAnimationFrame(streamFlushHandle as number)
@@ -981,7 +978,6 @@ export const useAppStore = defineStore('app', () => {
     selectedConversation,
     activeConversations,
     isSelectedConversationWaitingForAssistant,
-    shouldShowPendingAssistantPlaceholder,
     conversationTokenCount,
     isConversationTokenCapReached,
     maxConversationTokenCount,
