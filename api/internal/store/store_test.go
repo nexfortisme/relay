@@ -176,3 +176,60 @@ func TestStoreFailedMessageRetainsAttachmentNames(t *testing.T) {
 		t.Fatalf("expected empty IDs for failed-message attachments, got %#v", got)
 	}
 }
+
+func TestStoreNotebookConversationsIncludeArchivedAndFavorite(t *testing.T) {
+	st, err := New(":memory:")
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+	if _, err := st.CreateConversation(ctx, "conv-active", "user-1", "Active", now); err != nil {
+		t.Fatalf("create active conversation: %v", err)
+	}
+	if _, err := st.CreateConversation(ctx, "conv-archived", "user-1", "Archived", now); err != nil {
+		t.Fatalf("create archived conversation: %v", err)
+	}
+	if err := st.SetConversationNotebookID(ctx, "conv-active", "notebook-1"); err != nil {
+		t.Fatalf("link active conversation: %v", err)
+	}
+	if err := st.SetConversationNotebookID(ctx, "conv-archived", "notebook-1"); err != nil {
+		t.Fatalf("link archived conversation: %v", err)
+	}
+	if err := st.SetConversationFavorite(ctx, "conv-active", true); err != nil {
+		t.Fatalf("favorite conversation: %v", err)
+	}
+	if err := st.ArchiveConversation(ctx, "conv-archived"); err != nil {
+		t.Fatalf("archive conversation: %v", err)
+	}
+
+	activeOnly, err := st.ListNotebookConversations(ctx, "user-1", "notebook-1", false)
+	if err != nil {
+		t.Fatalf("list active notebook conversations: %v", err)
+	}
+	if len(activeOnly) != 1 || activeOnly[0].ID != "conv-active" {
+		t.Fatalf("expected only active conversation, got %#v", activeOnly)
+	}
+	if !activeOnly[0].Favorite {
+		t.Fatalf("expected active conversation to be favorite")
+	}
+
+	withArchived, err := st.ListNotebookConversations(ctx, "user-1", "notebook-1", true)
+	if err != nil {
+		t.Fatalf("list notebook conversations with archived: %v", err)
+	}
+	if len(withArchived) != 2 {
+		t.Fatalf("expected active and archived conversations, got %#v", withArchived)
+	}
+	foundArchived := false
+	for _, conversation := range withArchived {
+		if conversation.ID == "conv-archived" {
+			foundArchived = conversation.Archived
+		}
+	}
+	if !foundArchived {
+		t.Fatalf("expected archived conversation in notebook list, got %#v", withArchived)
+	}
+}

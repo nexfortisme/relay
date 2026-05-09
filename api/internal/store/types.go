@@ -9,6 +9,7 @@ type Conversation struct {
 	ID         string    `json:"id"`
 	Title      string    `json:"title"`
 	Archived   bool      `json:"archived"`
+	Favorite   bool      `json:"favorite"`
 	NotebookID string    `json:"notebookId,omitempty"`
 	CreatedAt  time.Time `json:"createdAt"`
 	UpdatedAt  time.Time `json:"updatedAt"`

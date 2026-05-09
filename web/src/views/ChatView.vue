@@ -85,6 +85,7 @@ onMounted(chatStore.resumeSelectedConversationStream)
       @select="chatStore.selectConversation"
       @toggle-archived="conversationStore.toggleArchived"
       @toggle-collapse="uiStore.toggleSidebarCollapsed"
+      @toggle-favorite="chatStore.toggleFavoriteChat"
     />
     <button
       v-if="!isSidebarCollapsed"
@@ -99,6 +100,7 @@ onMounted(chatStore.resumeSelectedConversationStream)
       <ChatHeader
         v-model:rename-draft="renameDraft"
         :is-editing="isEditingTitle"
+        :is-generating="generatingConversationId === selectedConversationId"
         :is-renaming="isRenaming"
         :is-suggesting-title="isSuggestingTitle"
         :selected-conversation-id="selectedConversationId"

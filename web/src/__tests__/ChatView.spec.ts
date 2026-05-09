@@ -21,6 +21,7 @@ vi.mock('../lib/api', () => ({
   restoreConversation: vi.fn<() => void>(),
   stopConversationGeneration: vi.fn<() => void>(),
   suggestConversationTitle: vi.fn<() => void>(),
+  updateConversationFavorite: vi.fn<() => void>(),
   updateSettings: vi.fn<() => void>(),
 }))
 

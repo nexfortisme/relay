@@ -43,6 +43,13 @@ func (s *Service) RestoreConversation(ctx context.Context, userID, conversationI
 	return s.store.RestoreConversation(ctx, conversationID)
 }
 
+func (s *Service) SetConversationFavorite(ctx context.Context, userID, conversationID string, favorite bool) error {
+	if err := s.authorizeConversation(ctx, userID, conversationID); err != nil {
+		return err
+	}
+	return s.store.SetConversationFavorite(ctx, conversationID, favorite)
+}
+
 func (s *Service) DeleteConversation(ctx context.Context, userID, conversationID string) error {
 	if err := s.authorizeConversation(ctx, userID, conversationID); err != nil {
 		return err
@@ -75,7 +82,7 @@ func (s *Service) SetConversationNotebookID(ctx context.Context, conversationID,
 	return s.store.SetConversationNotebookID(ctx, conversationID, notebookID)
 }
 
-// ListNotebookConversations returns active conversations linked to a notebook.
-func (s *Service) ListNotebookConversations(ctx context.Context, userID, notebookID string) ([]store.Conversation, error) {
-	return s.store.ListNotebookConversations(ctx, userID, notebookID)
+// ListNotebookConversations returns conversations linked to a notebook.
+func (s *Service) ListNotebookConversations(ctx context.Context, userID, notebookID string, includeArchived bool) ([]store.Conversation, error) {
+	return s.store.ListNotebookConversations(ctx, userID, notebookID, includeArchived)
 }

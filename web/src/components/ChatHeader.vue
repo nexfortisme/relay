@@ -4,6 +4,7 @@ import AppIcon from './AppIcon.vue'
 
 const props = defineProps<{
   isEditing: boolean
+  isGenerating?: boolean
   isRenaming: boolean
   isSuggestingTitle: boolean
   renameDraft: string
@@ -83,6 +84,7 @@ watch(
         <h1 class="chat-title" :class="{ 'chat-title-suggesting': isSuggestingTitle }">
           {{ title }}
         </h1>
+        <span v-if="isGenerating" class="header-generating-dot" title="Generating" />
         <button
           class="title-icon-button"
           :disabled="isRenaming || isSuggestingTitle"
@@ -301,6 +303,25 @@ watch(
   color: transparent;
   filter: drop-shadow(0 0 0.4rem color-mix(in srgb, var(--primary) 35%, transparent));
   animation: title-shimmer 1s linear infinite;
+}
+
+.header-generating-dot {
+  width: 0.52rem;
+  height: 0.52rem;
+  border-radius: 999px;
+  background: var(--primary);
+  flex: 0 0 auto;
+  animation: header-generating-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes header-generating-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.28;
+  }
 }
 
 @keyframes title-shimmer {

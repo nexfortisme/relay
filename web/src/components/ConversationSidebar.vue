@@ -1,66 +1,73 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import type { Conversation } from "../lib/api";
-import AppIcon from "./AppIcon.vue";
-import LogoIcon from "./LogoIcon.vue";
-import { brandLogoPalette } from "../lib/logoPalette";
-import UserMenu from "./UserMenu.vue";
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import type { Conversation } from '../lib/api'
+import AppIcon from './AppIcon.vue'
+import LogoIcon from './LogoIcon.vue'
+import { brandLogoPalette } from '../lib/logoPalette'
+import UserMenu from './UserMenu.vue'
 
 const props = defineProps<{
-  conversations: Conversation[];
-  generatingConversationId: string | null;
-  selectedConversationId: string | null;
-  showArchived: boolean;
-}>();
+  conversations: Conversation[]
+  generatingConversationId: string | null
+  selectedConversationId: string | null
+  showArchived: boolean
+}>()
 
 defineEmits<{
-  archive: [conversationId: string, event: MouseEvent];
-  create: [];
-  home: [];
-  delete: [conversationId: string];
-  restore: [conversationId: string];
-  select: [conversationId: string];
-  toggleArchived: [];
-  toggleCollapse: [];
-}>();
+  archive: [conversationId: string, event: MouseEvent]
+  create: []
+  home: []
+  delete: [conversationId: string]
+  restore: [conversationId: string]
+  select: [conversationId: string]
+  toggleArchived: []
+  toggleCollapse: []
+  toggleFavorite: [conversationId: string]
+}>()
 
 const activeConversations = computed(() =>
   props.conversations.filter((conversation) => !conversation.archived),
-);
+)
+const favoriteConversations = computed(() =>
+  activeConversations.value.filter((conversation) => conversation.favorite),
+)
+const standardConversations = computed(() =>
+  activeConversations.value.filter((conversation) => !conversation.favorite),
+)
 const archivedConversations = computed(() =>
   props.conversations.filter((conversation) => conversation.archived),
-);
+)
 
-const isShiftPressed = ref(false);
-const hoveredArchiveConversationId = ref<string | null>(null);
+const isShiftPressed = ref(false)
+const hoveredArchiveConversationId = ref<string | null>(null)
 
 const handleKeydown = (event: KeyboardEvent) => {
-  if (event.key === "Shift") {
-    isShiftPressed.value = true;
+  if (event.key === 'Shift') {
+    isShiftPressed.value = true
   }
-};
+}
 
 const handleKeyup = (event: KeyboardEvent) => {
-  if (event.key === "Shift") {
-    isShiftPressed.value = false;
+  if (event.key === 'Shift') {
+    isShiftPressed.value = false
   }
-};
+}
 
 const handleWindowBlur = () => {
-  isShiftPressed.value = false;
-};
+  isShiftPressed.value = false
+}
 
 onMounted(() => {
-  window.addEventListener("keydown", handleKeydown);
-  window.addEventListener("keyup", handleKeyup);
-  window.addEventListener("blur", handleWindowBlur);
-});
+  window.addEventListener('keydown', handleKeydown)
+  window.addEventListener('keyup', handleKeyup)
+  window.addEventListener('blur', handleWindowBlur)
+})
 
 onBeforeUnmount(() => {
-  window.removeEventListener("keydown", handleKeydown);
-  window.removeEventListener("keyup", handleKeyup);
-  window.removeEventListener("blur", handleWindowBlur);
-});
+  window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('keyup', handleKeyup)
+  window.removeEventListener('blur', handleWindowBlur)
+})
 </script>
 
 <template>
@@ -87,50 +94,109 @@ onBeforeUnmount(() => {
       <div class="sidebar-controls">
         <button
           class="control-btn"
-          :title="showArchived ? 'Hide archived' : 'Show archived'"
+          :class="{ active: showArchived }"
+          :title="showArchived ? 'Hide archived' : 'View archived'"
           @click="$emit('toggleArchived')"
         >
           <AppIcon name="archive" />
+          <span class="control-label">{{ showArchived ? 'Hide archived' : 'View archived' }}</span>
         </button>
       </div>
     </div>
 
     <div class="conversation-list">
-      <div
-        v-for="conversation in activeConversations"
-        :key="conversation.id"
-        class="conversation-row"
-        :class="{ active: conversation.id === selectedConversationId }"
-      >
-        <button class="conversation-item" @click="$emit('select', conversation.id)">
-          <span class="conversation-title">{{ conversation.title }}</span>
-          <span
-            v-if="generatingConversationId === conversation.id"
-            class="sidebar-generating-indicator"
-            aria-label="Generating response"
-            title="Generating response"
-          />
-        </button>
-        <button
-          class="icon-button"
-          :title="
-            hoveredArchiveConversationId === conversation.id && isShiftPressed
-              ? 'Delete chat'
-              : 'Archive chat (Shift+click to delete)'
-          "
-          @mouseenter="hoveredArchiveConversationId = conversation.id"
-          @mouseleave="hoveredArchiveConversationId = null"
-          @click.stop="$emit('archive', conversation.id, $event)"
+      <div v-if="favoriteConversations.length" class="conversation-section">
+        <div class="archived-title">Favorites</div>
+        <div
+          v-for="conversation in favoriteConversations"
+          :key="conversation.id"
+          class="conversation-row favorite"
+          :class="{ active: conversation.id === selectedConversationId }"
         >
-          <AppIcon
-            :name="
+          <button class="conversation-item" @click="$emit('select', conversation.id)">
+            <span class="conversation-title">{{ conversation.title }}</span>
+            <span
+              v-if="generatingConversationId === conversation.id"
+              class="sidebar-generating-indicator"
+              aria-label="Generating response"
+              title="Generating response"
+            />
+          </button>
+          <button
+            class="icon-button favorite active"
+            title="Remove from favorites"
+            @click.stop="$emit('toggleFavorite', conversation.id)"
+          >
+            <AppIcon name="star" :size="15" filled />
+          </button>
+          <button
+            class="icon-button"
+            :title="
               hoveredArchiveConversationId === conversation.id && isShiftPressed
-                ? 'trash'
-                : 'archive'
+                ? 'Delete chat'
+                : 'Archive chat (Shift+click to delete)'
             "
-            :size="15"
-          />
-        </button>
+            @mouseenter="hoveredArchiveConversationId = conversation.id"
+            @mouseleave="hoveredArchiveConversationId = null"
+            @click.stop="$emit('archive', conversation.id, $event)"
+          >
+            <AppIcon
+              :name="
+                hoveredArchiveConversationId === conversation.id && isShiftPressed
+                  ? 'trash'
+                  : 'archive'
+              "
+              :size="15"
+            />
+          </button>
+        </div>
+      </div>
+
+      <div class="conversation-section">
+        <div v-if="favoriteConversations.length" class="archived-title">Chats</div>
+        <div
+          v-for="conversation in standardConversations"
+          :key="conversation.id"
+          class="conversation-row"
+          :class="{ active: conversation.id === selectedConversationId }"
+        >
+          <button class="conversation-item" @click="$emit('select', conversation.id)">
+            <span class="conversation-title">{{ conversation.title }}</span>
+            <span
+              v-if="generatingConversationId === conversation.id"
+              class="sidebar-generating-indicator"
+              aria-label="Generating response"
+              title="Generating response"
+            />
+          </button>
+          <button
+            class="icon-button favorite"
+            title="Add to favorites"
+            @click.stop="$emit('toggleFavorite', conversation.id)"
+          >
+            <AppIcon name="star" :size="15" />
+          </button>
+          <button
+            class="icon-button"
+            :title="
+              hoveredArchiveConversationId === conversation.id && isShiftPressed
+                ? 'Delete chat'
+                : 'Archive chat (Shift+click to delete)'
+            "
+            @mouseenter="hoveredArchiveConversationId = conversation.id"
+            @mouseleave="hoveredArchiveConversationId = null"
+            @click.stop="$emit('archive', conversation.id, $event)"
+          >
+            <AppIcon
+              :name="
+                hoveredArchiveConversationId === conversation.id && isShiftPressed
+                  ? 'trash'
+                  : 'archive'
+              "
+              :size="15"
+            />
+          </button>
+        </div>
       </div>
 
       <div class="archived-section">
@@ -144,6 +210,14 @@ onBeforeUnmount(() => {
         >
           <button class="conversation-item" @click="$emit('select', conversation.id)">
             <span class="conversation-title">{{ conversation.title }}</span>
+          </button>
+          <button
+            class="icon-button favorite"
+            :class="{ active: conversation.favorite }"
+            :title="conversation.favorite ? 'Remove from favorites' : 'Add to favorites'"
+            @click.stop="$emit('toggleFavorite', conversation.id)"
+          >
+            <AppIcon name="star" :size="15" :filled="conversation.favorite" />
           </button>
           <button
             class="icon-button"
@@ -258,13 +332,31 @@ onBeforeUnmount(() => {
   background: var(--surface);
   color: var(--muted);
   cursor: pointer;
-  display: inline-grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .control-btn {
   min-height: 2.2rem;
   border-radius: 0.5rem;
+  gap: 0.42rem;
+  padding: 0 0.7rem;
+  font-weight: 650;
+  font-size: 0.78rem;
+}
+
+.control-btn.active {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
+  background: var(--selected);
+}
+
+.control-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .control-btn:hover,
@@ -281,15 +373,24 @@ onBeforeUnmount(() => {
   align-content: start;
 }
 
+.conversation-section {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.conversation-section + .conversation-section {
+  margin-top: 0.35rem;
+}
+
 .conversation-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 0.28rem;
   align-items: center;
 }
 
 .conversation-row.archived {
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
 }
 
 .conversation-row.active .conversation-item {
@@ -333,6 +434,12 @@ onBeforeUnmount(() => {
   width: 2.15rem;
   height: 2.15rem;
   border-radius: 0.45rem;
+}
+
+.icon-button.favorite.active {
+  color: #f59e0b;
+  border-color: color-mix(in srgb, #f59e0b 58%, var(--border));
+  background: color-mix(in srgb, #f59e0b 14%, var(--surface));
 }
 
 .icon-button.danger:hover {

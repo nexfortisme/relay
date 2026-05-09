@@ -33,6 +33,7 @@ export type NotebookConversation = {
   title: string
   notebookId: string
   archived: boolean
+  favorite: boolean
   createdAt: string
   updatedAt: string
 }
@@ -59,7 +60,11 @@ async function responseErrorMessage(response: Response, fallback: string): Promi
   }
 }
 
-async function fetchJson<T>(path: string, init: RequestInit | undefined, errorMessage: string): Promise<T> {
+async function fetchJson<T>(
+  path: string,
+  init: RequestInit | undefined,
+  errorMessage: string,
+): Promise<T> {
   const response = await fetch(apiPath(path), withCreds(init))
   if (!response.ok) {
     throw new Error(await responseErrorMessage(response, errorMessage))
@@ -67,7 +72,11 @@ async function fetchJson<T>(path: string, init: RequestInit | undefined, errorMe
   return response.json()
 }
 
-async function fetchNoContent(path: string, init: RequestInit | undefined, errorMessage: string): Promise<void> {
+async function fetchNoContent(
+  path: string,
+  init: RequestInit | undefined,
+  errorMessage: string,
+): Promise<void> {
   const response = await fetch(apiPath(path), withCreds(init))
   if (!response.ok) {
     throw new Error(await responseErrorMessage(response, errorMessage))
@@ -77,7 +86,11 @@ async function fetchNoContent(path: string, init: RequestInit | undefined, error
 // Notebooks CRUD
 
 export async function listNotebooks(): Promise<Notebook[]> {
-  const data = await fetchJson<{ items: Notebook[] }>('/notebooks', undefined, 'Failed to list notebooks')
+  const data = await fetchJson<{ items: Notebook[] }>(
+    '/notebooks',
+    undefined,
+    'Failed to list notebooks',
+  )
   return data.items ?? []
 }
 
@@ -89,7 +102,11 @@ export async function createNotebook(payload: {
 }): Promise<Notebook> {
   return fetchJson<Notebook>(
     '/notebooks',
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) },
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
     'Failed to create notebook',
   )
 }
@@ -104,7 +121,11 @@ export async function updateNotebook(
 ): Promise<Notebook> {
   return fetchJson<Notebook>(
     `/notebooks/${id}`,
-    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) },
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    },
     'Failed to update notebook',
   )
 }
@@ -188,16 +209,26 @@ export async function getPendingJobCount(notebookId: string): Promise<number> {
 
 // Conversations
 
-export async function listNotebookConversations(notebookId: string): Promise<NotebookConversation[]> {
+export async function listNotebookConversations(
+  notebookId: string,
+  includeArchived = false,
+): Promise<NotebookConversation[]> {
+  const params = new URLSearchParams()
+  if (includeArchived) {
+    params.set('includeArchived', '1')
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : ''
   const data = await fetchJson<{ items: NotebookConversation[] }>(
-    `/notebooks/${notebookId}/conversations`,
+    `/notebooks/${notebookId}/conversations${suffix}`,
     undefined,
     'Failed to list notebook conversations',
   )
   return data.items ?? []
 }
 
-export async function createNotebookConversation(notebookId: string): Promise<NotebookConversation> {
+export async function createNotebookConversation(
+  notebookId: string,
+): Promise<NotebookConversation> {
   return fetchJson<NotebookConversation>(
     `/notebooks/${notebookId}/conversations`,
     { method: 'POST' },

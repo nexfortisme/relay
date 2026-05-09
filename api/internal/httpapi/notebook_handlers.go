@@ -266,6 +266,7 @@ func (h *Handlers) CreateNotebookConversation(c *gin.Context) {
 		"title":      conv.Title,
 		"notebookId": notebookID,
 		"archived":   false,
+		"favorite":   false,
 		"createdAt":  conv.CreatedAt,
 		"updatedAt":  conv.CreatedAt,
 	})
@@ -285,7 +286,8 @@ func (h *Handlers) ListNotebookConversations(c *gin.Context) {
 		return
 	}
 
-	convs, err := h.chat.ListNotebookConversations(ctx, userID, notebookID)
+	includeArchived := c.Query("includeArchived") == "1" || c.Query("includeArchived") == "true"
+	convs, err := h.chat.ListNotebookConversations(ctx, userID, notebookID, includeArchived)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
