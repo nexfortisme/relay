@@ -14,6 +14,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/gen2brain/go-fitz"
 	"github.com/ledongthuc/pdf"
 	"github.com/nexfortisme/relay/internal/prompts"
 )
@@ -67,6 +68,28 @@ func BuildPrompt(userPrompt string, files []UploadedFile, opts PromptOptions) (s
 
 		if len(file.Data) > options.MaxFileBytes {
 			return "", fmt.Errorf("%s exceeds max size of %d MB", file.Name, options.MaxFileBytes/(1024*1024))
+		}
+
+		if contentType == "application/pdf" || strings.ToLower(filepath.Ext(file.Name)) == ".pdf" {
+			text, renderedPages, pageNums, err := extractPDFContent(file.Data)
+			if err != nil {
+				return "", err
+			}
+			for i, imgData := range renderedPages {
+				prepared, ct, prepErr := prepareImageForPrompt(imgData, "image/jpeg", options.MaxImageBytes)
+				if prepErr != nil {
+					skippedImages = append(skippedImages, fmt.Sprintf("page %d of %s", pageNums[i], file.Name))
+					continue
+				}
+				images = append(images, imageBlock(fmt.Sprintf("page %d of %s", pageNums[i], file.Name), ct, prepared))
+			}
+			if strings.TrimSpace(text) != "" {
+				totalDocChars += len(text)
+				for idx, part := range splitText(text, chunkSizeRunes, chunkOverlapRunes) {
+					documents = append(documents, chunk{Source: file.Name, Index: idx + 1, Text: part})
+				}
+			}
+			continue
 		}
 
 		text, err := extractDocumentText(file.Name, contentType, file.Data)
@@ -248,8 +271,6 @@ func resizeNearest(src image.Image, width int, height int) *image.RGBA {
 func extractDocumentText(name string, contentType string, raw []byte) (string, error) {
 	ext := strings.ToLower(filepath.Ext(name))
 	switch {
-	case contentType == "application/pdf" || ext == ".pdf":
-		return extractPDFText(raw)
 	case strings.HasPrefix(contentType, "text/"),
 		contentType == "application/json",
 		contentType == "application/xml",
@@ -268,29 +289,71 @@ func extractDocumentText(name string, contentType string, raw []byte) (string, e
 	}
 }
 
-func extractPDFText(raw []byte) (string, error) {
+func pageHasImages(page pdf.Page) bool {
+	xobjects := page.V.Key("Resources").Key("XObject")
+	if xobjects.IsNull() {
+		return false
+	}
+	for _, key := range xobjects.Keys() {
+		if xobjects.Key(key).Key("Subtype").Name() == "Image" {
+			return true
+		}
+	}
+	return false
+}
+
+func extractPDFContent(raw []byte) (text string, renderedPages [][]byte, imagePageNums []int, err error) {
 	reader := bytes.NewReader(raw)
 	pdfReader, err := pdf.NewReader(reader, int64(len(raw)))
 	if err != nil {
-		return "", fmt.Errorf("read pdf: %w", err)
+		return "", nil, nil, fmt.Errorf("read pdf: %w", err)
 	}
-	var out strings.Builder
-	totalPages := pdfReader.NumPage()
-	for i := 1; i <= totalPages; i++ {
+
+	var fitzDoc *fitz.Document
+	defer func() {
+		if fitzDoc != nil {
+			fitzDoc.Close()
+		}
+	}()
+
+	var textBuilder strings.Builder
+	total := pdfReader.NumPage()
+	for i := 1; i <= total; i++ {
 		page := pdfReader.Page(i)
 		if page.V.IsNull() {
 			continue
 		}
-		text, err := page.GetPlainText(nil)
-		if err != nil {
-			return "", fmt.Errorf("extract pdf page %d: %w", i, err)
+
+		if pageHasImages(page) {
+			if fitzDoc == nil {
+				fitzDoc, err = fitz.NewFromMemory(raw)
+				if err != nil {
+					return "", nil, nil, fmt.Errorf("open pdf for rendering: %w", err)
+				}
+			}
+			img, renderErr := fitzDoc.ImageDPI(i-1, 150)
+			if renderErr != nil {
+				if t, terr := page.GetPlainText(nil); terr == nil && strings.TrimSpace(t) != "" {
+					textBuilder.WriteString(fmt.Sprintf("[Page %d]\n%s\n\n", i, t))
+				}
+				continue
+			}
+			var buf bytes.Buffer
+			if encErr := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 85}); encErr != nil {
+				continue
+			}
+			renderedPages = append(renderedPages, buf.Bytes())
+			imagePageNums = append(imagePageNums, i)
+		} else {
+			t, terr := page.GetPlainText(nil)
+			if terr != nil || strings.TrimSpace(t) == "" {
+				continue
+			}
+			textBuilder.WriteString(fmt.Sprintf("[Page %d]\n%s\n\n", i, t))
 		}
-		if strings.TrimSpace(text) == "" {
-			continue
-		}
-		out.WriteString(fmt.Sprintf("[Page %d]\n%s\n\n", i, text))
 	}
-	return out.String(), nil
+
+	return textBuilder.String(), renderedPages, imagePageNums, nil
 }
 
 func splitText(text string, size int, overlap int) []string {
