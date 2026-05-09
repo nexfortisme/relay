@@ -39,7 +39,7 @@ type ImageMeta struct {
 // Filter represents a structured WHERE clause condition.
 type Filter struct {
 	Column string `json:"column"`
-	Op     string `json:"op"`  // eq|neq|contains|gt|lt|gte|lte
+	Op     string `json:"op"` // eq|neq|contains|gt|lt|gte|lte
 	Value  string `json:"value"`
 }
 
