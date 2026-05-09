@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/nexfortisme/relay/internal/llm"
+	"github.com/nexfortisme/relay/internal/prompts"
 	"github.com/nexfortisme/relay/internal/store"
 	"github.com/nexfortisme/relay/internal/tools"
 )
@@ -22,6 +23,8 @@ const (
 	workerConcurrency = 3
 	maxSnapshots      = 5
 )
+
+var pdfPageImagePrompt = prompts.MustLoad(prompts.NotebookPDFPageImage)
 
 // Service manages notebooks: background job processing and CRUD operations.
 type Service struct {
@@ -82,7 +85,7 @@ func (s *Service) settingOrDefault(ctx context.Context, userID, key, defaultVal 
 // textual description suitable for appending to the indexed page content.
 func describePageImage(ctx context.Context, provider llm.Provider, jpegBytes []byte) (string, error) {
 	b64 := base64.StdEncoding.EncodeToString(jpegBytes)
-	prompt := "Describe what is shown in this PDF page image. Be concise and factual.\n\n" +
+	prompt := pdfPageImagePrompt + "\n\n" +
 		"![page](data:image/jpeg;base64," + b64 + ")"
 	msgs := []llm.ChatMessage{{Role: "user", Content: llm.ParseContent(prompt)}}
 	ch := provider.GenerateStream(ctx, msgs, tools.NoopRuntime{})
