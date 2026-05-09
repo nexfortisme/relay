@@ -7,7 +7,9 @@ import {
   getProcessingStages,
   statusLabel,
 } from '../lib/notebookFiles'
+import { loaderPalette } from '../lib/logoPalette'
 import AppIcon from './AppIcon.vue'
+import LogoLoader from './LogoLoader.vue'
 
 defineProps<{
   selectedNotebook: Notebook | null
@@ -116,7 +118,14 @@ onUnmounted(() => {
           class="file-flyout progress-flyout"
         >
           <div class="progress-status">
-            <span v-if="file.status === 'processing'" class="progress-spinner" />
+            <LogoLoader
+              v-if="file.status === 'processing'"
+              class="progress-logo-loader"
+              :size="18"
+              duration="1.8s"
+              :palette="loaderPalette"
+              label="Processing file"
+            />
             <span class="progress-status-text">
               {{
                 file.status === 'pending'
@@ -379,20 +388,8 @@ onUnmounted(() => {
   margin-bottom: 0.5rem;
 }
 
-.progress-spinner {
-  width: 0.65rem;
-  height: 0.65rem;
-  border-radius: 999px;
-  border: 1.5px solid color-mix(in srgb, var(--primary) 30%, transparent);
-  border-top-color: var(--primary);
+.progress-logo-loader {
   flex-shrink: 0;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .progress-status-text {

@@ -8,10 +8,12 @@ import ChatComposer from '../components/ChatComposer.vue'
 import ChatHeader from '../components/ChatHeader.vue'
 import EmptyChatGreeting from '../components/EmptyChatGreeting.vue'
 import MessageList from '../components/MessageList.vue'
+import LogoLoader from '../components/LogoLoader.vue'
 import NotebookCreateDialog from '../components/NotebookCreateDialog.vue'
 import NotebookSettingsDialog from '../components/NotebookSettingsDialog.vue'
 import NotebookSidebar from '../components/NotebookSidebar.vue'
 import PageNavTabs from '../components/PageNavTabs.vue'
+import { loaderPalette } from '../lib/logoPalette'
 import { DEFAULT_NOTEBOOK_CONVERSATION_TITLE, useNotebookStore } from '../stores/notebookStore'
 import { useUiStore } from '../stores/uiStore'
 import { useChatStore } from '../stores/chatStore'
@@ -358,7 +360,14 @@ function stopElapsedTimer() {
                     class="file-flyout progress-flyout"
                   >
                     <div class="progress-status">
-                      <span v-if="file.status === 'processing'" class="progress-spinner" />
+                      <LogoLoader
+                        v-if="file.status === 'processing'"
+                        class="progress-logo-loader"
+                        :size="18"
+                        duration="1.8s"
+                        :palette="loaderPalette"
+                        label="Processing file"
+                      />
                       <span class="progress-status-text">
                         {{
                           file.status === 'pending'
@@ -406,7 +415,7 @@ function stopElapsedTimer() {
           <!-- Chats mode -->
           <template v-else>
             <div class="pane-header">
-              <div>
+              <div class="pane-heading">
                 <h2 class="pane-title">{{ selectedNotebook?.name ?? 'Chats' }}</h2>
                 <p v-if="selectedNotebook?.description" class="pane-subtitle">
                   {{ selectedNotebook.description }}
@@ -415,17 +424,24 @@ function stopElapsedTimer() {
               <div class="header-actions">
                 <button
                   v-if="selectedNotebook"
-                  class="secondary-btn"
-                  :class="{ 'secondary-btn--active': showArchived }"
-                  :title="showArchived ? 'Hide archived chats' : 'View archived chats'"
+                  class="icon-btn archived-toggle-btn"
+                  :class="{ 'icon-btn--active': showArchived }"
+                  :title="
+                    showArchived
+                      ? 'Hide archived chats'
+                      : `View archived chats (${archivedConversations.length})`
+                  "
+                  :aria-label="
+                    showArchived
+                      ? 'Hide archived chats'
+                      : `View archived chats (${archivedConversations.length})`
+                  "
                   @click="notebookStore.toggleArchived"
                 >
-                  <AppIcon name="archive" :size="14" />
-                  {{
-                    showArchived
-                      ? 'Hide archived'
-                      : `View archived (${archivedConversations.length})`
-                  }}
+                  <AppIcon name="archive" :size="15" />
+                  <span v-if="archivedConversations.length" class="archived-toggle-count">
+                    {{ archivedConversations.length }}
+                  </span>
                 </button>
                 <button
                   v-if="selectedNotebook"
@@ -569,11 +585,15 @@ function stopElapsedTimer() {
               :title="selectedConversation?.title ?? DEFAULT_NOTEBOOK_CONVERSATION_TITLE"
               :token-count="conversationTokenCount"
               :max-token-count="chatStore.maxConversationTokenCount"
+              :is-favorite="selectedConversation?.favorite ?? false"
               @archive="archiveSelectedNotebookChat"
               @begin-edit="notebookStore.beginConversationTitleEdit"
               @cancel-edit="notebookStore.cancelConversationTitleEdit"
               @save-title="notebookStore.saveConversationTitle"
               @suggest-title="notebookStore.suggestConversationTitleWithLLM"
+              @toggle-favorite="
+                selectedConversationId && toggleFavoriteNotebookChat(selectedConversationId)
+              "
             />
 
             <MessageList
@@ -659,12 +679,16 @@ function stopElapsedTimer() {
 
 .pane-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.75rem 0.9rem;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+}
+
+.pane-heading {
+  min-width: 0;
 }
 
 .pane-title {
@@ -1023,28 +1047,32 @@ function stopElapsedTimer() {
   background: var(--surface-hover);
 }
 
-.secondary-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  min-height: 2rem;
-  padding: 0.34rem 0.65rem;
-  border: 1px solid var(--border);
-  border-radius: 0.45rem;
-  background: var(--surface-soft);
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 650;
-  cursor: pointer;
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-.secondary-btn:hover,
-.secondary-btn--active {
+.icon-btn--active {
   color: var(--text);
   border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
   background: var(--surface-hover);
+}
+
+.archived-toggle-btn {
+  position: relative;
+}
+
+.archived-toggle-count {
+  position: absolute;
+  top: -0.32rem;
+  right: -0.32rem;
+  min-width: 1rem;
+  height: 1rem;
+  padding: 0 0.22rem;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--bg);
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.63rem;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .primary-btn {
@@ -1093,20 +1121,8 @@ function stopElapsedTimer() {
   margin-bottom: 0.5rem;
 }
 
-.progress-spinner {
-  width: 0.65rem;
-  height: 0.65rem;
-  border-radius: 999px;
-  border: 1.5px solid color-mix(in srgb, var(--primary) 30%, transparent);
-  border-top-color: var(--primary);
+.progress-logo-loader {
   flex-shrink: 0;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .progress-status-text {

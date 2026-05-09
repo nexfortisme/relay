@@ -108,11 +108,15 @@ onMounted(chatStore.resumeSelectedConversationStream)
         :models="chatModels"
         :token-count="conversationTokenCount"
         :max-token-count="chatStore.maxConversationTokenCount"
+        :is-favorite="selectedConversation?.favorite ?? false"
         @archive="chatStore.archiveSelectedConversation"
         @begin-edit="conversationStore.beginConversationTitleEdit"
         @cancel-edit="conversationStore.cancelConversationTitleEdit"
         @save-title="conversationStore.saveConversationTitle"
         @suggest-title="conversationStore.suggestConversationTitleWithLLM"
+        @toggle-favorite="
+          selectedConversationId && chatStore.toggleFavoriteChat(selectedConversationId)
+        "
       />
       <MessageList
         :messages="messages"
