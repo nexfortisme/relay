@@ -154,8 +154,8 @@ Key environment variables:
 - **`WEB_ORIGIN`**: browser origin allowed by CORS (default `http://localhost:5173`)
 - **`VITE_API_BASE_DEV`**: frontend API base during Vite dev (default `http://localhost:8091/api`)
 - **`VITE_API_BASE`**: frontend API base in production builds (default `/api`)
-- **`SQLITE_PATH`**: SQLite database file path
-- **`DATA_DIR`**: notebook databases, snapshots, and other larger local data (default `data`)
+- **`SQLITE_PATH`**: main SQLite database file (default `../.relay/data/relay.db` relative to API cwd with `./scripts/dev.sh`)
+- **`DATA_DIR`**: notebook databases, snapshots, and other larger local data (default `../.relay/data` relative to API cwd — repo `.relay/data` with `./scripts/dev.sh`)
 - **`JWT_TOKEN`**, **`JWT_REFRESH_TOKEN`**: secrets for signing and hashing tokens
 - **`DISABLE_AUTH`**: disable auth wall and act as root user
 - **`ROOT_USERNAME`**, **`ROOT_PASSWORD`**: seeded admin account

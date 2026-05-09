@@ -117,7 +117,7 @@ LLM_MODEL=<model-name>
 Key variables:
 - `API_PORT` — backend port (default `8091`)
 - `WEB_ORIGIN` — CORS allowed origin (default `http://localhost:5173`)
-- `SQLITE_PATH` — database file (default `relay.db`)
+- `SQLITE_PATH` — main SQLite file (default `../.relay/data/relay.db` relative to API working directory — repo `.relay/` when using `./scripts/dev.sh` or `air` from `api/`)
 - `MCP_SERVER_ADDRESS` / `MCP_URL` — internal MCP server (default `:8090` / `http://localhost:8090/mcp`)
 - `VITE_API_BASE` — frontend API base URL (default `http://localhost:8091/api`)
 

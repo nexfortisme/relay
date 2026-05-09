@@ -16,7 +16,9 @@ COPY api/go.mod api/go.sum ./
 RUN go mod download
 
 COPY api/ ./
-RUN CGO_ENABLED=0 GOOS=linux go build -o /out/relay ./main.go
+# go-fitz: CGO links bundled MuPDF static libs in the module. CGO_ENABLED=0 selects
+# purego + dlopen("libmupdf.so"), which this slim runtime image does not ship.
+RUN CGO_ENABLED=1 GOOS=linux go build -o /out/relay ./main.go
 
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app

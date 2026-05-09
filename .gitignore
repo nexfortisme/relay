@@ -2,6 +2,7 @@
 
 # Relay Files
 .relay/*
+api/.relay/*
 
 # Claude Files
 .claude/*

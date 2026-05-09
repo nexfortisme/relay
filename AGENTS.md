@@ -133,7 +133,7 @@ Important variables:
 
 - `API_PORT`: backend HTTP port, default `8091`
 - `WEB_ORIGIN`: allowed CORS origin, default `http://localhost:5173`
-- `SQLITE_PATH`: SQLite database path
+- `SQLITE_PATH`: main SQLite path (default `../.relay/data/relay.db` from `api/` cwd → repo `.relay/` with dev scripts)
 - `MCP_SERVER_ADDRESS`: internal MCP bind address, default `:8090`
 - `MCP_URL`: MCP endpoint used by runtime, default `http://localhost:8090/mcp`
 - `VITE_API_BASE_DEV`: frontend dev API base
