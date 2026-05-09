@@ -33,17 +33,17 @@ const {
   draft,
   generatingConversationId,
   isConversationTokenCapReached,
+  isSelectedConversationWaitingForAssistant,
   isSending,
   messages,
   selectedFiles,
-  shouldShowPendingAssistantPlaceholder,
   streamError,
 } = storeToRefs(chatStore)
 
 const { isSidebarCollapsed, theme } = storeToRefs(uiStore)
 
 const shouldShowEmptyGreeting = computed(
-  () => messages.value.length === 0 && !shouldShowPendingAssistantPlaceholder.value,
+  () => messages.value.length === 0 && !isSelectedConversationWaitingForAssistant.value,
 )
 const chatModels = computed(() => {
   const seen = new Set<string>()
@@ -120,7 +120,7 @@ onMounted(chatStore.resumeSelectedConversationStream)
       />
       <MessageList
         :messages="messages"
-        :pending-assistant="shouldShowPendingAssistantPlaceholder"
+        :pending-assistant="isSelectedConversationWaitingForAssistant"
         :requeue-disabled="isSending"
         :theme="theme"
         @requeue="chatStore.handleRequeueMessage"

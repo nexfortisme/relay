@@ -52,7 +52,7 @@ const {
   selectedFiles,
   conversationTokenCount,
   isConversationTokenCapReached,
-  shouldShowPendingAssistantPlaceholder,
+  isSelectedConversationWaitingForAssistant,
   streamError,
 } = storeToRefs(chatStore)
 
@@ -75,7 +75,7 @@ const visibleConversationCount = computed(
   () => favoriteConversations.value.length + regularConversations.value.length,
 )
 const shouldShowEmptyGreeting = computed(
-  () => messages.value.length === 0 && !shouldShowPendingAssistantPlaceholder.value,
+  () => messages.value.length === 0 && !isSelectedConversationWaitingForAssistant.value,
 )
 
 onMounted(async () => {
@@ -598,7 +598,7 @@ function stopElapsedTimer() {
 
             <MessageList
               :messages="messages"
-              :pending-assistant="shouldShowPendingAssistantPlaceholder"
+              :pending-assistant="isSelectedConversationWaitingForAssistant"
               :requeue-disabled="isSending"
               :theme="theme"
               @requeue="chatStore.handleRequeueMessage"

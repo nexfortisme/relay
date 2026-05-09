@@ -125,7 +125,7 @@ export function isPersistedMatchForOptimisticUserMessage(
   )
 }
 
-export function attachmentListsHaveSameDisplayNames(
+function attachmentListsHaveSameDisplayNames(
   left: { name: string }[] | undefined,
   right: { name: string }[] | undefined,
 ): boolean {
@@ -139,14 +139,10 @@ export function attachmentListsHaveSameDisplayNames(
 
 /** Sums meaningful total token counts reported on messages for cap UI. */
 export function sumTotalTokensAcrossMessages(items: DisplayMessage[]): number {
-  return items.reduce(
-    (runningTotal, message) => runningTotal + finitePositiveOrZero(message.totalTokens),
-    0,
-  )
-}
-
-export function finitePositiveOrZero(value: number | undefined): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0
+  return items.reduce((runningTotal, message) => {
+    const n = message.totalTokens
+    return runningTotal + (typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0)
+  }, 0)
 }
 
 export function applyTokenUsageFieldsFromPayload(
