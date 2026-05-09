@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 
 const props = defineProps<{
@@ -65,6 +65,24 @@ defineEmits<{
 }>()
 
 const titleInputEl = ref<HTMLInputElement | null>(null)
+const shiftHeld = ref(false)
+
+function onKeyDown(e: KeyboardEvent) {
+  if (e.key === 'Shift') shiftHeld.value = true
+}
+function onKeyUp(e: KeyboardEvent) {
+  if (e.key === 'Shift') shiftHeld.value = false
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeyDown)
+  window.addEventListener('keyup', onKeyUp)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeyDown)
+  window.removeEventListener('keyup', onKeyUp)
+})
 
 watch(
   () => props.isEditing,
@@ -145,11 +163,11 @@ watch(
         <button
           class="header-action"
           :disabled="!selectedConversationId"
-          title="Archive chat (Shift+click to delete)"
+          :title="shiftHeld ? 'Delete chat' : 'Archive chat (Shift+click to delete)'"
           @click="$emit('archive', $event)"
         >
-          <AppIcon name="archive" :size="16" />
-          <span class="header-action-label">Archive</span>
+          <AppIcon :name="shiftHeld ? 'trash' : 'archive'" :size="16" />
+          <span class="header-action-label">{{ shiftHeld ? 'Delete' : 'Archive' }}</span>
         </button>
       </div>
     </div>
