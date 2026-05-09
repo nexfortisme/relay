@@ -9,7 +9,9 @@ ARG VITE_API_BASE=/api
 ENV VITE_API_BASE=${VITE_API_BASE}
 RUN bun run build-only
 
-FROM golang:1.25 AS api-builder
+# Use the bookworm-based Go image so CGO links against the same glibc as debian:bookworm-slim
+# below. Default golang:* uses newer Debian → GLIBC_2.38+ symbols the runtime libc lacks.
+FROM golang:1.25-bookworm AS api-builder
 WORKDIR /build/api
 
 COPY api/go.mod api/go.sum ./
