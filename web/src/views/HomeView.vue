@@ -8,12 +8,15 @@ import LogoIcon from '../components/LogoIcon.vue'
 import { brandLogoPalette } from '../lib/logoPalette'
 import { useUiStore } from '../stores/uiStore'
 import { useChatStore } from '../stores/chatStore'
+import { useNotebookStore } from '../stores/notebookStore'
 import { listFeeds, type Feed } from '../lib/api'
 
 const uiStore = useUiStore()
 const chatStore = useChatStore()
+const notebookStore = useNotebookStore()
 const router = useRouter()
 const { isSidebarCollapsed, theme } = storeToRefs(uiStore)
+const { notebooks, isLoading: notebooksLoading, error: notebooksError } = storeToRefs(notebookStore)
 
 const launcherDraft = ref('')
 const feeds = ref<Feed[]>([])
@@ -24,15 +27,41 @@ const sortedFeeds = computed(() =>
 )
 const recentFeeds = computed(() => sortedFeeds.value.slice(0, 3))
 const hasMore = computed(() => feeds.value.length > 3)
+const sortedNotebooks = computed(() =>
+  [...notebooks.value].sort((a, b) => dateMillis(b.updatedAt) - dateMillis(a.updatedAt)),
+)
+const notebookCountLabel = computed(() => {
+  const count = notebooks.value.length
+  return `${count} notebook${count === 1 ? '' : 's'}`
+})
 
 onMounted(async () => {
+  await Promise.all([loadHomeFeeds(), notebookStore.loadNotebooks()])
+})
+
+async function loadHomeFeeds() {
   feedsLoading.value = true
   try {
     feeds.value = await listFeeds()
   } finally {
     feedsLoading.value = false
   }
-})
+}
+
+function dateMillis(iso: string): number {
+  const time = new Date(iso).getTime()
+  return Number.isNaN(time) ? 0 : time
+}
+
+function formatShortDate(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(date)
+}
+
+function pendingJobsLabel(count: number): string {
+  return `${count} indexing ${count === 1 ? 'job' : 'jobs'}`
+}
 
 async function startNewChat() {
   const trimmed = launcherDraft.value.trim()
@@ -126,14 +155,35 @@ async function startNewChat() {
         <section class="home-card">
           <div class="home-card-header">
             <h3>Notebooks</h3>
-            <span class="muted">placeholder</span>
+            <div v-if="notebooks.length > 0" class="home-card-actions">
+              <span class="muted">{{ notebookCountLabel }}</span>
+              <button class="see-more-btn" @click="router.push('/notebooks')">Open</button>
+            </div>
           </div>
-          <div class="placeholder-grid">
-            <div class="placeholder-card">Cooking</div>
-            <div class="placeholder-card">Game manuals</div>
-            <div class="placeholder-card">Research papers</div>
-            <div class="placeholder-card">Travel</div>
-          </div>
+          <div v-if="notebooksLoading" class="muted notebook-loading">Loading…</div>
+          <p v-else-if="notebooksError" class="notebook-empty notebook-error">
+            {{ notebooksError }}
+          </p>
+          <ul v-else-if="sortedNotebooks.length > 0" class="notebook-list">
+            <li v-for="notebook in sortedNotebooks" :key="notebook.id" class="notebook-list-item">
+              <div class="notebook-list-main">
+                <span class="notebook-list-title">{{ notebook.name }}</span>
+                <span class="notebook-list-description">
+                  {{ notebook.description || `Updated ${formatShortDate(notebook.updatedAt)}` }}
+                </span>
+              </div>
+              <span v-if="notebook.pendingJobs > 0" class="notebook-pending">
+                {{ pendingJobsLabel(notebook.pendingJobs) }}
+              </span>
+              <span v-else class="notebook-date">{{ formatShortDate(notebook.updatedAt) }}</span>
+            </li>
+          </ul>
+          <p v-else class="notebook-empty">
+            No notebooks yet.
+            <button class="notebook-empty-link" @click="router.push('/notebooks')">
+              Create one
+            </button>
+          </p>
         </section>
         <section class="home-card">
           <div class="home-card-header">
@@ -356,44 +406,103 @@ async function startNewChat() {
   font-size: 1rem;
 }
 
+.home-card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-shrink: 0;
+}
+
 .muted {
   color: var(--muted);
   font-size: 0.78rem;
 }
 
-.placeholder-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0.5rem;
+.notebook-loading {
+  font-size: 0.88rem;
 }
 
-.placeholder-card {
-  border: 1px dashed var(--border);
-  border-radius: 0.5rem;
-  padding: 0.85rem 0.7rem;
-  font-size: 0.85rem;
-  color: var(--muted);
-  background: var(--surface-soft);
-}
-
-.placeholder-list {
+.notebook-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 0.4rem;
+  gap: 0;
+  max-height: 18rem;
+  overflow-y: auto;
 }
 
-.placeholder-list li {
-  display: flex;
-  justify-content: space-between;
+.notebook-list-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
   font-size: 0.88rem;
-  padding: 0.4rem 0;
+  padding: 0.55rem 0;
   border-bottom: 1px solid var(--border);
 }
 
-.placeholder-list li:last-child {
+.notebook-list-item:last-child {
   border-bottom: none;
+}
+
+.notebook-list-main {
+  min-width: 0;
+  display: grid;
+  gap: 0.18rem;
+}
+
+.notebook-list-title,
+.notebook-list-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notebook-list-title {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.notebook-list-description,
+.notebook-date {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.notebook-pending {
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 650;
+  padding: 0.18rem 0.45rem;
+  white-space: nowrap;
+}
+
+.notebook-empty {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.notebook-error {
+  color: var(--danger);
+}
+
+.notebook-empty-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--primary);
+  cursor: pointer;
+  font-size: inherit;
+  font-weight: 500;
+}
+
+.notebook-empty-link:hover {
+  text-decoration: underline;
 }
 
 .see-more-btn {
@@ -529,8 +638,9 @@ async function startNewChat() {
     padding: 0.85rem 0.55rem;
   }
 
-  .placeholder-grid {
+  .notebook-list-item {
     grid-template-columns: 1fr;
+    gap: 0.3rem;
   }
 }
 

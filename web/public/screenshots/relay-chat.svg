@@ -1,71 +1,143 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1440" height="960" viewBox="0 0 1440 960" role="img" aria-labelledby="title desc">
   <title id="title">Relay chat screenshot</title>
-  <desc id="desc">A Relay chat screenshot with conversation history, file attachments, model thinking, and a composer.</desc>
+  <desc id="desc">A Relay chat screenshot with the current conversation sidebar, top tabs, chat header, streamed assistant message, and composer.</desc>
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#0f1115"/>
-      <stop offset="1" stop-color="#1f2937"/>
-    </linearGradient>
-    <linearGradient id="facet" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#60a5fa"/>
-      <stop offset=".6" stop-color="#38bdf8"/>
-      <stop offset="1" stop-color="#f6a35d"/>
-    </linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="22" stdDeviation="26" flood-color="#000000" flood-opacity="0.36"/>
-    </filter>
+    <symbol id="relay-logo" viewBox="0 0 140 140">
+      <polygon points="11 0 22 30 0 30" transform="translate(60 4) rotate(-10 11 15)" fill="#3b82f6"/>
+      <polygon points="11 0 22 30 0 30" transform="translate(82 12) rotate(35 11 15)" fill="#6fa1f8"/>
+      <polygon points="11 0 22 30 0 30" transform="translate(96 38) rotate(75 11 15)" fill="#3b82f6"/>
+      <polygon points="11 0 22 30 0 30" transform="translate(98 64) rotate(110 11 15)" fill="#6fa1f8"/>
+      <polygon points="11 0 22 30 0 30" transform="translate(84 90) rotate(150 11 15)" fill="#3b82f6"/>
+      <polygon points="11 0 22 30 0 30" transform="translate(60 102) rotate(180 11 15)" fill="#93bdfb"/>
+      <polygon points="11 0 22 30 0 30" transform="translate(36 96) rotate(215 11 15)" fill="#3b82f6"/>
+      <polygon points="11 0 22 30 0 30" transform="translate(16 76) rotate(250 11 15)" fill="#6fa1f8"/>
+      <polygon points="11 0 22 30 0 30" transform="translate(8 50) rotate(285 11 15)" fill="#3b82f6"/>
+      <polygon points="11 0 22 30 0 30" transform="translate(18 24) rotate(320 11 15)" fill="#6fa1f8"/>
+      <polygon points="11 0 22 30 0 30" transform="translate(38 8) rotate(-30 11 15)" fill="#93bdfb"/>
+      <polygon points="11 0 22 30 0 30" transform="translate(50 34) rotate(15 11 15) scale(.7)" fill="#93bdfb"/>
+      <polygon points="11 0 22 30 0 30" transform="translate(76 56) rotate(165 11 15) scale(.7)" fill="#93bdfb"/>
+      <polygon points="11 0 22 30 0 30" transform="translate(44 70) rotate(245 11 15) scale(.7)" fill="#93bdfb"/>
+      <circle cx="70" cy="70" r="6" fill="#191d27"/>
+    </symbol>
+    <style>
+      .text { fill: #f4f7fb; }
+      .muted { fill: #9aa5b5; }
+      .soft-text { fill: #d6dce7; }
+      .divider { stroke: #2b3240; stroke-width: 1.5; }
+      .icon { fill: none; stroke: #9aa5b5; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      .icon-light { fill: none; stroke: #f4f7fb; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      .icon-primary { fill: none; stroke: #ffffff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
   </defs>
-  <rect width="1440" height="960" fill="url(#bg)"/>
-  <path d="m1049 0 319 960h-164L884 0z" fill="#38bdf8" opacity=".08"/>
-  <path d="m232 0 275 960H365L76 0z" fill="#f59e0b" opacity=".06"/>
-  <g filter="url(#shadow)">
-    <rect x="88" y="76" width="1264" height="808" rx="28" fill="#0f1115"/>
-    <rect x="89" y="77" width="1262" height="806" rx="27" fill="none" stroke="#2b3240" stroke-width="2"/>
-    <rect x="88" y="76" width="280" height="808" rx="28" fill="#151821"/>
-    <path d="M368 76v808" stroke="#2b3240" stroke-width="2"/>
-    <g transform="translate(128 120)">
-      <path d="M22 0 39 22 22 44 5 22Z" fill="#22d3ee"/>
-      <text x="58" y="30" fill="#f4f7fb" font-family="Arial" font-size="26" font-weight="740">Relay</text>
+
+  <rect width="1440" height="960" fill="#0f1115"/>
+  <rect width="280" height="960" fill="#151821"/>
+  <path d="M280 0v960" class="divider"/>
+
+  <g font-family="Arial">
+    <g transform="translate(24 22)">
+      <svg width="28" height="28" viewBox="0 0 140 140">
+        <use href="#relay-logo"/>
+      </svg>
+      <text x="40" y="21" class="text" font-size="18" font-weight="700">Relay</text>
     </g>
-    <rect x="128" y="196" width="200" height="50" rx="10" fill="#2563eb"/>
-    <path d="M158 221h20M168 211v20" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
-    <text x="194" y="228" fill="#fff" font-family="Arial" font-size="18" font-weight="700">New Chat</text>
-    <g font-family="Arial">
-      <rect x="128" y="302" width="200" height="54" rx="10" fill="#222b3f" stroke="#3b82f6"/>
-      <text x="154" y="335" fill="#f4f7fb" font-size="17" font-weight="700">Morning feed brief</text>
-      <rect x="128" y="374" width="200" height="54" rx="10" fill="#191d27"/>
-      <text x="154" y="407" fill="#9aa5b5" font-size="17" font-weight="600">PDF extraction</text>
-      <rect x="128" y="446" width="200" height="54" rx="10" fill="#191d27"/>
-      <text x="154" y="479" fill="#9aa5b5" font-size="17" font-weight="600">Trip research</text>
-      <rect x="128" y="518" width="200" height="54" rx="10" fill="#191d27"/>
-      <text x="154" y="551" fill="#9aa5b5" font-size="17" font-weight="600">Launch plan</text>
+
+    <g transform="translate(16 78)">
+      <rect width="202" height="41" rx="8" fill="#3b82f6"/>
+      <path d="M25 20.5h14M32 13.5v14" class="icon-primary"/>
+      <text x="58" y="26" fill="#ffffff" font-size="15" font-weight="650">New Chat</text>
+      <rect x="226" width="38" height="41" rx="8" fill="#191d27" stroke="#2b3240"/>
+      <path d="m247 14-9 7 9 7" class="icon"/>
     </g>
-    <g transform="translate(408 104)">
-      <rect width="904" height="56" rx="0" fill="#0f1115"/>
-      <text x="0" y="36" fill="#f4f7fb" font-family="Arial" font-size="23" font-weight="720">Morning feed brief</text>
-      <rect x="706" y="12" width="166" height="32" rx="16" fill="#191d27" stroke="#2b3240"/>
-      <text x="730" y="34" fill="#9aa5b5" font-family="Arial" font-size="14">3,814 / 18k tokens</text>
+
+    <g transform="translate(16 134)">
+      <rect width="248" height="35" rx="8" fill="#191d27" stroke="#2b3240"/>
+      <path d="M22 12h18M24 12v14h14V12M27 9h8" class="icon"/>
+      <text x="54" y="23" class="muted" font-size="13" font-weight="650">View archived</text>
     </g>
-    <path d="M368 168h984" stroke="#2b3240"/>
-    <g font-family="Arial">
-      <rect x="456" y="220" width="648" height="112" rx="18" fill="#191d27" stroke="#2b3240"/>
-      <text x="492" y="264" fill="#f4f7fb" font-size="20" font-weight="700">Summarize unread design and AI feeds from this morning.</text>
-      <rect x="492" y="286" width="178" height="30" rx="15" fill="#202533" stroke="#2b3240"/>
-      <text x="518" y="307" fill="#9aa5b5" font-size="14">strategy-notes.pdf</text>
-      <rect x="456" y="376" width="770" height="210" rx="18" fill="#111827" stroke="#2b3240"/>
-      <g transform="translate(492 416)">
-        <path d="M22 0 39 22 22 44 5 22Z" fill="#22d3ee"/>
+
+    <g transform="translate(16 202)" font-size="14">
+      <text x="0" y="0" class="muted" font-size="12" font-weight="700">FAVORITES</text>
+      <rect y="18" width="170" height="35" rx="7" fill="#222b3f" stroke="#486a9f"/>
+      <text x="14" y="41" class="text" font-weight="650">Morning feed brief</text>
+      <rect x="177" y="18" width="35" height="35" rx="7" fill="#261f1b" stroke="#755822"/>
+      <path d="m194 27 3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z" fill="#d99a00"/>
+      <rect x="217" y="18" width="35" height="35" rx="7" fill="#191d27" stroke="#2b3240"/>
+      <path d="M226 30h18M228 30v14h14V30M231 27h8" class="icon"/>
+
+      <text x="0" y="84" class="muted" font-size="12" font-weight="700">CHATS</text>
+      <rect y="102" width="170" height="35" rx="7" fill="transparent"/>
+      <text x="14" y="125" class="muted" font-weight="600">PDF extraction</text>
+      <rect y="145" width="170" height="35" rx="7" fill="transparent"/>
+      <text x="14" y="168" class="muted" font-weight="600">Trip research</text>
+      <rect y="188" width="170" height="35" rx="7" fill="transparent"/>
+      <text x="14" y="211" class="muted" font-weight="600">Launch plan</text>
+      <text x="0" y="266" class="muted" font-size="12" font-weight="700">ARCHIVED CHATS (2)</text>
+    </g>
+
+    <g transform="translate(16 884)">
+      <rect width="248" height="52" rx="10" fill="#191d27" stroke="#2b3240"/>
+      <circle cx="26" cy="26" r="15" fill="#202533"/>
+      <text x="20" y="31" fill="#d6dce7" font-size="13" font-weight="700">D</text>
+      <text x="50" y="23" class="text" font-size="13" font-weight="650">david</text>
+      <text x="50" y="39" class="muted" font-size="12">Private workspace</text>
+    </g>
+
+    <g transform="translate(280 0)">
+      <rect width="1160" height="52" fill="#0f1115"/>
+      <path d="M0 52h1160" class="divider"/>
+      <g transform="translate(24 10)" font-size="13" font-weight="650">
+        <rect width="70" height="31" rx="16" fill="#191d27" stroke="#486a9f"/>
+        <text x="35" y="21" class="text" text-anchor="middle">Chat</text>
+        <text x="100" y="21" class="muted">Notebooks</text>
+        <text x="199" y="21" class="muted">Scheduled</text>
+        <text x="301" y="21" class="muted">My Data</text>
+        <text x="385" y="21" class="muted">Feeds</text>
       </g>
-      <text x="552" y="441" fill="#f4f7fb" font-size="20" font-weight="720">Relay</text>
-      <text x="492" y="486" fill="#d6dce7" font-size="19">The strongest signal is that teams are converging on smaller,</text>
-      <text x="492" y="520" fill="#d6dce7" font-size="19">agent-ready workflows: structured notes, RSS context, and local</text>
-      <text x="492" y="554" fill="#d6dce7" font-size="19">files all feed into the same conversation state.</text>
-      <rect x="492" y="612" width="310" height="48" rx="10" fill="#191d27" stroke="#2b3240"/>
-      <text x="518" y="643" fill="#9aa5b5" font-size="16">thinking streamed live...</text>
-      <rect x="456" y="704" width="770" height="86" rx="18" fill="#191d27" stroke="#2b3240"/>
-      <text x="492" y="755" fill="#9aa5b5" font-size="19">Ask a follow-up, attach files, or stop generation mid-stream...</text>
-      <circle cx="1182" cy="747" r="25" fill="#2563eb"/>
-      <path d="m1171 736 28 11-28 11 8-11z" fill="#fff"/>
+    </g>
+
+    <g transform="translate(280 52)">
+      <rect width="1160" height="70" fill="#0f1115"/>
+      <path d="M0 70h1160" class="divider"/>
+      <text x="40" y="42" class="text" font-size="21" font-weight="700">Morning feed brief</text>
+      <g transform="translate(818 17)">
+        <rect width="144" height="34" rx="17" fill="#191d27" stroke="#2b3240"/>
+        <text x="72" y="22" class="muted" font-size="13" text-anchor="middle">3,814 / 18k tokens</text>
+      </g>
+      <g transform="translate(982 17)">
+        <rect width="34" height="34" rx="7" fill="#191d27" stroke="#2b3240"/>
+        <path d="M10 17h14M17 10v14" class="icon"/>
+        <rect x="42" width="34" height="34" rx="7" fill="#191d27" stroke="#2b3240"/>
+        <path d="m54 24 10-14 10 14z" class="icon"/>
+        <rect x="84" width="34" height="34" rx="7" fill="#191d27" stroke="#2b3240"/>
+        <path d="M95 11h12M97 11v14h8V11" class="icon"/>
+      </g>
+    </g>
+
+    <g transform="translate(390 178)">
+      <rect x="150" width="690" height="116" rx="17" fill="#191d27" stroke="#2b3240"/>
+      <text x="188" y="48" class="text" font-size="19" font-weight="650">Summarize unread design and AI feeds from this morning.</text>
+      <rect x="188" y="68" width="176" height="30" rx="15" fill="#202533"/>
+      <path d="M204 78h16v10h-16z" class="icon"/>
+      <text x="230" y="88" class="muted" font-size="13">strategy-notes.pdf</text>
+
+      <rect x="150" y="166" width="820" height="226" rx="17" fill="#111827" stroke="#2b3240"/>
+      <svg x="188" y="204" width="34" height="34" viewBox="0 0 140 140">
+        <use href="#relay-logo"/>
+      </svg>
+      <text x="238" y="227" class="text" font-size="20" font-weight="700">Relay</text>
+      <text x="188" y="278" class="soft-text" font-size="18">The strongest signal is that teams are converging on smaller,</text>
+      <text x="188" y="313" class="soft-text" font-size="18">agent-ready workflows: structured notes, RSS context, and local</text>
+      <text x="188" y="348" class="soft-text" font-size="18">files all feed into the same conversation state.</text>
+
+      <rect x="188" y="428" width="320" height="48" rx="9" fill="#191d27" stroke="#2b3240"/>
+      <path d="m211 444 4 9 9 4-9 4-4 9-4-9-9-4 9-4z" fill="#3b82f6"/>
+      <text x="238" y="459" class="muted" font-size="15">thinking streamed live...</text>
+
+      <rect x="150" y="538" width="820" height="76" rx="16" fill="#191d27" stroke="#2b3240"/>
+      <text x="188" y="584" class="muted" font-size="18">Ask a follow-up, attach files, or stop generation mid-stream...</text>
+      <rect x="884" y="552" width="48" height="48" rx="24" fill="#3b82f6"/>
+      <path d="m902 567 22 9-22 9 6-9z" fill="#ffffff"/>
     </g>
   </g>
 </svg>
