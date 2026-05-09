@@ -1,5 +1,5 @@
 import DOMPurify from "dompurify";
-import { marked } from "marked";
+import { marked, type Tokens } from "marked";
 
 marked.setOptions({
   gfm: true,
@@ -7,6 +7,7 @@ marked.setOptions({
 });
 
 const markdownRenderer = new marked.Renderer();
+const renderTable = markdownRenderer.table;
 markdownRenderer.code = ({ text, lang }: { text: string; lang?: string }) => {
   const language = typeof lang === "string" && lang.trim() ? lang.trim() : "";
   const safeLanguage = escapeHtml(language);
@@ -17,6 +18,9 @@ markdownRenderer.code = ({ text, lang }: { text: string; lang?: string }) => {
     `<pre><code${codeClass}>${escapeHtml(text)}</code></pre>`,
     "</div>",
   ].join("");
+};
+markdownRenderer.table = function (this: typeof markdownRenderer, token: Tokens.Table) {
+  return `<div class="markdown-table-wrap">${renderTable.call(this, token)}</div>`;
 };
 
 marked.use({ renderer: markdownRenderer });

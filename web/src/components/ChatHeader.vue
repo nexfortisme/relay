@@ -13,6 +13,7 @@ const props = defineProps<{
   models?: string[]
   tokenCount?: number
   maxTokenCount?: number
+  isFavorite?: boolean
 }>()
 
 const headerModels = computed(() => {
@@ -59,6 +60,7 @@ defineEmits<{
   cancelEdit: []
   saveTitle: []
   suggestTitle: []
+  toggleFavorite: []
   'update:renameDraft': [value: string]
 }>()
 
@@ -85,6 +87,16 @@ watch(
           {{ title }}
         </h1>
         <span v-if="isGenerating" class="header-generating-dot" title="Generating" />
+        <button
+          class="title-icon-button favorite-title-button"
+          :class="{ 'favorite-title-button--active': isFavorite }"
+          :disabled="!selectedConversationId"
+          :title="isFavorite ? 'Remove from favorites' : 'Add to favorites'"
+          :aria-label="isFavorite ? 'Remove from favorites' : 'Add to favorites'"
+          @click="$emit('toggleFavorite')"
+        >
+          <AppIcon name="star" :size="16" :filled="isFavorite" />
+        </button>
         <button
           class="title-icon-button"
           :disabled="isRenaming || isSuggestingTitle"
@@ -274,6 +286,7 @@ watch(
   display: inline-flex;
   align-items: center;
   gap: 0.42rem;
+  min-height: 2.2rem;
 }
 
 .chat-title {
@@ -363,6 +376,12 @@ watch(
   color: var(--text);
   border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
   background: var(--surface-hover);
+}
+
+.favorite-title-button--active {
+  color: #f59e0b;
+  border-color: color-mix(in srgb, #f59e0b 50%, var(--border));
+  background: color-mix(in srgb, #f59e0b 12%, transparent);
 }
 
 .title-icon-button:disabled,

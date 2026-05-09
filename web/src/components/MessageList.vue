@@ -724,6 +724,62 @@ defineExpose({ scrollToBottom });
   background: var(--surface-soft);
 }
 
+.message-markdown :deep(.markdown-table-wrap) {
+  max-width: 100%;
+  margin: 0.65rem 0;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+}
+
+.message-markdown :deep(.markdown-table-wrap table) {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.message-markdown :deep(.markdown-table-wrap th),
+.message-markdown :deep(.markdown-table-wrap td) {
+  min-width: 7rem;
+  max-width: 22rem;
+  padding: 0.5rem 0.62rem;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.message-markdown :deep(.markdown-table-wrap th:first-child),
+.message-markdown :deep(.markdown-table-wrap td:first-child) {
+  min-width: 2.6rem;
+  max-width: 8rem;
+  white-space: nowrap;
+}
+
+.message-markdown :deep(.markdown-table-wrap th:last-child),
+.message-markdown :deep(.markdown-table-wrap td:last-child) {
+  border-right: 0;
+}
+
+.message-markdown :deep(.markdown-table-wrap tbody tr:last-child td) {
+  border-bottom: 0;
+}
+
+.message-markdown :deep(.markdown-table-wrap thead th) {
+  background: var(--surface-soft);
+  color: var(--text);
+  font-weight: 760;
+}
+
+.message-markdown :deep(.markdown-table-wrap tbody tr:nth-child(even) td) {
+  background: color-mix(in srgb, var(--surface-soft) 46%, transparent);
+}
+
 .message-markdown :deep(.code-block) {
   position: relative;
 }
