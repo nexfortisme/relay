@@ -8,52 +8,71 @@ import screenshotHomeSrc from '../assets/landing/relay-home.png'
 const capabilities = [
   {
     icon: 'sparkles',
-    title: 'Chat with live context',
+    title: 'Streaming chat with model detail',
     description:
-      'Stream model responses, preserve conversation history, and requeue useful prompts without losing the thread.',
+      'Watch answers arrive token by token, inspect reasoning streams when models expose them, and keep model and token context visible in the header.',
   },
   {
-    icon: 'paperclip',
-    title: 'Attach the work itself',
+    icon: 'book',
+    title: 'Notebooks with working memory',
     description:
-      'Bring PDFs, text files, tables, images, and notes into the same workspace as the conversation.',
+      'Create focused notebooks with their own system and skill prompts, then chat inside the source collection that belongs to the job.',
+  },
+  {
+    icon: 'file',
+    title: 'File indexing and CSV tools',
+    description:
+      'Upload PDFs, documents, images, and CSVs, track processing progress, render PDF pages, and query or update table rows from chat.',
   },
   {
     icon: 'send',
-    title: 'Follow feeds',
+    title: 'Feeds become usable context',
     description:
-      'Collect RSS items, mark what matters, and summarize articles into reusable briefing material.',
+      'Subscribe to RSS or Atom feeds, backfill items, mark unread or starred, and summarize articles on demand or automatically.',
   },
   {
-    icon: 'clock',
-    title: 'Prepare scheduled work',
+    icon: 'paperclip',
+    title: 'Attachments stay with messages',
     description:
-      'Keep recurring research, digests, and follow-ups close to the chats that created them.',
+      'Drop files directly into a chat, keep optimistic uploads responsive, preview images, and download persisted attachments later.',
+  },
+  {
+    icon: 'settings',
+    title: 'Private accounts and settings',
+    description:
+      'Use cookie-based sessions, per-user model settings, optional API keys, and custom prompts without turning the app into admin theater.',
   },
 ] as const
 
 const screenshots = [
   {
     src: screenshotHomeSrc,
-    title: 'Start from the app home',
+    title: 'Start from the dashboard',
     description:
-      'Launch a chat, jump into feeds, or pick up recent work from the dashboard built for repeat use.',
+      'Launch a chat, jump into feeds, or pick up recent work from a dashboard built for repeat use.',
   },
   {
     src: screenshotChatSrc,
-    title: 'Work inside streaming chat',
+    title: 'Work inside live chat',
     description:
-      'Watch answers form, include attachments, inspect thinking, and continue from the same source-backed context.',
+      'Stream answers, include attachments, inspect thinking, requeue useful prompts, and see which model contributed to the thread.',
   },
   {
     src: screenshotFeedsSrc,
-    title: 'Turn feeds into briefings',
+    title: 'Turn feeds into context',
     description:
-      'Read incoming items, summarize them with the model, and carry the useful parts into your workspace.',
+      'Read incoming items, summarize or expand them with the model, and carry the useful parts into notebooks and chats.',
   },
 ] as const
 
-const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
+const notebookHighlights = [
+  'Per-notebook prompts',
+  'PDF page rendering',
+  'LLM image descriptions',
+  'CSV query and edit tools',
+] as const
+
+const workflow = ['Collect', 'Index', 'Converse', 'Act'] as const
 </script>
 
 <template>
@@ -66,6 +85,7 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
 
       <nav class="nav-links" aria-label="Landing page sections">
         <a href="#capabilities">Capabilities</a>
+        <a href="#notebooks">Notebooks</a>
         <a href="#screenshots">Screenshots</a>
         <a href="#workflow">Workflow</a>
         <a href="#about">About</a>
@@ -99,8 +119,9 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
           </div>
           <h1 id="landing-title">Relay</h1>
           <p class="hero-lede">
-            A private AI workspace for chats, files, feeds, and recurring research. Relay keeps
-            the context close, the interface calm, and the next action easy to find.
+            A private AI workspace for chats, notebooks, feeds, and the files that shape your
+            work. Relay keeps the context close, the interface calm, and the next action easy to
+            find.
           </p>
           <div class="hero-actions">
             <RouterLink class="primary-action" to="/register">Create account</RouterLink>
@@ -108,9 +129,10 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
           </div>
           <ul class="hero-points" aria-label="Relay highlights">
             <li>Streaming responses</li>
-            <li>File attachments</li>
-            <li>RSS summaries</li>
-            <li>Local knowledge</li>
+            <li>Notebook RAG</li>
+            <li>Feed summaries</li>
+            <li>CSV tools</li>
+            <li>PDF indexing</li>
           </ul>
         </div>
       </section>
@@ -118,10 +140,10 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
       <section id="capabilities" class="capability-section" aria-labelledby="capabilities-title">
         <div class="section-heading">
           <span class="section-kicker">Faceted by design</span>
-          <h2 id="capabilities-title">Everything feeds the conversation.</h2>
+          <h2 id="capabilities-title">Everything can become conversation context.</h2>
           <p>
-            Relay is built around the way research actually accumulates: a question, a document,
-            a feed item, a follow-up, then another question with better context.
+            Relay is built around the way useful work accumulates: a question, a source file, a
+            feed item, a table, a follow-up, then another question with better context.
           </p>
         </div>
 
@@ -140,13 +162,41 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
         </div>
       </section>
 
+      <section id="notebooks" class="notebook-section" aria-labelledby="notebooks-title">
+        <div class="notebook-inner">
+          <div class="notebook-copy">
+            <span class="section-kicker">New in notebooks</span>
+            <h2 id="notebooks-title">Source collections that can actually do work.</h2>
+            <p>
+              Notebooks now have their own files, chats, prompts, processing jobs, and scoped tools.
+              They can search indexed documents, expose tables to the model, and preserve the
+              context of a project without mixing it into every chat.
+            </p>
+          </div>
+
+          <div class="notebook-panel" aria-label="Notebook feature highlights">
+            <div class="notebook-panel-header">
+              <span>Notebook workspace</span>
+              <strong>Ready</strong>
+            </div>
+            <ul>
+              <li v-for="highlight in notebookHighlights" :key="highlight">
+                <AppIcon name="check" :size="15" />
+                <span>{{ highlight }}</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
       <section id="screenshots" class="screenshot-section" aria-labelledby="screenshots-title">
         <div class="section-heading section-heading--dark">
           <span class="section-kicker">Application screenshots</span>
           <h2 id="screenshots-title">The app surface stays close to the work.</h2>
           <p>
-            The home page, chat view, and feed reader share the same prism mark, sharp facets,
-            restrained controls, and high-contrast working surface.
+            Home, chat, and feed views share the same prism mark, restrained controls, and
+            high-contrast working surface so moving between source material and conversation feels
+            continuous.
           </p>
         </div>
 
@@ -169,10 +219,11 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
         <div class="workflow-inner">
           <div class="workflow-copy">
             <span class="section-kicker">From signal to answer</span>
-            <h2 id="workflow-title">A simple loop for personal AI work.</h2>
+            <h2 id="workflow-title">A simple loop for context-rich AI work.</h2>
             <p>
-              Relay gives each surface a job: collect source material, talk through it, summarize
-              what matters, and reuse the result when the next question arrives.
+              Relay gives each surface a job: collect source material, index it into the right
+              workspace, talk through it with a model, and act on the answer with tools when the
+              next step is concrete.
             </p>
           </div>
 
@@ -485,6 +536,7 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
 }
 
 .capability-section,
+.notebook-section,
 .screenshot-section,
 .workflow-section {
   padding: 5rem 2rem;
@@ -492,6 +544,11 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
 
 .capability-section {
   background: #f6f7f9;
+  color: #111827;
+}
+
+.notebook-section {
+  background: #ffffff;
   color: #111827;
 }
 
@@ -512,11 +569,12 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
 }
 
 .workflow-section {
-  background: #ffffff;
+  background: #f6f7f9;
   color: #111827;
 }
 
 .section-heading,
+.notebook-inner,
 .landing-footer {
   width: min(1180px, 100%);
   margin-inline: auto;
@@ -569,7 +627,7 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
   width: min(1180px, 100%);
   margin-inline: auto;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem;
 }
 
@@ -577,7 +635,7 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
   display: grid;
   align-content: start;
   gap: 0.75rem;
-  min-height: 15rem;
+  min-height: 13.5rem;
   padding: 1.25rem;
   border: 1px solid #d9dee7;
   border-radius: 8px;
@@ -605,6 +663,94 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
   color: #5f6b7a;
   font-size: 0.95rem;
   line-height: 1.6;
+}
+
+.notebook-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(21rem, 0.58fr);
+  align-items: center;
+  gap: 3rem;
+}
+
+.notebook-copy {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.notebook-copy h2 {
+  max-width: 48rem;
+  margin: 0;
+  font-size: 2.35rem;
+  line-height: 1.08;
+}
+
+.notebook-copy p {
+  max-width: 48rem;
+  margin: 0;
+  color: #5f6b7a;
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.notebook-panel {
+  overflow: hidden;
+  border: 1px solid #d9dee7;
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(37, 99, 235, 0.08), transparent 54%),
+    #f6f7f9;
+}
+
+.notebook-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid #d9dee7;
+}
+
+.notebook-panel-header span {
+  color: #5f6b7a;
+  font-size: 0.82rem;
+  font-weight: 760;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.notebook-panel-header strong {
+  border: 1px solid rgba(34, 197, 94, 0.26);
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.1);
+  color: #166534;
+  padding: 0.28rem 0.56rem;
+  font-size: 0.78rem;
+}
+
+.notebook-panel ul {
+  display: grid;
+  gap: 0.7rem;
+  margin: 0;
+  padding: 1.1rem;
+  list-style: none;
+}
+
+.notebook-panel li {
+  display: flex;
+  align-items: center;
+  gap: 0.62rem;
+  min-height: 2.5rem;
+  border: 1px solid #d9dee7;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #111827;
+  padding: 0.7rem 0.78rem;
+  font-size: 0.93rem;
+  font-weight: 680;
+}
+
+.notebook-panel li .app-icon {
+  color: #2563eb;
 }
 
 .screenshot-grid {
@@ -791,6 +937,10 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .notebook-inner {
+    grid-template-columns: 1fr;
+  }
+
   .screenshot-card {
     grid-template-columns: 1fr;
   }
@@ -826,6 +976,7 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
 
   .hero-section,
   .capability-section,
+  .notebook-section,
   .screenshot-section,
   .workflow-section,
   .about-section {
@@ -841,6 +992,7 @@ const workflow = ['Capture', 'Converse', 'Summarize', 'Reuse'] as const
   }
 
   .section-heading h2,
+  .notebook-copy h2,
   .workflow-copy h2 {
     font-size: 1.75rem;
   }
