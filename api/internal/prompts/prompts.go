@@ -20,6 +20,13 @@ const (
 	AttachmentImagesSkipped Key = "attachment_images_skipped"
 	AttachmentDocsInline    Key = "attachment_docs_inline"
 	AttachmentDocsRAG       Key = "attachment_docs_rag"
+	NotebookPDFPageImage    Key = "notebook_pdf_page_image"
+	FeedSummaryExpanded     Key = "feed_summary_expanded"
+	FeedSummaryPreview      Key = "feed_summary_preview"
+	FeedSummaryUser         Key = "feed_summary_user"
+	FeedNameSystem          Key = "feed_name_system"
+	FeedNameUser            Key = "feed_name_user"
+	RepetitionRetry         Key = "repetition_retry"
 )
 
 // Load reads and returns the prompt text for the given key from resources/api/.

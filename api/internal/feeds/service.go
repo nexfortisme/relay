@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/nexfortisme/relay/internal/llm"
+	"github.com/nexfortisme/relay/internal/prompts"
 	"github.com/nexfortisme/relay/internal/store"
 	"github.com/nexfortisme/relay/internal/tools"
 )
@@ -25,7 +26,15 @@ const (
 	schedulerInterval         = 30 * time.Second
 )
 
-var ErrVideoSummaryUnsupported = errors.New("video feed items cannot be summarized")
+var (
+	ErrVideoSummaryUnsupported = errors.New("video feed items cannot be summarized")
+
+	feedSummaryExpandedPrompt        = prompts.MustLoad(prompts.FeedSummaryExpanded)
+	feedSummaryPreviewPromptTemplate = prompts.MustLoad(prompts.FeedSummaryPreview)
+	feedSummaryUserPromptTemplate    = prompts.MustLoad(prompts.FeedSummaryUser)
+	feedNameSystemPrompt             = prompts.MustLoad(prompts.FeedNameSystem)
+	feedNameUserPromptTemplate       = prompts.MustLoad(prompts.FeedNameUser)
+)
 
 type LLMSettings struct {
 	LLMURL    string
@@ -475,7 +484,7 @@ func (s *Service) generateSummary(ctx context.Context, userID string, item store
 		{
 			Role: "user",
 			Content: fmt.Sprintf(
-				"Feed: %s\nTitle: %s\nURL: %s\nPublished: %s\n\n%s",
+				feedSummaryUserPromptTemplate,
 				item.FeedTitle,
 				item.Title,
 				item.URL,
@@ -510,8 +519,8 @@ func (s *Service) generateFeedName(ctx context.Context, userID string, parsed Pa
 	defer cancel()
 	provider := llm.NewHTTPProviderWithReasoningEffort(settings.LLMURL, settings.LLMModel, settings.LLMAPIKey, 45*time.Second, "none")
 	messages := []llm.ChatMessage{
-		{Role: "system", Content: "Name this RSS/Atom feed in 2 to 6 words. Return only the name."},
-		{Role: "user", Content: fmt.Sprintf("URL: %s\nSite: %s\nDescription: %s", parsed.URL, parsed.SiteURL, parsed.Description)},
+		{Role: "system", Content: feedNameSystemPrompt},
+		{Role: "user", Content: fmt.Sprintf(feedNameUserPromptTemplate, parsed.URL, parsed.SiteURL, parsed.Description)},
 	}
 	stream := provider.GenerateStream(ctx, messages, tools.NoopRuntime{})
 	var builder strings.Builder
@@ -529,10 +538,10 @@ func (s *Service) generateFeedName(ctx context.Context, userID string, parsed Pa
 func summarySystemPrompt(mode string, targetCharacters int) string {
 	switch mode {
 	case "expanded":
-		return "Summarize this feed item for a reader. Use a short heading and 4 to 6 concise bullets. Focus on concrete facts and useful context."
+		return feedSummaryExpandedPrompt
 	default:
 		target := normalizeSummaryTargetCharacters(targetCharacters)
-		return fmt.Sprintf("Write a concise plain-text description of this feed item for an inbox preview. Aim for about %d characters so it fills a single preview line. Return only the description, with no markdown. Focus on concrete facts and avoid speculation.", target)
+		return fmt.Sprintf(feedSummaryPreviewPromptTemplate, target)
 	}
 }
 
