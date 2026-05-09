@@ -58,3 +58,11 @@ export function formatElapsedSince(isoDate: string, nowMs = Date.now()): string 
   const s = secs % 60
   return `${m}m ${s}s`
 }
+
+export function formatDuration(ms: number): string {
+  const secs = Math.max(0, Math.round(ms / 1000))
+  if (secs < 60) return `${secs}s`
+  const m = Math.floor(secs / 60)
+  const s = secs % 60
+  return s > 0 ? `${m}m ${s}s` : `${m}m`
+}

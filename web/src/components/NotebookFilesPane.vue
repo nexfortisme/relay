@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { Notebook, NotebookFile } from '../lib/notebooks'
 import {
   formatBytes,
+  formatDuration,
   formatElapsedSince,
   getProcessingStages,
   statusLabel,
@@ -11,7 +12,7 @@ import { loaderPalette } from '../lib/logoPalette'
 import AppIcon from './AppIcon.vue'
 import LogoLoader from './LogoLoader.vue'
 
-defineProps<{
+const props = defineProps<{
   selectedNotebook: Notebook | null
   files: NotebookFile[]
   isUploading: boolean
@@ -28,6 +29,52 @@ const openErrorFileId = ref<string | null>(null)
 const openProgressFileId = ref<string | null>(null)
 const now = ref(Date.now())
 let elapsedTimer: ReturnType<typeof setInterval> | null = null
+
+const ETA_MIN_SAMPLES = 5
+
+const processingStartMs = new Map<string, number>()
+const completedDurations = ref<number[]>([])
+
+watch(
+  () => props.files,
+  (newFiles, oldFiles) => {
+    if (newFiles.length === 0) {
+      completedDurations.value = []
+      processingStartMs.clear()
+      return
+    }
+    const oldMap = new Map((oldFiles ?? []).map((f) => [f.id, f]))
+    for (const file of newFiles) {
+      if (file.status === 'processing' && !processingStartMs.has(file.id)) {
+        processingStartMs.set(file.id, new Date(file.updatedAt).getTime())
+      }
+      const old = oldMap.get(file.id)
+      if (
+        old &&
+        (old.status === 'processing' || old.status === 'pending') &&
+        (file.status === 'ready' || file.status === 'error')
+      ) {
+        const startMs = processingStartMs.get(file.id)
+        if (startMs !== undefined) {
+          completedDurations.value = [...completedDurations.value, Date.now() - startMs]
+          processingStartMs.delete(file.id)
+        }
+      }
+    }
+  },
+  { immediate: true },
+)
+
+const etaMs = computed(() => {
+  const completed = completedDurations.value
+  if (completed.length < ETA_MIN_SAMPLES) return null
+  const remaining = props.files.filter(
+    (f) => f.status === 'pending' || f.status === 'processing',
+  ).length
+  if (remaining === 0) return null
+  const avg = completed.reduce((a, b) => a + b, 0) / completed.length
+  return Math.round(avg * remaining)
+})
 
 function toggleErrorFlyout(fileId: string) {
   openErrorFileId.value = openErrorFileId.value === fileId ? null : fileId
@@ -76,6 +123,10 @@ onUnmounted(() => {
       <p v-if="files.length === 0 && !isUploading" class="pane-empty">
         No files yet - upload one above.
       </p>
+      <div v-if="etaMs !== null" class="eta-row">
+        <AppIcon name="clock" :size="11" />
+        ~{{ formatDuration(etaMs) }} remaining
+      </div>
       <div v-for="file in files" :key="file.id" class="file-entry">
         <div class="file-row">
           <span class="file-name" :title="file.name">{{ file.name }}</span>
@@ -251,6 +302,19 @@ onUnmounted(() => {
   inset: 0 auto 0 0;
   background: color-mix(in srgb, var(--primary) 10%, transparent);
   transition: width 0.2s;
+}
+
+.eta-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.38rem 0.9rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--primary) 12%, transparent);
+  opacity: 0.9;
 }
 
 .file-entry {
