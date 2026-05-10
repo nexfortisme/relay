@@ -1019,11 +1019,17 @@ function stopElapsedTimer() {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  justify-self: center;
+  align-self: start;
   gap: 0.75rem;
-  height: 100%;
+  width: min(20rem, 100%);
+  height: auto;
+  box-sizing: border-box;
+  padding: clamp(2.5rem, 8vh, 5rem) 1rem 0;
   color: color-mix(in srgb, var(--muted) 65%, transparent);
   font-size: 0.875rem;
+  text-align: center;
 }
 
 .panel-empty p {
