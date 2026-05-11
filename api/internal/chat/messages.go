@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/nexfortisme/relay/internal/attachments"
 	"github.com/nexfortisme/relay/internal/store"
 )

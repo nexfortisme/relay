@@ -15,6 +15,8 @@ import (
 	"github.com/nexfortisme/relay/internal/store"
 )
 
+const minPasswordLength = 4
+
 type AuthHandlers struct {
 	store        *store.Store
 	auth         *auth.AuthService
@@ -24,18 +26,6 @@ type AuthHandlers struct {
 	cookieSecure bool
 	disableAuth  bool
 	disabledUser string
-}
-
-func NewAuthHandlers(st *store.Store, authSvc *auth.AuthService, chatSvc *chat.Service, logger *slog.Logger, cookieSecure, disableAuth bool, disabledUserID string) *AuthHandlers {
-	return &AuthHandlers{
-		store:        st,
-		auth:         authSvc,
-		chat:         chatSvc,
-		logger:       logger,
-		cookieSecure: cookieSecure,
-		disableAuth:  disableAuth,
-		disabledUser: disabledUserID,
-	}
 }
 
 type registerRequest struct {
@@ -55,7 +45,17 @@ type meResponse struct {
 	Username string `json:"username"`
 }
 
-const minPasswordLength = 4
+func NewAuthHandlers(st *store.Store, authSvc *auth.AuthService, chatSvc *chat.Service, logger *slog.Logger, cookieSecure, disableAuth bool, disabledUserID string) *AuthHandlers {
+	return &AuthHandlers{
+		store:        st,
+		auth:         authSvc,
+		chat:         chatSvc,
+		logger:       logger,
+		cookieSecure: cookieSecure,
+		disableAuth:  disableAuth,
+		disabledUser: disabledUserID,
+	}
+}
 
 func (h *AuthHandlers) Register(c *gin.Context) {
 	var req registerRequest
@@ -247,8 +247,8 @@ func (h *AuthHandlers) setAuthCookies(c *gin.Context, access string, accessExp t
 
 func (h *AuthHandlers) clearAuthCookies(c *gin.Context) {
 	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(auth.AccessCookieName, "", -1, "/", "", h.cookieSecure, true)
-	c.SetCookie(auth.RefreshCookieName, "", -1, "/", "", h.cookieSecure, true)
+	c.SetCookie(auth.AccessCookieName, "", -1, "/", "", h.cookieSecure, true) // -1 means delete cookie
+	c.SetCookie(auth.RefreshCookieName, "", -1, "/", "", h.cookieSecure, true) // -1 means delete cookie
 }
 
 // Middleware authenticates every request that reaches a protected route. It

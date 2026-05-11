@@ -36,26 +36,24 @@ func Load() (Config, error) {
 	_ = godotenv.Overload(filepath.Join("..", ".env"))
 
 	expandEnvKeys(
-		"LLM_BASE_URL",
 		"LLM_URL",
 		"SEARXNG_URL",
 		"MCP_SERVER_ADDRESS",
 		"MCP_URL",
-		"PLAYWRIGHT_MCP_ENDPOINT",
 		"FETCHER_MCP_ENDPOINT",
 	)
 
 	cfg := Config{
-		Port:           firstEnvWithDefault("8091", "API_PORT", "VITE_API_PORT"),
-		LLMURL:         firstEnv("LLM_URL", "LLM_BASE_URL"),
-		LLMModel:       envOrDefault("LLM_MODEL", "gpt-4o-mini"),
+		Port:           firstEnvWithDefault("8091", "API_PORT", "VITE_API_PORT"), // 8091
+		LLMURL:         envOrDefault("LLM_URL", "http://localhost:1234/v1"), // Assume LM Studio is running on localhost:1234
+		LLMModel:       envOrDefault("LLM_MODEL", "qwen/qwen3.6-35b-a3b"),
 		SQLitePath:     envOrDefault("SQLITE_PATH", "../.relay/data/relay.db"),
 		WebOrigin:      envOrDefault("WEB_ORIGIN", "http://localhost:5173"),
 		MCPServerAddr:  envOrDefault("MCP_SERVER_ADDRESS", ":8090"),
 		MCPURL:         envOrDefault("MCP_URL", "http://localhost:8090/mcp"),
 		DataDir:        envOrDefault("DATA_DIR", "../.relay/data"),
-		MaxUploadBytes: envInt64OrDefault("VITE_MAX_UPLOAD_BYTES", 50<<20),
-		MaxImageBytes:  envIntOrDefault("VITE_MAX_IMAGE_BYTES", 15*1024*1024),
+		MaxUploadBytes: envInt64OrDefault("VITE_MAX_UPLOAD_BYTES", 50<<20), // 50MB
+		MaxImageBytes:  envIntOrDefault("VITE_MAX_IMAGE_BYTES", 15*1024*1024), // 15MB
 		MaxTokenCount:    envIntOrDefault("VITE_MAX_TOKEN_COUNT", 0),
 		JWTSecret:        envOrDefault("JWT_TOKEN", "dev-insecure-jwt-secret-change-me"),
 		JWTRefreshSecret: envOrDefault("JWT_REFRESH_TOKEN", "dev-insecure-refresh-secret-change-me"),
@@ -155,6 +153,7 @@ func envInt64OrDefault(key string, fallback int64) int64 {
 	return parsed
 }
 
+// sanitizeEnvValue removes inline comments from environment variables
 func sanitizeEnvValue(value string) string {
 	trimmed := strings.TrimSpace(value)
 	if idx := strings.Index(trimmed, " #"); idx >= 0 {

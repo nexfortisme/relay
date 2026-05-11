@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+
 	"github.com/nexfortisme/relay/internal/attachments"
 	"github.com/nexfortisme/relay/internal/auth"
 	"github.com/nexfortisme/relay/internal/chat"
@@ -40,19 +41,24 @@ func NewServer(logger *slog.Logger) (*Server, func(), error) {
 }
 
 func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(), error) {
+
+	// Create notebooks directory
 	if err := os.MkdirAll(cfg.NotebooksDir(), 0755); err != nil {
 		return nil, nil, fmt.Errorf("create notebooks dir: %w", err)
 	}
 
+	// Create data directory
 	if err := os.MkdirAll(filepath.Dir(cfg.SQLitePath), 0755); err != nil {
 		return nil, nil, fmt.Errorf("create data dir: %w", err)
 	}
 
+	// Create SQLite database
 	st, err := store.New(cfg.SQLitePath)
 	if err != nil {
 		return nil, nil, err
 	}
 
+	// Create notebook registry and service
 	nbRegistry := notebooks.NewRegistry(cfg.NotebooksDir())
 	nbService := notebooks.NewService(st, nbRegistry, cfg.SnapshotsDir, logger)
 
@@ -97,6 +103,7 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 
 	handlers := httpapi.NewHandlers(chatService, feedService, nbService, logger, cfg.MaxUploadBytes)
 
+	// Initialize authentication service
 	authSvc := auth.NewService(cfg.JWTSecret, cfg.JWTRefreshSecret)
 	rootUserID, err := httpapi.EnsureRootUser(context.Background(), st, authSvc, chatService, cfg.RootUsername, cfg.RootPassword, logger)
 	if err != nil {
@@ -137,6 +144,8 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 		authed.GET("/auth/me", authHandlers.Me)
 		authed.GET("/settings", handlers.GetSettings)
 		authed.PUT("/settings", handlers.UpdateSettings)
+
+		// Conversations routes
 		authed.POST("/conversations", handlers.CreateConversation)
 		authed.GET("/conversations", handlers.ListConversations)
 		authed.PATCH("/conversations/:id", handlers.RenameConversation)
@@ -152,6 +161,8 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 		authed.POST("/conversations/:id/messages/:messageId/requeue", handlers.RequeueMessage)
 		authed.GET("/files/:id/download", handlers.DownloadFile)
 		authed.GET("/conversations/:id/stream", handlers.StreamConversation)
+
+		// Notebooks routes
 		authed.POST("/notebooks", handlers.CreateNotebook)
 		authed.GET("/notebooks", handlers.ListNotebooks)
 		authed.GET("/notebooks/:notebookId", handlers.GetNotebook)
@@ -166,6 +177,8 @@ func NewServerWithConfig(logger *slog.Logger, cfg config.Config) (*Server, func(
 		authed.GET("/notebooks/:notebookId/conversations", handlers.ListNotebookConversations)
 		authed.POST("/notebooks/:notebookId/conversations", handlers.CreateNotebookConversation)
 		authed.GET("/notebooks/:notebookId/csv/:fileId", handlers.GetCSVTableData)
+
+		// Feeds routes
 		authed.GET("/feeds", handlers.ListFeeds)
 		authed.POST("/feeds/check", handlers.CheckFeed)
 		authed.POST("/feeds", handlers.CreateFeed)
