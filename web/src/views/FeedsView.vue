@@ -946,6 +946,10 @@ function vimeoEmbedUrl(rawUrl: string): string {
         <article class="item-panel">
           <div v-if="!selectedItem" class="panel-empty">
             <AppIcon name="inbox" :size="26" />
+            <div>
+              <h2>Select a post</h2>
+              <p>Click a post in the list to view it here.</p>
+            </div>
           </div>
           <template v-else>
             <header class="panel-header">
@@ -1807,8 +1811,27 @@ function vimeoEmbedUrl(rawUrl: string): string {
   height: 100%;
   min-height: 18rem;
   display: grid;
+  gap: 0.65rem;
   place-items: center;
+  align-content: center;
+  padding: 1rem;
+  text-align: center;
   color: color-mix(in srgb, var(--muted) 65%, transparent);
+}
+
+.panel-empty h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.98rem;
+  line-height: 1.3;
+}
+
+.panel-empty p {
+  max-width: 16rem;
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
 }
 
 .panel-header {

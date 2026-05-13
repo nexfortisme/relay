@@ -121,6 +121,18 @@ describe('FeedsView', () => {
     vi.clearAllMocks()
   })
 
+  it('prompts the user to pick a post when the reader pane is empty', async () => {
+    const wrapper = await mountFeeds()
+
+    expect(wrapper.find('.panel-empty').text()).toContain('Select a post')
+    expect(wrapper.find('.panel-empty').text()).toContain('Click a post in the list to view it here.')
+
+    await wrapper.find('.item-row').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.panel-empty').exists()).toBe(false)
+  })
+
   it('keeps the add dialog open when the backdrop is clicked', async () => {
     const wrapper = await mountFeeds()
     await flushPromises()
