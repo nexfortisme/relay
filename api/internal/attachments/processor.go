@@ -15,17 +15,17 @@ import (
 	"unicode"
 
 	"github.com/ledongthuc/pdf"
-	
+
 	"github.com/nexfortisme/relay/internal/prompts"
 )
 
 const (
-	defaultMaxFileBytes  = 50 * 1024 * 1024 	// 50MB
-	defaultMaxImageBytes = 15 * 1024 * 1024 	// 15MB
-	inlineCharBudget     = 12000            	// 12000 characters
-	chunkSizeRunes       = 1200             	// 1200 characters
-	chunkOverlapRunes    = chunkSizeRunes / 10 	// 120 characters
-	maxReturnedChunks    = 20               	// 20 chunks
+	defaultMaxFileBytes  = 50 * 1024 * 1024    // 50MB
+	defaultMaxImageBytes = 15 * 1024 * 1024    // 15MB
+	inlineCharBudget     = 12000               // 12000 characters
+	chunkSizeRunes       = 1200                // 1200 characters
+	chunkOverlapRunes    = chunkSizeRunes / 10 // 120 characters
+	maxReturnedChunks    = 20                  // 20 chunks
 )
 
 func (o PromptOptions) withDefaults() PromptOptions {

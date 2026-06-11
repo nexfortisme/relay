@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	
+
 	"github.com/nexfortisme/relay/internal/llm"
 	"github.com/nexfortisme/relay/internal/prompts"
 	"github.com/nexfortisme/relay/internal/store"
@@ -43,14 +43,20 @@ type LLMSettings struct {
 	LLMAPIKey string
 }
 
+// SettingsLoader resolves the per-user LLM settings used for summaries and
+// feed naming; it is injected by the app wiring to avoid depending on the
+// chat package directly.
 type SettingsLoader func(ctx context.Context, userID string) LLMSettings
 
+// Service manages RSS/Atom subscriptions: validating and creating feeds,
+// polling them on a schedule, and generating per-item LLM summaries.
 type Service struct {
 	store    *store.Store
 	settings SettingsLoader
 	logger   *slog.Logger
 	client   *http.Client
 
+	// summarySem bounds concurrent LLM summary generations.
 	summarySem chan struct{}
 }
 
@@ -99,10 +105,14 @@ func NewService(st *store.Store, settings SettingsLoader, logger *slog.Logger) *
 	}
 }
 
+// Start launches the background polling scheduler; it returns immediately and
+// the scheduler stops when ctx is cancelled.
 func (s *Service) Start(ctx context.Context) {
 	go s.schedulerLoop(ctx)
 }
 
+// CheckFeed fetches and parses a candidate URL without persisting anything,
+// so the UI can preview a feed before the user subscribes.
 func (s *Service) CheckFeed(ctx context.Context, rawURL string) (CheckResult, error) {
 	parsed, err := s.fetchFeed(ctx, rawURL)
 	if err != nil {
@@ -117,6 +127,9 @@ func (s *Service) CheckFeed(ctx context.Context, rawURL string) (CheckResult, er
 	}, nil
 }
 
+// CreateFeed subscribes a user to a feed and backfills its initial items.
+// The title falls back through: user-supplied → feed's own title → LLM-generated
+// name → feed hostname.
 func (s *Service) CreateFeed(ctx context.Context, userID string, req CreateFeedRequest) (store.Feed, []store.FeedItem, error) {
 	parsed, err := s.fetchFeed(ctx, req.URL)
 	if err != nil {
@@ -223,6 +236,10 @@ func (s *Service) MarkFeedRead(ctx context.Context, userID, feedID string) (stor
 	return feed, updatedCount, nil
 }
 
+// SummarizeItem generates an LLM summary for a feed item and persists it.
+// Concurrency is bounded by the summary semaphore; progress is written to the
+// item's summary status so the UI can show working/error states. The optional
+// targetCharacters applies to the short "summary" mode only.
 func (s *Service) SummarizeItem(ctx context.Context, userID, itemID, mode string, targetCharacters ...int) (store.FeedItem, error) {
 	mode = normalizeSummaryMode(mode)
 	item, err := s.store.GetFeedItem(ctx, userID, itemID)
@@ -274,25 +291,32 @@ func (s *Service) runDuePolls(ctx context.Context) {
 	}
 }
 
+// pollFeed fetches one feed, stores any items newer than the last poll, and
+// records check state either way so a broken feed surfaces its error in the UI
+// and is still retried on the next interval.
 func (s *Service) pollFeed(ctx context.Context, feed store.Feed) {
 	now := time.Now().UTC()
 	nextCheck := now.Add(time.Duration(clampPollingMinutes(feed.PollingIntervalMinutes)) * time.Minute)
+	// Uses context.Background so the failure is recorded even when the poll
+	// failed because ctx was cancelled mid-flight.
+	fail := func(stage string, err error) {
+		s.logger.Warn(stage, "feed_id", feed.ID, "url", feed.URL, "error", err)
+		_ = s.store.UpdateFeedCheckState(context.Background(), feed.ID, now, nextCheck, err.Error())
+	}
+
 	parsed, err := s.fetchFeed(ctx, feed.URL)
 	if err != nil {
-		s.logger.Warn("feed poll failed", "feed_id", feed.ID, "url", feed.URL, "error", err)
-		_ = s.store.UpdateFeedCheckState(context.Background(), feed.ID, now, nextCheck, err.Error())
+		fail("feed poll failed", err)
 		return
 	}
 	items, err := s.itemsForPoll(ctx, feed, parsed.Items, now)
 	if err != nil {
-		s.logger.Warn("failed to prepare feed items", "feed_id", feed.ID, "error", err)
-		_ = s.store.UpdateFeedCheckState(context.Background(), feed.ID, now, nextCheck, err.Error())
+		fail("failed to prepare feed items", err)
 		return
 	}
 	inserted, err := s.store.CreateFeedItems(ctx, items)
 	if err != nil {
-		s.logger.Warn("failed to store feed items", "feed_id", feed.ID, "error", err)
-		_ = s.store.UpdateFeedCheckState(context.Background(), feed.ID, now, nextCheck, err.Error())
+		fail("failed to store feed items", err)
 		return
 	}
 	if err := s.store.UpdateFeedCheckState(ctx, feed.ID, now, nextCheck, ""); err != nil {
@@ -334,6 +358,9 @@ func (s *Service) fetchFeed(ctx context.Context, rawURL string) (ParsedFeed, err
 	return parsed, nil
 }
 
+// itemsForBackfill selects which already-published items to import when a
+// feed is first created: "all", everything "since" a date, or the latest N
+// (the default, capped at 20 when no limit is given).
 func (s *Service) itemsForBackfill(userID, feedID string, parsed []ParsedItem, backfill BackfillOptions, now time.Time) []store.FeedItem {
 	mode := strings.TrimSpace(strings.ToLower(backfill.Mode))
 	if mode == "" {
@@ -361,6 +388,9 @@ func (s *Service) itemsForBackfill(userID, feedID string, parsed []ParsedItem, b
 	return s.storeItems(userID, feedID, selected, now)
 }
 
+// itemsForPoll picks the new items from a polled feed. It cuts off at the
+// newest item already stored (the cursor); when the feed has no stored items
+// yet it falls back to comparing publish times against the last check.
 func (s *Service) itemsForPoll(ctx context.Context, feed store.Feed, parsed []ParsedItem, now time.Time) ([]store.FeedItem, error) {
 	cursor, err := s.store.LatestFeedItemCursor(ctx, feed.UserID, feed.ID)
 	if err != nil {
@@ -372,6 +402,9 @@ func (s *Service) itemsForPoll(ctx context.Context, feed store.Feed, parsed []Pa
 	return s.storeItems(feed.UserID, feed.ID, parsedItemsAfterCursor(parsed, cursor), now), nil
 }
 
+// parsedItemsAfterCursor returns the items that precede the cursor item in the
+// feed (feeds list newest first). Matching by external ID is authoritative;
+// publish-time comparison covers feeds whose IDs change between fetches.
 func parsedItemsAfterCursor(parsed []ParsedItem, cursor store.FeedItemCursor) []ParsedItem {
 	selected := make([]ParsedItem, 0, len(parsed))
 	for _, item := range parsed {
@@ -389,6 +422,8 @@ func parsedItemsAfterCursor(parsed []ParsedItem, cursor store.FeedItemCursor) []
 	return selected
 }
 
+// parsedItemsAfterLastCheck keeps only items published after the feed's last
+// successful check — the dedupe fallback when no item cursor exists yet.
 func parsedItemsAfterLastCheck(parsed []ParsedItem, lastCheckedAt *time.Time) []ParsedItem {
 	if lastCheckedAt == nil || lastCheckedAt.IsZero() {
 		return parsed
@@ -427,6 +462,8 @@ func (s *Service) storeItems(userID, feedID string, parsed []ParsedItem, now tim
 	return items
 }
 
+// parsedItemExternalID prefers the feed's own GUID and falls back to a hash of
+// URL/title/date so items from GUID-less feeds still dedupe stably.
 func parsedItemExternalID(item ParsedItem) string {
 	externalID := strings.TrimSpace(item.ExternalID)
 	if externalID == "" {
@@ -435,6 +472,9 @@ func parsedItemExternalID(item ParsedItem) string {
 	return externalID
 }
 
+// enqueueSummaries kicks off background auto-summaries for newly inserted
+// items. Video items are skipped (no article text to summarize), and each
+// summary runs in its own goroutine gated by the summary semaphore.
 func (s *Service) enqueueSummaries(items []store.FeedItem) {
 	for _, item := range items {
 		if item.MediaType != "" {
@@ -451,6 +491,8 @@ func (s *Service) enqueueSummaries(items []store.FeedItem) {
 	}
 }
 
+// acquireSummarySlot blocks until one of the limited concurrent-summary slots
+// is free, bounding how many LLM summary calls run at once.
 func (s *Service) acquireSummarySlot(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
@@ -461,10 +503,7 @@ func (s *Service) acquireSummarySlot(ctx context.Context) error {
 }
 
 func (s *Service) releaseSummarySlot() {
-	select {
-	case <-s.summarySem:
-	default:
-	}
+	<-s.summarySem
 }
 
 func (s *Service) generateSummary(ctx context.Context, userID string, item store.FeedItem, mode string, targetCharacters int) (string, error) {
@@ -494,23 +533,19 @@ func (s *Service) generateSummary(ctx context.Context, userID string, item store
 			),
 		},
 	}
-	stream := provider.GenerateStream(ctx, messages, tools.NoopRuntime{})
-	var builder strings.Builder
-	for event := range stream {
-		if event.Err != nil {
-			return "", event.Err
-		}
-		if event.Token != "" {
-			builder.WriteString(event.Token)
-		}
+	generated, err := llm.CollectText(provider.GenerateStream(ctx, messages, tools.NoopRuntime{}))
+	if err != nil {
+		return "", err
 	}
-	summary := strings.TrimSpace(builder.String())
+	summary := strings.TrimSpace(generated)
 	if summary == "" {
 		return "", fmt.Errorf("summary was empty")
 	}
 	return summary, nil
 }
 
+// generateFeedName asks the LLM for a display name when a feed provides no
+// usable title; any failure quietly falls back to the feed's hostname.
 func (s *Service) generateFeedName(ctx context.Context, userID string, parsed ParsedFeed) string {
 	settings := s.settings(ctx, userID)
 	if strings.TrimSpace(settings.LLMURL) == "" || strings.TrimSpace(settings.LLMModel) == "" {
@@ -523,17 +558,11 @@ func (s *Service) generateFeedName(ctx context.Context, userID string, parsed Pa
 		{Role: "system", Content: feedNameSystemPrompt},
 		{Role: "user", Content: fmt.Sprintf(feedNameUserPromptTemplate, parsed.URL, parsed.SiteURL, parsed.Description)},
 	}
-	stream := provider.GenerateStream(ctx, messages, tools.NoopRuntime{})
-	var builder strings.Builder
-	for event := range stream {
-		if event.Err != nil {
-			return hostname(parsed.URL)
-		}
-		if event.Token != "" {
-			builder.WriteString(event.Token)
-		}
+	generated, err := llm.CollectText(provider.GenerateStream(ctx, messages, tools.NoopRuntime{}))
+	if err != nil {
+		return hostname(parsed.URL)
 	}
-	return clampText(strings.Trim(builder.String(), "\"' \n\t"), 80)
+	return clampText(strings.Trim(generated, "\"' \n\t"), 80)
 }
 
 func summarySystemPrompt(mode string, targetCharacters int) string {
@@ -553,38 +582,33 @@ func firstTargetCharacters(values []int) int {
 	return values[0]
 }
 
+// normalizeSummaryTargetCharacters applies the default for unset values and
+// clamps explicit requests into the supported range.
 func normalizeSummaryTargetCharacters(value int) int {
 	if value <= 0 {
 		return defaultSummaryTargetChars
 	}
-	if value < minSummaryTargetChars {
-		return minSummaryTargetChars
-	}
-	if value > maxSummaryTargetChars {
-		return maxSummaryTargetChars
-	}
-	return value
+	return min(max(value, minSummaryTargetChars), maxSummaryTargetChars)
 }
 
+// normalizeSummaryMode maps any client-supplied mode string to one of the two
+// supported modes; everything that isn't an "expanded" variant is a summary.
 func normalizeSummaryMode(mode string) string {
 	switch strings.TrimSpace(strings.ToLower(mode)) {
 	case "expanded", "expand":
 		return "expanded"
-	case "summary", "summarize", "resummary", "resummarize", "":
-		return "summary"
 	default:
 		return "summary"
 	}
 }
 
+// clampPollingMinutes applies the default for unset values and enforces the
+// minimum interval so a misconfigured feed can't hammer its origin.
 func clampPollingMinutes(minutes int) int {
 	if minutes <= 0 {
 		return defaultPollingMinutes
 	}
-	if minutes < minPollingMinutes {
-		return minPollingMinutes
-	}
-	return minutes
+	return max(minutes, minPollingMinutes)
 }
 
 func formatOptionalTime(t *time.Time) string {

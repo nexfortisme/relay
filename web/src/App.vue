@@ -37,7 +37,7 @@ onMounted(async () => {
 
   // The router's global guard already runs auth.initialize() before the
   // first navigation, but we also want to load the chat data once we know
-  // a user is signed in. Doing it here keeps the appStore agnostic of the
+  // a user is signed in. Doing it here keeps the chat store agnostic of the
   // auth store and avoids a double-load when login redirects in.
   if (isAuthenticated.value && !conversationStore.conversations.length) {
     await chatStore.initializeApp()

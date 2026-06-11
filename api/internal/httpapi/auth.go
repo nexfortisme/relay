@@ -247,7 +247,7 @@ func (h *AuthHandlers) setAuthCookies(c *gin.Context, access string, accessExp t
 
 func (h *AuthHandlers) clearAuthCookies(c *gin.Context) {
 	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(auth.AccessCookieName, "", -1, "/", "", h.cookieSecure, true) // -1 means delete cookie
+	c.SetCookie(auth.AccessCookieName, "", -1, "/", "", h.cookieSecure, true)  // -1 means delete cookie
 	c.SetCookie(auth.RefreshCookieName, "", -1, "/", "", h.cookieSecure, true) // -1 means delete cookie
 }
 

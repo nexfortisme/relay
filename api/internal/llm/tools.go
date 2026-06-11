@@ -38,6 +38,9 @@ func openAITools(defs []tools.Definition) []openAITool {
 	return out
 }
 
+// normalizeToolParameters coerces a tool's input schema into the shape strict
+// OpenAI-compatible servers expect: type must be "object" and properties/
+// required must exist (some MCP tools omit them when they take no arguments).
 func normalizeToolParameters(schema map[string]any) map[string]any {
 	if schema == nil {
 		schema = map[string]any{}
@@ -82,9 +85,11 @@ func executeToolCall(ctx context.Context, runtime tools.Runtime, toolCall ToolCa
 	return result, nil
 }
 
+// toolResultContent renders a tool result as the string content of a "tool"
+// role message: strings pass through, anything else is JSON-encoded.
 func toolResultContent(result tools.Result) (string, error) {
-	if _, ok := result.Output.(string); ok {
-		return result.Output.(string), nil
+	if text, ok := result.Output.(string); ok {
+		return text, nil
 	}
 	encoded, err := json.Marshal(result.Output)
 	if err != nil {
@@ -93,6 +98,9 @@ func toolResultContent(result tools.Result) (string, error) {
 	return string(encoded), nil
 }
 
+// accumulateToolCall merges one streamed tool-call fragment into the per-index
+// accumulator. Providers stream a call's name and JSON arguments in pieces
+// across many SSE chunks, keyed by index, so string fields are concatenated.
 func accumulateToolCall(calls map[int]*ToolCall, delta toolCallDelta) {
 	call, ok := calls[delta.Index]
 	if !ok {
@@ -113,6 +121,8 @@ func accumulateToolCall(calls map[int]*ToolCall, delta toolCallDelta) {
 	}
 }
 
+// orderedToolCalls flattens the accumulator map into a slice sorted by stream
+// index, filling in IDs/types that lax providers leave empty.
 func orderedToolCalls(calls map[int]*ToolCall) []ToolCall {
 	if len(calls) == 0 {
 		return nil
@@ -140,6 +150,8 @@ func isSearchOrFetchTool(name string) bool {
 	return name == "web_search" || name == "fetch_url" || name == "fetch_urls"
 }
 
+// toolResultFailed treats explicit errors, empty strings, and nil output as
+// failures — an empty search result is as useless to the model as an error.
 func toolResultFailed(result tools.Result) bool {
 	if result.IsError {
 		return true
@@ -150,6 +162,8 @@ func toolResultFailed(result tools.Result) bool {
 	return result.Output == nil
 }
 
+// sendUnableToFind streams a canned apology after repeated search/fetch
+// failures so the user sees a response instead of a raw tool error.
 func sendUnableToFind(ctx context.Context, out chan<- TokenEvent) error {
 	msg, _ := prompts.Load(prompts.UnableToFind)
 	if msg == "" {

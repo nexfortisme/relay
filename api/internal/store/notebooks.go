@@ -78,7 +78,7 @@ func (s *Store) CreateNotebook(ctx context.Context, userID, name, description, s
 		ID: id, UserID: userID, Name: name,
 		Description: description, SystemPrompt: systemPrompt, SkillPrompt: skillPrompt,
 		IncludeInGeneral: includeInGeneral,
-		CreatedAt: now, UpdatedAt: now,
+		CreatedAt:        now, UpdatedAt: now,
 	}, nil
 }
 
