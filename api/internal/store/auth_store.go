@@ -9,8 +9,8 @@ import (
 )
 
 func (s *Store) CreateUser(
-	ctx context.Context, 
-	id, username, passwordHash string, 
+	ctx context.Context,
+	id, username, passwordHash string,
 	now time.Time,
 ) (User, error) {
 
@@ -80,12 +80,12 @@ func (s *Store) UpdateUserPassword(ctx context.Context, id, passwordHash string)
 }
 
 func (s *Store) CreateSession(
-	ctx context.Context, 
+	ctx context.Context,
 	sessionId,
-	userID, 
-	refreshHash string, 
-	expiresAt time.Time, 
-	rememberMe bool, 
+	userID,
+	refreshHash string,
+	expiresAt time.Time,
+	rememberMe bool,
 	now time.Time,
 ) error {
 
@@ -172,4 +172,3 @@ func (s *Store) RevokeSession(ctx context.Context, id string) error {
 // 	// No errors, return nil
 // 	return nil
 // }
-

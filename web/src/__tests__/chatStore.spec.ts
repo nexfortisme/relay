@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { useAppStore } from '../stores/appStore'
+import { useChatStore } from '../stores/chatStore'
 
 vi.mock('../lib/api', () => ({
   archiveConversation: vi.fn<() => void>(),
@@ -9,7 +9,6 @@ vi.mock('../lib/api', () => ({
   createFailedMessage: vi.fn<() => void>(),
   createMessage: vi.fn<() => void>(),
   deleteConversation: vi.fn<() => void>(),
-  getSettings: vi.fn<() => void>(),
   listConversations: vi.fn<() => Promise<never[]>>(async () => []),
   listMessages: vi.fn<() => Promise<never[]>>(async () => []),
   renameConversation: vi.fn<() => void>(),
@@ -17,7 +16,7 @@ vi.mock('../lib/api', () => ({
   restoreConversation: vi.fn<() => void>(),
   stopConversationGeneration: vi.fn<() => void>(),
   suggestConversationTitle: vi.fn<() => void>(),
-  updateSettings: vi.fn<() => void>(),
+  updateConversationFavorite: vi.fn<() => void>(),
 }))
 
 class MockWebSocket {
@@ -38,7 +37,7 @@ function emit(socket: MockWebSocket, payload: unknown) {
   socket.onmessage?.({ data: JSON.stringify(payload) } as MessageEvent)
 }
 
-describe('appStore streaming', () => {
+describe('chatStore streaming', () => {
   let flushAnimationFrame: FrameRequestCallback | null = null
   let originalWebSocket: typeof WebSocket
   let originalRequestAnimationFrame: typeof window.requestAnimationFrame
@@ -79,7 +78,7 @@ describe('appStore streaming', () => {
   })
 
   it('batches token and thinking websocket deltas into one visible update', async () => {
-    const store = useAppStore()
+    const store = useChatStore()
     await store.selectConversation('conv-1')
     const socket = MockWebSocket.instances[0]
     if (!socket) {
@@ -109,7 +108,7 @@ describe('appStore streaming', () => {
   })
 
   it('flushes queued deltas before applying terminal stream events', async () => {
-    const store = useAppStore()
+    const store = useChatStore()
     await store.selectConversation('conv-1')
     const socket = MockWebSocket.instances[0]
     if (!socket) {
@@ -129,7 +128,7 @@ describe('appStore streaming', () => {
   })
 
   it('uses terminal payload content and thinking when live deltas were missed', async () => {
-    const store = useAppStore()
+    const store = useChatStore()
     await store.selectConversation('conv-1')
     const socket = MockWebSocket.instances[0]
     if (!socket) {
@@ -159,7 +158,7 @@ describe('appStore streaming', () => {
   })
 
   it('reconciles terminal payloads with already streamed partial content', async () => {
-    const store = useAppStore()
+    const store = useChatStore()
     await store.selectConversation('conv-1')
     const socket = MockWebSocket.instances[0]
     if (!socket) {
@@ -185,7 +184,7 @@ describe('appStore streaming', () => {
   })
 
   it('reopens the selected conversation stream after it was closed', async () => {
-    const store = useAppStore()
+    const store = useChatStore()
     await store.selectConversation('conv-1')
     const socket = MockWebSocket.instances[0]
     if (!socket) {

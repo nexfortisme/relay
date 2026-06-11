@@ -41,12 +41,27 @@ const uploadLimits: UploadLimits = {
   maxImageUploadBytes,
 }
 
+/** WebSocket `CONNECTING`/`OPEN` readyStates — both are treated as reusable. */
 const websocketConnecting = 0
-/** WebSocket `OPEN` readyState — we treat CONNECTING sockets as reusable. */
 const websocketOpen = 1
 
+/**
+ * Real-time chat state: the message list for the selected conversation, the
+ * per-conversation WebSocket stream, optimistic sends, and file selection.
+ *
+ * Streaming model: one WebSocket is open at a time (for the selected
+ * conversation). Token/thinking deltas are coalesced per animation frame
+ * before touching reactive state, and terminal events (`done`/`stopped`)
+ * carry the full message so missed deltas self-heal.
+ */
 export const useChatStore = defineStore('chat', () => {
+  /** Messages rendered for the currently selected conversation. */
   const messages = ref<DisplayMessage[]>([])
+  /**
+   * Per-conversation message snapshots. Streams keep writing here even for
+   * conversations that aren't selected, so switching away and back during a
+   * generation doesn't lose streamed content.
+   */
   const conversationMessageCache = ref(new Map<string, DisplayMessage[]>())
   const draft = ref('')
   const selectedFiles = ref<File[]>([])
@@ -120,6 +135,11 @@ export const useChatStore = defineStore('chat', () => {
     await handleCreateConversation()
   }
 
+  /**
+   * Switches the visible conversation: shows the cached snapshot immediately,
+   * then refetches persisted messages and merges them with any in-flight
+   * stream content before (re)attaching the WebSocket.
+   */
   async function selectConversation(conversationId: string, options?: { updateUrl?: boolean }) {
     const convStore = useConversationStore()
     cacheCurrentConversationMessages()
@@ -212,6 +232,11 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  /**
+   * Accumulates a token/thinking delta into the per-message pending buffer.
+   * Deltas are applied to reactive state at most once per animation frame
+   * (see scheduleStreamDeltaFlush) so fast streams don't thrash the DOM.
+   */
   function queueStreamDelta(conversationId: string, payload: ConversationStreamPayload) {
     if (!payload.messageId) return
     const token = payload.type === 'token' ? (payload.token ?? '') : ''
@@ -254,6 +279,11 @@ export const useChatStore = defineStore('chat', () => {
     }, 16)
   }
 
+  /**
+   * Applies all buffered deltas to message state now. Called by the scheduled
+   * frame callback, and synchronously before terminal events or stream
+   * teardown so no streamed text is dropped.
+   */
   function flushQueuedStreamDeltas() {
     if (streamFlushHandle !== null) {
       if (typeof window.cancelAnimationFrame === 'function') {
@@ -436,6 +466,12 @@ export const useChatStore = defineStore('chat', () => {
     applyTokenUsageFieldsFromPayload(message, payload)
   }
 
+  /**
+   * Sends the current draft (plus selected files) optimistically: a
+   * `local-{timestamp}` user message renders immediately, then is swapped for
+   * the persisted server row once the POST succeeds. On failure the local row
+   * is marked errored and persisted as a failed message so it can be requeued.
+   */
   async function sendMessage() {
     const convStore = useConversationStore()
     const content = draft.value.trim()
@@ -685,6 +721,11 @@ export const useChatStore = defineStore('chat', () => {
     latestUserMessage.hasError = true
   }
 
+  /**
+   * Returns the mutable cached message list for a conversation, seeding it
+   * from the visible list when the conversation is the selected one. Stream
+   * handlers write here so deltas land even for backgrounded conversations.
+   */
   function ensureConversationMessages(conversationId: string): DisplayMessage[] {
     const convStore = useConversationStore()
     const cached = conversationMessageCache.value.get(conversationId)
@@ -701,6 +742,11 @@ export const useChatStore = defineStore('chat', () => {
     messages.value = cloneDisplayMessages(conversationMessageCache.value.get(conversationId) ?? [])
   }
 
+  /**
+   * Replaces the optimistic `local-*` user message with its persisted server
+   * counterpart (matched by content + attachment names) so later refetches
+   * don't render the same message twice.
+   */
   async function reconcileSentUserMessage(conversationId: string, localMessageId: string) {
     const cachedMessages = conversationMessageCache.value.get(conversationId) ?? []
     const localIndex = cachedMessages.findIndex((message) => message.id === localMessageId)

@@ -45,15 +45,28 @@ type llmResponse struct {
 }
 
 const (
+	// maxToolCallRounds bounds how many request → tool-call → request cycles a
+	// single generation may perform before we give up, preventing a model that
+	// keeps requesting tools from looping forever.
+	maxToolCallRounds = 8
+	// maxSearchFetchFailures is how many consecutive failed web_search /
+	// fetch_url calls are tolerated before responding with a canned
+	// "unable to find" message instead of erroring the whole generation.
 	maxSearchFetchFailures = 3
 	maxRepetitionRetries   = 2
 )
 
 var repetitionRetryPrompt = prompts.MustLoad(prompts.RepetitionRetry)
 
+// NewHTTPProvider builds a client for any OpenAI-compatible /chat/completions
+// endpoint. apiKey may be empty for unauthenticated local servers.
 func NewHTTPProvider(baseURL string, model string, apiKey string, responseTimeout time.Duration) *HTTPProvider {
 	return NewHTTPProviderWithReasoningEffort(baseURL, model, apiKey, responseTimeout, "")
 }
+
+// NewHTTPProviderWithReasoningEffort is NewHTTPProvider with an explicit
+// reasoning_effort request field — internal generations (titles, feed
+// summaries) pass "none" to skip extended thinking on models that support it.
 
 func NewHTTPProviderWithReasoningEffort(baseURL string, model string, apiKey string, responseTimeout time.Duration, reasoningEffort string) *HTTPProvider {
 	return &HTTPProvider{
@@ -66,6 +79,9 @@ func NewHTTPProviderWithReasoningEffort(baseURL string, model string, apiKey str
 	}
 }
 
+// GenerateStream runs one assistant generation — including any intermediate
+// tool-call rounds — and emits TokenEvents on the returned channel. The channel
+// is closed after a terminal event: either Done (with cumulative usage) or Err.
 func (p *HTTPProvider) GenerateStream(ctx context.Context, messages []ChatMessage, runtime tools.Runtime) <-chan TokenEvent {
 	ch := make(chan TokenEvent)
 
@@ -84,6 +100,10 @@ func (p *HTTPProvider) GenerateStream(ctx context.Context, messages []ChatMessag
 	return ch
 }
 
+// generateWithTools drives the request loop: send the conversation, stream the
+// reply, and — when the model requests tool calls — execute them, append the
+// results as "tool" messages, and ask again. Repetition (a looping model) and
+// repeated search failures are handled with bounded retries.
 func (p *HTTPProvider) generateWithTools(ctx context.Context, messages []ChatMessage, runtime tools.Runtime, out chan<- TokenEvent) (TokenUsage, error) {
 	defs, err := runtime.Definitions(ctx)
 	if err != nil {
@@ -95,7 +115,7 @@ func (p *HTTPProvider) generateWithTools(ctx context.Context, messages []ChatMes
 	repetitionRetries := 0
 	totalUsage := TokenUsage{}
 
-	for round := 0; round < 8; round++ {
+	for round := 0; round < maxToolCallRounds; round++ {
 		respCtx, respCancel := context.WithTimeout(ctx, p.responseTimeout)
 		response, didStream, err := p.generateStream(ctx, respCtx, currentMessages, requestTools, out)
 		respCancel()
@@ -157,30 +177,29 @@ func (p *HTTPProvider) generateWithTools(ctx context.Context, messages []ChatMes
 		})
 
 		for _, toolCall := range response.ToolCalls {
+			isSearchFetch := isSearchOrFetchTool(toolCall.Function.Name)
 			toolResult, err := executeToolCall(ctx, runtime, toolCall)
 			if err != nil {
-				if isSearchOrFetchTool(toolCall.Function.Name) {
+				if !isSearchFetch {
+					return totalUsage, err
+				}
+				// Feed the failure back to the model as an error result so it
+				// can retry with a different query/URL instead of aborting.
+				toolResult = tools.Result{
+					Name:    toolCall.Function.Name,
+					Output:  err.Error(),
+					IsError: true,
+				}
+			}
+			if isSearchFetch {
+				if toolResultFailed(toolResult) {
 					searchFetchFailures++
 					if searchFetchFailures >= maxSearchFetchFailures {
 						return totalUsage, sendUnableToFind(ctx, out)
 					}
-					toolResult = tools.Result{
-						Name:    toolCall.Function.Name,
-						Output:  err.Error(),
-						IsError: true,
-					}
 				} else {
-					return totalUsage, err
+					searchFetchFailures = 0
 				}
-			}
-			if isSearchOrFetchTool(toolCall.Function.Name) && toolResultFailed(toolResult) {
-				searchFetchFailures++
-				if searchFetchFailures >= maxSearchFetchFailures {
-					return totalUsage, sendUnableToFind(ctx, out)
-				}
-			}
-			if isSearchOrFetchTool(toolCall.Function.Name) && !toolResultFailed(toolResult) {
-				searchFetchFailures = 0
 			}
 			toolOutput, err := toolResultContent(toolResult)
 			if err != nil {
@@ -195,4 +214,19 @@ func (p *HTTPProvider) generateWithTools(ctx context.Context, messages []ChatMes
 	}
 
 	return totalUsage, fmt.Errorf("too many tool call rounds")
+}
+
+// CollectText drains a GenerateStream channel and returns the concatenated
+// response tokens, discarding thinking output and usage. It is the shared
+// helper for one-shot internal generations (conversation titles, feed names,
+// feed summaries) where token-by-token streaming isn't needed.
+func CollectText(stream <-chan TokenEvent) (string, error) {
+	var builder strings.Builder
+	for event := range stream {
+		if event.Err != nil {
+			return "", event.Err
+		}
+		builder.WriteString(event.Token)
+	}
+	return builder.String(), nil
 }

@@ -10,6 +10,9 @@ import (
 	"github.com/nexfortisme/relay/internal/tools"
 )
 
+// SuggestConversationTitle asks the LLM for a short title based on the
+// conversation history, falling back to a truncated first user message (and
+// finally "New chat") when the model returns nothing usable.
 func (s *Service) SuggestConversationTitle(ctx context.Context, userID, conversationID string) (string, error) {
 	if err := s.authorizeConversation(ctx, userID, conversationID); err != nil {
 		return "", err
@@ -32,17 +35,11 @@ func (s *Service) SuggestConversationTitle(ctx context.Context, userID, conversa
 		Content: titlePrompt,
 	}
 	llmMessages := append([]llm.ChatMessage{prompt}, toLLMMessages(history)...)
-	stream := provider.GenerateStream(ctx, llmMessages, tools.NoopRuntime{})
-	var titleBuilder strings.Builder
-	for event := range stream {
-		if event.Err != nil {
-			return "", event.Err
-		}
-		if event.Token != "" {
-			titleBuilder.WriteString(event.Token)
-		}
+	generated, err := llm.CollectText(provider.GenerateStream(ctx, llmMessages, tools.NoopRuntime{}))
+	if err != nil {
+		return "", err
 	}
-	title := clampConversationTitle(titleBuilder.String())
+	title := clampConversationTitle(generated)
 	if title == "" {
 		for _, message := range history {
 			if message.Role == "user" {
@@ -57,6 +54,8 @@ func (s *Service) SuggestConversationTitle(ctx context.Context, userID, conversa
 	return title, nil
 }
 
+// ensureConversationTitle replaces the placeholder "New chat" title with one
+// derived from the first message; conversations already titled are untouched.
 func (s *Service) ensureConversationTitle(ctx context.Context, conversationID string, firstMessage string) error {
 	conversation, err := s.store.GetConversation(ctx, conversationID)
 	if err != nil {

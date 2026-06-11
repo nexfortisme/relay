@@ -226,6 +226,7 @@ Conversations:
 - **`PATCH /conversations/:id`**
 - **`PATCH /conversations/:id/archive`**
 - **`PATCH /conversations/:id/restore`**
+- **`PATCH /conversations/:id/favorite`**
 - **`DELETE /conversations/:id`**
 - **`POST /conversations/:id/suggest-title`**
 

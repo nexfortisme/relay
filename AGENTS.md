@@ -89,7 +89,6 @@ The backend starts the main HTTP API on `:8091` by default and an internal MCP s
 - `notebookStore.ts` — notebook management and file uploads.
 - `settingsStore.ts` — user/system settings.
 - `uiStore.ts` — modals, sidebars, UI chrome.
-- `appStore.ts` — legacy consolidated store still referenced by Vitest suites; imports the same streaming helpers.
 - `src/lib/conversationStreamMessages.ts` — centralizes merge logic between persisted REST messages and in-flight WebSocket state, optimistic user reconciliation, and stream payload typings.
 - `src/lib/` — API wrappers, file handling, markdown rendering, upload validation, CSV parsing, notebook utilities.
 - `src/components/` — chat shell, composer, message list, sidebars, settings, notebook panels, CSV viewer, file preview, icons.

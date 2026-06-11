@@ -28,6 +28,7 @@ const recentNotebook: Notebook = {
   description: 'Observations from the current project',
   systemPrompt: '',
   skillPrompt: '',
+  includeInGeneral: false,
   pendingJobs: 2,
   createdAt: '2026-05-01T12:00:00.000Z',
   updatedAt: '2026-05-08T12:00:00.000Z',

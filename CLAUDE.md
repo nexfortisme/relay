@@ -83,7 +83,6 @@ State is split across Pinia stores:
 - `notebookStore.ts` — notebook management and file uploads
 - `settingsStore.ts` — user/system settings
 - `uiStore.ts` — UI chrome (modals, sidebars)
-- `appStore.ts` — older consolidated store still referenced by Vitest suites
 
 Shared optimistic/stream merge helpers for WebSocket deltas live in `src/lib/conversationStreamMessages.ts`.
 
